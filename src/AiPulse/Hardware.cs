@@ -2,13 +2,12 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Net.NetworkInformation;
 using System.Globalization;
-using LibreHardwareMonitor.Hardware;
 
 namespace AiPulse;
 
 public sealed class Hardware : IDisposable
 {
-    Computer? computer;
+    IWindowsSensors? computer;
     public string Status {get;private set;}="Starting collectors";
     public string CpuName {get;private set;}="CPU";
     public string GpuName {get;private set;}="GPU";
@@ -24,7 +23,7 @@ public sealed class Hardware : IDisposable
     {
         if(OperatingSystem.IsWindows())
         {
-            try {computer=new Computer{IsCpuEnabled=true,IsGpuEnabled=true,IsMemoryEnabled=true,IsStorageEnabled=true,IsMotherboardEnabled=true,IsNetworkEnabled=false};computer.Open();Status="Windows + LibreHardwareMonitor";}
+            try {computer=WindowsSensorFactory.Create();Status="Windows + LibreHardwareMonitor";}
             catch(Exception e){Paths.Log("sensor-init",e);Status="Windows counters; deep sensors unavailable";}
         }
         else Status="Linux procfs / hwmon / DRM";
@@ -41,7 +40,7 @@ public sealed class Hardware : IDisposable
             if(GlobalMemoryStatusEx(ref mem)){Add("ram.used","Physical memory used","System","GiB",(mem.TotalPhysical-mem.AvailablePhysical)/1073741824.0);Add("ram.total","Usable physical memory","System","GiB",mem.TotalPhysical/1073741824.0);Add("ram.available","Available memory","System","GiB",mem.AvailablePhysical/1073741824.0);Add("ram.load","Physical memory utilization","System","%",mem.Load);Add("ram.commit","Committed memory","System","GiB",(mem.TotalPageFile-mem.AvailablePageFile)/1073741824.0);}
             if(computer!=null)
             {
-                try {foreach(var h in computer.Hardware)Visit(h,list);}
+                try {list.AddRange(computer.Sample());CpuName=computer.CpuName;GpuName=computer.GpuName;}
                 catch(Exception e){Paths.Log("sensor-update",e);Status="Some sensors failed; OS counters active";}
             }
             SampleGpuEngines(list);
@@ -61,20 +60,6 @@ public sealed class Hardware : IDisposable
         lastNetwork=DateTime.UtcNow;Add("network.rx","Download","Network","MiB/s",has?rx/1048576:null);Add("network.tx","Upload","Network","MiB/s",has?tx/1048576:null);
         if((DateTime.UtcNow-lastProcesses).TotalSeconds>=5)SampleProcesses();
         return list;
-    }
-    void Visit(IHardware h,List<Reading> rows)
-    {
-        h.Update();if(h.HardwareType==HardwareType.Cpu)CpuName=h.Name;
-        if(h.HardwareType is HardwareType.GpuAmd or HardwareType.GpuNvidia or HardwareType.GpuIntel)GpuName=h.Name;
-        foreach(var s in h.Sensors)
-        {
-            string unit=s.SensorType switch{SensorType.Temperature=>"°C",SensorType.Load=>"%",SensorType.Clock=>"MHz",SensorType.Fan=>"RPM",SensorType.Power=>"W",SensorType.Voltage=>"V",SensorType.Data=>"GiB",SensorType.SmallData=>"MiB",SensorType.Throughput=>"B/s",_=>s.SensorType.ToString()};
-            double? value=s.Value is float f&&float.IsFinite(f)?f:null;
-            // Some unavailable AMD temperature registers are surfaced as a zero by the library.
-            if(unit=="°C"&&value is <=0 or >150)value=null;
-            rows.Add(new("sensor"+s.Identifier,s.Name,h.Name,unit,value,"LibreHardwareMonitor"));
-        }
-        foreach(var sub in h.SubHardware)Visit(sub,rows);
     }
     void AddStandardAliases(List<Reading> rows)
     {
@@ -147,7 +132,7 @@ public sealed class Hardware : IDisposable
         foreach(var id in processTimes.Keys.Where(id=>!seen.Contains(id)).ToArray())processTimes.Remove(id);
         Processes=rows.OrderByDescending(p=>p.Cpu).ThenByDescending(p=>p.MemoryMiB).Take(25).ToList();lastProcesses=now;
     }
-    public void Dispose(){computer?.Close();foreach(var c in gpuCounters)c.Dispose();}
+    public void Dispose(){computer?.Dispose();foreach(var c in gpuCounters)c.Dispose();}
     [DllImport("kernel32.dll")] static extern bool GetSystemTimes(out ulong idle,out ulong kernel,out ulong user);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
     [StructLayout(LayoutKind.Sequential)] struct MemoryStatus{public uint Length,Load;public ulong TotalPhysical,AvailablePhysical,TotalPageFile,AvailablePageFile,TotalVirtual,AvailableVirtual,AvailableExtendedVirtual;}

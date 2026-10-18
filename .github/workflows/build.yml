@@ -73,6 +73,14 @@ jobs:
           sudo apt-get install -y xvfb libx11-6 libice6 libsm6 libfontconfig1
           xvfb-run -a build/linux-x64/AiPulse --data-dir build/gui-test --capture --exit-after 3
           test -s build/gui-test/compact-live.png
+          python3 - <<'PY'
+          import sqlite3
+          db=sqlite3.connect('build/gui-test/data/pulse.db')
+          ids={row[0] for row in db.execute('select distinct id from metrics')}
+          assert {'cpu.load','ram.used','ram.total'} <= ids, f'Hardware samples missing: {ids}'
+          assert db.execute("select max(value) from metrics where id='ram.total'").fetchone()[0] > 0
+          print('PASS: real Linux CPU and RAM samples persisted')
+          PY
       - name: Package DEB and validate installation
         run: |
           python3 scripts/package_linux.py

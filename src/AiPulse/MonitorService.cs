@@ -23,7 +23,8 @@ public sealed class MonitorService : IDisposable
     {
         hardwareTask=Task.Run(async()=>
         {
-            Hardware=new Hardware();long maintenance=0;
+            try{Hardware=new Hardware();}catch(Exception e){Paths.Log("collector-start",e);Health="Hardware collector unavailable";return;}
+            long maintenance=0;
             while(!stop.IsCancellationRequested)
             {
                 try
