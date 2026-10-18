@@ -1,4 +1,4 @@
-#define AppVersion "0.1.0"
+#define AppVersion "0.2.0"
 #ifndef SourceDir
   #define SourceDir "..\build\win-x64"
 #endif
@@ -17,7 +17,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 OutputDir=..\build\releases
-OutputBaseFilename=AI-Pulse-Setup-0.1.0-x64
+OutputBaseFilename=AI-Pulse-Setup-0.2.0-x64
 SetupIconFile=..\src\AiPulse\Assets\pulse.ico
 UninstallDisplayIcon={app}\AiPulse.exe
 Compression=lzma2
@@ -25,7 +25,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion=0.1.0.0
+VersionInfoVersion=0.2.0.0
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked

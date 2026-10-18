@@ -18,7 +18,7 @@ public sealed class MonitorService : IDisposable
     Task? hardwareTask,modelTask,agentTask;
     readonly Dictionary<string,long> breaches=[];
     public MonitorService(AppSettings settings)
-    {Settings=settings;Store=new(Paths.Database);Agents=new(Store);Gateway=new(Store,Ollama,settings);}
+    {Settings=settings;Store=new(Paths.Database,settings.RetentionDays);Agents=new(Store);Gateway=new(Store,Ollama,settings);}
     public void Start()
     {
         hardwareTask=Task.Run(async()=>
@@ -30,7 +30,7 @@ public sealed class MonitorService : IDisposable
                 try
                 {
                     var raw=Hardware.Sample();
-                    if(J.Now-SensorBridge.LastSeen<8){var deeper=SensorBridge.Readings;raw.RemoveAll(r=>deeper.Any(d=>d.Id==r.Id));raw.AddRange(deeper);}
+                    if(J.Now-SensorBridge.LastSeen<8){var deeper=SensorBridge.Readings.Where(r=>r.Value.HasValue).ToList();raw.RemoveAll(r=>deeper.Any(d=>d.Id==r.Id));raw.AddRange(deeper);}
                     var rows=raw.GroupBy(r=>r.Id).Select(g=>g.First()).ToList();Readings=rows;LastSample=J.Now;Store.Sample(LastSample,rows);Health=Hardware.Status;
                     CheckAlerts();
                     if(J.Now-maintenance>3600){Store.Retain(J.Now);maintenance=J.Now;await EnsureBackup();}
@@ -67,7 +67,7 @@ public sealed class MonitorService : IDisposable
     public string Export()
     {
         var file=Path.Combine(Paths.Root,"exports","usage-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".csv");
-        Store.ExportUsage(file,J.Now-90*86400);
+        Store.ExportUsage(file,J.Now-Settings.RetentionDays*86400L);
         return file;
     }
     public void Dispose()

@@ -56,3 +56,9 @@ For UI captures, `--capture` saves the rendered window after startup. `--expande
 6. Use trusted publisher signing for a production Windows release. Preview builds must be labeled unsigned.
 
 The GitHub workflow builds packages and runs Linux tests; virtual graphics do not validate native GPU telemetry. Runtime/provider adapters are expected to need maintenance when driver or source-app formats change.
+
+## UI regression checks (0.2.0)
+
+`--ui-test --data-dir <isolated test folder>` runs real Avalonia controls and saves screenshots/results. Never point it at your personal data directory: it changes test settings. `tests/ui_fixture.py` provides 12 explicitly synthetic Ollama models on loopback port 11436. Configure the isolated app's `OllamaUrl` accordingly and add `--expect-models 12` to verify discovery, every model row, bounded scrolling and scroll preservation. This is a UI/protocol simulation, not a model-performance benchmark.
+
+Both platform CI jobs run the checks. They also cover both compact orientations, restored full-size header, sidebar collapse/expand, search focus across refresh, independent tab searches, empty results and the one-year history selector. Native pointer dragging is separately checked on Windows. Real Ollama inference uses the separate smoke test.

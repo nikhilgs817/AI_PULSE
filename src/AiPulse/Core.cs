@@ -17,6 +17,10 @@ public sealed class AppSettings
 {
     public bool Compact { get; set; } = true;
     public bool Pinned { get; set; } = true;
+    public bool CompactVertical { get; set; }
+    public bool SidebarCollapsed { get; set; }
+    public bool RequestSensorsAtLaunch { get; set; }
+    public int RetentionDays { get; set; } = 90;
     public bool StartAtLogin { get; set; }
     public bool ReadAgentUsage { get; set; } = true;
     public bool EnableGateway { get; set; } = true;
@@ -51,7 +55,7 @@ public static class Paths
     public static AppSettings Load()
     {
         if(!File.Exists(Settings)) return new();
-        try {return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Settings)) ?? new();}
+        try {var settings=JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Settings)) ?? new();settings.RetentionDays=Math.Clamp(settings.RetentionDays,7,365);return settings;}
         catch { File.Copy(Settings,Settings+".invalid-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss"),true); return new(); }
     }
     public static void Save(AppSettings settings)
@@ -72,6 +76,14 @@ public static class Paths
 
 public static class J
 {
+    public static double? SensorValue(double? value,string unit)
+    {
+        if(value is not double number||!double.IsFinite(number))return null;
+        if(unit=="%"&&(number<0||number>100))return null;
+        if(unit=="°C"&&(number<=0||number>150))return null;
+        if(unit is "GiB" or "MiB" or "B/s" or "RPM" or "MHz"&&number<0)return null;
+        return number;
+    }
     public static JsonElement Get(this JsonElement j,string key) => j.ValueKind==JsonValueKind.Object&&j.TryGetProperty(key,out var v)?v:default;
     public static string Str(this JsonElement j,string key,string fallback="") {var v=j.Get(key);return v.ValueKind==JsonValueKind.String?v.GetString()??fallback:fallback;}
     public static long Num(this JsonElement j,string key) {var v=j.Get(key);return v.ValueKind==JsonValueKind.Number&&v.TryGetInt64(out var n)?n:0;}

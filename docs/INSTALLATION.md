@@ -18,10 +18,10 @@ The default install is per-user. Ordinary monitoring does not require administra
 CPU/board/drive sensors may need privileged hardware access. AI Pulse uses the signed [PawnIO driver](https://pawnio.eu/) through [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor).
 
 1. Install the official **signed** PawnIO distribution if it is not already installed. Do not choose its unrestricted/unsigned edition.
-2. In AI Pulse, select **Settings → Enable deep sensors for this session**.
+2. In AI Pulse, select **Hardware, Sensors or Settings → Connect deep sensors**.
 3. Approve the Windows administrator prompt if you want these readings.
 
-This starts a small, separate hardware-only helper. The main dashboard and model gateway remain unprivileged. The helper sends readings through a same-user named pipe, accepts no control commands, and exits when the dashboard process exits. Permission is session-scoped; it is not a permanently elevated startup service. After restarting AI Pulse, enable deep sensors again if needed.
+This starts a small, separate hardware-only helper. The main dashboard and model gateway remain unprivileged. The helper sends readings through a same-user named pipe, accepts no control commands, and exits when the dashboard process exits. Permission is session-scoped; it is not a permanently elevated startup service. After restarting AI Pulse, connect deep sensors again if needed. The optional **Ask for deep-sensor permission when AIPULSE starts** setting requests this on each launch; it is off by default and still requires your approval.
 
 Some sensors still may not exist in the driver's interface. On the tested Radeon 8060S, the GPU core temperature is not exposed by this collector; **GPU VR SoC** is an available, separately labeled reading. Do not interpret the latter as hotspot/core temperature. CPU Tctl/Tdie and drive temperatures became available with the helper.
 
@@ -33,10 +33,10 @@ Open a newer installer to upgrade. Close AI Pulse with **Ctrl+Q** or its tray **
 
 Target platforms are Ubuntu Desktop x64 24.04 and 26.04; check the [validation report](VALIDATION.md) for which environments have actually run tests.
 
-Download `ai-pulse_0.1.0_amd64.deb`. If your desktop has a graphical installer for local DEB packages, open it and select Install. Some Ubuntu installations do not associate DEB files with a graphical installer. In that case:
+Download `ai-pulse_0.2.0_amd64.deb`. If your desktop has a graphical installer for local DEB packages, open it and select Install. Some Ubuntu installations do not associate DEB files with a graphical installer. In that case:
 
 ```bash
-sudo apt install ./ai-pulse_0.1.0_amd64.deb
+sudo apt install ./ai-pulse_0.2.0_amd64.deb
 ai-pulse
 ```
 

@@ -9,6 +9,7 @@ public static class SelfTests
         void Check(bool condition,string name){if(!condition)throw new Exception("FAILED: "+name);results.Add("PASS: "+name);}
         try
         {
+            Check(J.SensorValue(-316368.19,"%")==null&&J.SensorValue(101,"%")==null&&J.SensorValue(double.NaN,"°C")==null&&J.SensorValue(32,"°C")==32&&J.SensorValue(0,"%")==0,"Impossible sensor values are unavailable; valid idle and temperature readings survive");
             using(var db=new Storage(Path.Combine(root,"test.db")))
             {
                 var now=J.Now;db.Sample(now,[new("cpu","CPU","test","%",20,"test")]);db.Sample(now,[new("cpu","CPU","test","%",99,"test")]);db.Sample(now+1,[new("cpu","CPU","test","%",40,"test")]);
@@ -23,6 +24,20 @@ public static class SelfTests
                 var export=Path.Combine(root,"export.csv");db.ExportUsage(export,now-1);var lines=File.ReadLines(export);Check(lines.Count()==20005&&lines.Any(l=>l.Contains("'=unsafe-formula")),"CSV exports beyond 20,000 records and escapes spreadsheet formulas");
             }
             Check(!System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(root,"test.db"))).Contains("SECRET_PROMPT_SHOULD_NOT_PERSIST"),"Prompt bodies not persisted");
+            using(var year=new Storage(Path.Combine(root,"year.db"),365))
+            {
+                long now=J.Now,inside=now-364*86400L,outside=now-366*86400L;
+                year.Sample(inside,[new("year","Year boundary","test","%",42,"test")]);year.Sample(outside,[new("expired-year","Expired","test","%",99,"test")]);
+                year.PutUsage(new("year-usage","Test","old-model","old-session",inside,321,12,0,0,0,null,null,"Reported"));year.PutUsage(new("expired-year-usage","Test","old-model","old-session",outside,999,0,0,0,0,null,null,"Reported"));
+                year.Retain(now);Check(year.History("year",outside).Count==1&&year.History("expired-year",outside-1).Count==0&&year.Totals(outside).Input==321,"365-day history and usage boundaries preserve in-range records only");
+                var snapshot=year.Backup(Path.Combine(root,"year-backups"));Storage.VerifyBackup(snapshot);using(var restoredYear=new Storage(snapshot,365))Check(restoredYear.Totals(outside).Input==321,"Year-old usage survives verified backup and restore");
+                year.Session("needle-session","Codex","historic-model","Completed",now-500);for(int i=0;i<110;i++)year.Session("newer-"+i,"Claude Code","other","Working",now-i);
+                Check(year.Sessions(365).All(s=>s.Id!="needle-session")&&year.Sessions(365,"HISTORIC").Single().Id=="needle-session","Agent search filters before the 100-result limit, case-insensitively");
+                year.Checkpoint("fixture",100,"{}");var importer=new AgentUsage(year);importer.SetRetention(90);Check(year.RetentionDays==90&&year.Checkpoint("fixture").Offset==100,"Reducing retention preserves importer checkpoints");
+                importer.SetRetention(365);Check(year.Checkpoint("fixture").Offset==0,"Increasing retention schedules a deduplicated agent re-import");
+                year.RetentionDays=90;year.Retain(now);Check(year.Totals(outside).Input==0&&year.History("year",outside).Count==0,"Reducing retention cleans older hardware and usage records");
+                year.RetentionDays=500;Check(year.RetentionDays==365&&new AppSettings().RetentionDays==90,"Retention caps at one year and shipping default stays 90 days");
+            }
             try{Ollama.Validate("file:///etc/passwd");Check(false,"Invalid endpoint rejection");}catch(InvalidOperationException){results.Add("PASS: Invalid endpoint rejected");}
             File.WriteAllLines(Path.Combine(Paths.Root,"self-test-results.txt"),results);return 0;
         }

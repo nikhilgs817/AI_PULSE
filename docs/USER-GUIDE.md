@@ -6,11 +6,25 @@
 
 The fixed top strip shows GPU temperature when exposed (otherwise an explicitly labeled GPU VR SoC sensor when available), GPU utilization, local GPU allocation, physical memory used and CPU temperature. A dash means no reliable reading.
 
-Every resident model has a row. The row includes host, state, model-reported memory and last observed decode speed. The list scrolls when it exceeds the available height. Drag the title area to position the window, resize the edges, and use **Pin/Pinned** to toggle always-on-top. The monitor position is saved when switching modes or closing to tray.
+Compact mode starts with just five readings and a **▾ Loaded models** control. Click it to reveal every resident model, including host, state, model-reported memory and last observed decode speed. Close it to return to the small widget. The list scrolls within a panel no more than 300 pixels high, so many models do not take over your screen.
 
-**Expand ↗** or **Ctrl+D** opens the full dashboard. Click a model row to open Models. **Compact ↙** returns to the widget. On Windows the close button hides to the tray while collection continues. On Linux the close button exits, so a missing tray cannot leave an inaccessible window. Use **Ctrl+Q**, Settings **Quit AI Pulse**, or the tray **Quit AI Pulse** action to stop collection.
+![Loaded-model dropdown](images/compact-models.png)
 
-Loaded models are not the same as active sessions. Codex/Claude rows below the model list show recent supported agent usage. Multiple agents can use the same loaded model without duplicating that model's memory row.
+The dropdown screenshot above is a UI test using clearly named synthetic model entries. It checks scrolling without loading model weights.
+
+Use **↕ / ↔** in the small header to switch between **horizontal (560 × 132 logical pixels)** and **vertical (260 × 300)** layouts. The choice survives restarts. These dimensions exclude native window borders; physical pixels depend on display scaling.
+
+![Vertical compact dashboard](images/compact-vertical.png)
+
+Drag any non-interactive part of the window—including metric labels, readings, cards and blank space—to move it. Buttons, text fields, dropdowns and scrollbars retain their normal interactions. The small circle pin control toggles always-on-top; its tooltip describes the action. Position is saved on a mode switch or close.
+
+**↗** or **Ctrl+D** opens the full dashboard and restores the larger ECG wordmark. **Compact ↙** returns to the widget. On Windows, close hides to the tray while collection continues; Linux close exits. **Ctrl+Q**, Settings **Quit AI Pulse**, or tray **Quit AI Pulse** stops collection.
+
+The sidebar has **Collapse menu / Expand menu** controls. Collapsed mode shows recognizable icons with tooltips and accessible names; expanded mode restores text labels.
+
+![Collapsed sidebar](images/sidebar-collapsed.png)
+
+Loaded models are different from agent sessions. Agent usage remains available on the expanded **Agents** page. Multiple agents can use the same model without duplicating its memory row.
 
 ## Overview
 
@@ -20,11 +34,13 @@ The headline cards show GPU load, GPU core temperature availability, system memo
 
 ## Hardware
 
-![Hardware sensors](images/hardware.png)
+![Hardware search and sensor access](images/hardware-search.png)
+
+Use the persistent search field in **Hardware** or **Sensors** to filter by device, sensor, unit or source. Hardware also filters its top-process list by name or PID. Search keeps its focus during live updates and remembers its text when you change tabs. No-match results are explicit.
 
 Browse each exposed sensor with device, value, unit and source. This includes per-core load, clocks, temperatures, powers, fans and storage readings when supported. Top processes show CPU as a percentage of total host capacity and working-set memory. Working sets can overlap shared pages and should not be summed as exact physical usage.
 
-A sensor library can provide more readings after deep access is enabled. GPU and CPU temperatures are not interchangeable. The app rejects invalid zero/out-of-range temperature readings rather than displaying them as healthy.
+A sensor library can provide more readings after deep access is enabled. GPU and CPU temperatures are not interchangeable. The app rejects invalid temperatures and out-of-range GPU-load values rather than displaying them as healthy. The sensor-access card identifies a missing PawnIO driver, disconnected helper or connected-but-unsupported CPU sensor. **Connect deep sensors** opens the Windows administrator prompt. GPU VR SoC remains distinct from GPU core temperature.
 
 ## Models
 
@@ -36,15 +52,17 @@ Recent observed requests display input/output counts, decode rate, elapsed durat
 
 ## Agents
 
+Search by source, model, session ID or recorded status. Search covers all sessions in the configured retention window before displaying the newest 100 matches.
+
 Supported local Codex and Claude Code session records supply model identity, token categories and last activity. This importer follows source formats and may need updates when those tools change. It reads metadata; it does not persist conversation contents. Claude Desktop Chat/Cowork coverage is not implied by Claude Code support.
 
 “Working” is based on an observed Codex lifecycle event. “Recent activity” is weaker evidence. After inactivity, unresolved sessions show **Quiet / unknown**. A running process is not proof that an agent is generating.
 
 ## History and alerts
 
-Choose 1, 7, 30 or 90 days. History retains raw samples for seven days and minute aggregates/request records for 90 days. Historical charts show means; stored min/max values preserve peaks. The first run cannot reconstruct hardware data from before installation.
+Choose from the ranges available within your configured retention period. **Settings → History retention** supports 7–365 days, with **90 days as the default**. Selecting 365 enables the one-year history view. Raw samples stay for seven days; minute aggregates, request records and sessions follow your selected period. Historical charts show means; stored min/max values preserve peaks. The first run cannot reconstruct hardware data from before installation.
 
-**Export usage CSV** writes the full retained 90-day usage metadata into the exports folder, without the recent-request table's 20,000-row query cap. Text fields that spreadsheet programs could interpret as formulas are escaped. Headline totals query the full selected period.
+**Export usage CSV** writes the full configured retention period of usage metadata into the exports folder, without the recent-request table's 20,000-row query cap. Text fields that spreadsheet programs could interpret as formulas are escaped. Headline totals query the full selected period.
 
 Alerts cover sustained temperature thresholds, memory pressure, low data-drive space and failed backups. The default temperature warning is a user-configurable informational threshold, not a manufacturer safety limit. Alerts are displayed in the dashboard; native OS toast delivery is not implemented in this preview. No alert shuts down workloads or changes fan speeds.
 
@@ -56,6 +74,8 @@ Alerts cover sustained temperature thresholds, memory pressure, low data-drive s
 - **Remote endpoints:** one `Name | URL` per line, with unique names. This currently discovers remote Ollama models, not their host sensors or Kubernetes pod metrics.
 - **Read local usage metadata:** enables/disables future local log ingestion; existing retained records remain until retention/removal.
 - **Launch at sign-in:** registers a per-user startup entry. It does not create a privileged service.
+- **History retention:** 7–365 days, default 90. Increasing cannot recover deleted hardware readings; available older agent records are re-imported with deduplication. Reducing removes older live data during the next hourly cleanup. Longer retention and its backups use more disk space.
+- **Ask for deep-sensor permission at launch:** optional, off by default. Windows still requires your approval; it does not silently elevate or install a privileged service.
 - **Temperature warning:** threshold sustained for 30 seconds.
 - **Back up now / Restore:** create a verified snapshot or choose one to restore. Restore restarts the app after confirmation and retains the old database.
 

@@ -13,17 +13,17 @@ Under that root, `data/pulse.db` contains history; `backups/` contains verified 
 ## Retention
 
 - Raw hardware samples: 7 days.
-- Minute aggregates: 90 days.
-- Requests, agent sessions and resolved alerts: 90 days.
-- Backups: newest 7 distinct daily snapshots and newest 13 weekly snapshots, deduplicated where a file serves both roles.
+- Minute aggregates: configured retention, 7–365 days; default 90.
+- Requests, agent sessions and resolved alerts: same configured retention.
+- Backups: newest 7 distinct daily snapshots plus `ceil(retention days / 7)` weekly snapshots (13 by default, 53 for one year), deduplicated where a file serves both roles.
 
-Three months is implemented as a rolling 90-day window. Cleanup runs about hourly while the app is running. SQLite can reuse freed pages; deleting old records does not necessarily shrink the physical file immediately. Disk usage depends on sensor and request volume. The app warns about low free space but does not silently delete required history to meet a fixed storage cap.
+The default is a rolling 90-day window. Set **Settings → History retention** to up to 365 days for one-year coverage. Increasing retention cannot reconstruct deleted hardware samples; the agent importer replays available local records with deduplication. Reducing retention removes older live records at the next cleanup. Backup rotation follows the new period at the next snapshot. Cleanup runs about hourly while the app is running. SQLite can reuse freed pages; deleting old records does not necessarily shrink the physical file immediately. Disk usage depends on sensor and request volume. The app warns about low free space but does not silently delete required history to meet a fixed storage cap.
 
 ## Backup
 
 Use **Settings → Back up now**, or leave the app running for its daily UTC snapshot/catch-up. AI Pulse uses SQLite's online backup API, validates database integrity, renames the completed snapshot and writes a SHA-256 sidecar. Partial snapshots are not successful backups. Keep the `.db` and matching `.db.sha256` together.
 
-Same-drive backups protect against application/data mistakes; they do not protect against physical drive failure. Copy verified snapshot pairs to a second device/NAS if desired. No cloud upload is enabled by default. Retained snapshots may contain records older than the live 90-day query window.
+Same-drive backups protect against application/data mistakes; they do not protect against physical drive failure. Copy verified snapshot pairs to a second device/NAS if desired. No cloud upload is enabled by default. Retained snapshots may contain records older than the configured live query window.
 
 ## Restore
 

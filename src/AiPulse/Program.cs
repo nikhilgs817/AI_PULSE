@@ -14,6 +14,7 @@ public static class Program
         int waitIndex=Array.IndexOf(args,"--wait-for-exit");if(waitIndex>=0&&args.Length>waitIndex+1&&int.TryParse(args[waitIndex+1],out var parentId)){try{System.Diagnostics.Process.GetProcessById(parentId).WaitForExit(20000);}catch(ArgumentException){}}
         try
         {
+            if(args.Contains("--ui-test")&&!args.Contains("--data-dir"))throw new ArgumentException("UI checks require an isolated --data-dir.");
             bool exclusiveMode=!args.Contains("--diagnose")&&!args.Contains("--self-test");
             FileStream? acquired=null;
             if(exclusiveMode)
@@ -45,9 +46,9 @@ public static class Program
             {
                 using var m=new MonitorService(Paths.Load());m.Start();int seconds=30;int i=Array.IndexOf(args,"--seconds");if(i>=0&&args.Length>i+1)int.TryParse(args[i+1],out seconds);Thread.Sleep(Math.Clamp(seconds,3,3600)*1000);return 0;
             }
-            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);return 0;
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);return Environment.ExitCode;
         }
-        catch(Exception e){Paths.Log("fatal",e);File.WriteAllText(Path.Combine(Paths.Root,"startup-error.txt"),e.GetType().Name+": "+e.Message);return 1;}
+        catch(Exception e){Paths.Log("fatal",e);File.WriteAllText(Path.Combine(Paths.Root,"startup-error.txt"),e.GetType().Name+": "+e.Message+(args.Contains("--ui-test")?"\n"+e.StackTrace:""));return 1;}
     }
     public static AppBuilder BuildAvaloniaApp()=>AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
 }

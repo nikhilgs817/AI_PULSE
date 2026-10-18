@@ -9,6 +9,11 @@ public sealed class AgentUsage(Storage db)
     DateTime nextScan=DateTime.MinValue;
     List<string> files=[];
     int nextFile;
+    readonly object importGate=new();
+    public void SetRetention(int days)
+    {
+        lock(importGate){if(days>db.RetentionDays)db.ResetImportCheckpoints();db.RetentionDays=days;nextScan=DateTime.MinValue;nextFile=0;}
+    }
     public sealed class ParseState
     {
         public string Session {get;set;}="";
@@ -21,19 +26,21 @@ public sealed class AgentUsage(Storage db)
         public bool SkippingOversizedLine {get;set;}
     }
     public void Poll()
+    {lock(importGate)PollCore();}
+    void PollCore()
     {
         if(DateTime.UtcNow>=nextScan)
         {
             var home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var roots=new[]{Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(home,".codex"),"sessions"),Path.Combine(home,".claude","projects")};
             files=[];
-            foreach(var root in roots)try{if(Directory.Exists(root))files.AddRange(Directory.EnumerateFiles(root,"*.jsonl",new EnumerationOptions{RecurseSubdirectories=true,IgnoreInaccessible=true}).Where(f=>File.GetLastWriteTimeUtc(f)>DateTime.UtcNow.AddDays(-90)));}catch{}
+            foreach(var root in roots)try{if(Directory.Exists(root))files.AddRange(Directory.EnumerateFiles(root,"*.jsonl",new EnumerationOptions{RecurseSubdirectories=true,IgnoreInaccessible=true}).Where(f=>File.GetLastWriteTimeUtc(f)>DateTime.UtcNow.AddDays(-db.RetentionDays)));}catch{}
             files=files.OrderByDescending(File.GetLastWriteTimeUtc).ToList();nextScan=DateTime.UtcNow.AddSeconds(30);
         }
         // Revisit hottest files each pass and rotate the backlog. Keep work bounded so sampling stays responsive.
         var selected=files.Take(4).Concat(files.Skip(nextFile).Take(4)).Distinct().ToArray();nextFile=files.Count==0?0:(nextFile+4)%files.Count;
         foreach(var file in selected)try{ReadNew(file);}catch(Exception e){Paths.Log("usage-reader",e);}
-        Status=files.Count==0?"No supported local session records found":"Local usage records • "+files.Count+" files discovered • 90-day import";
+        Status=files.Count==0?"No supported local session records found":"Local usage records • "+files.Count+" files discovered • "+db.RetentionDays+"-day import";
     }
     void ReadNew(string file)
     {

@@ -32,7 +32,7 @@ sealed class WindowsSensors : IWindowsSensors
         {
             string unit=s.SensorType switch{SensorType.Temperature=>"°C",SensorType.Load=>"%",SensorType.Clock=>"MHz",SensorType.Fan=>"RPM",SensorType.Power=>"W",SensorType.Voltage=>"V",SensorType.Data=>"GiB",SensorType.SmallData=>"MiB",SensorType.Throughput=>"B/s",_=>s.SensorType.ToString()};
             double? value=s.Value is float f&&float.IsFinite(f)?f:null;
-            if(unit=="°C"&&value is <=0 or >150)value=null;
+            value=J.SensorValue(value,unit);
             rows.Add(new("sensor"+s.Identifier,s.Name,h.Name,unit,value,"LibreHardwareMonitor"));
         }
         foreach(var sub in h.SubHardware)Visit(sub,rows);

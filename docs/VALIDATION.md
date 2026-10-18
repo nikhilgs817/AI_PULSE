@@ -1,57 +1,14 @@
-# Validation report
+# Validation report — 0.2.0
 
-Release: 0.1.0 preview. Validation performed on October 18, 2026. Results below distinguish local hardware tests, virtual CI checks and unperformed tests.
+## Local Windows checks
 
-## Completed locally
+- The updated self-contained executable runs on the Minisforum Ryzen AI Max+ 395 / Radeon 8060S machine.
+- 17 data checks cover accounting, privacy, 90/365-day retention, year-old backup restoration, search before the 100-session limit, replay on increased retention, reduced-retention cleanup and invalid sensor values.
+- UI checks cover both compact orientations, full-size expanded branding, collapsible navigation, persistent search focus/text, no-match states and the one-year selector.
+- A loopback Ollama protocol fixture exposes 12 synthetic models: every row is rendered, the dropdown height is bounded and its scroll position survives refresh. These fixture models do not run inference.
+- Native Windows pointer input moved the expanded window from the body by 50 pixels horizontally and 30 vertically. Search typing preserved focus through live refreshes.
+- Icon generation checks corner alpha and embeds seven Windows icon resolutions.
 
-- Windows and Linux x64 self-contained builds compile.
-- Nine built-in data/backup/privacy tests pass: sample deduplication, request replay deduplication, Codex cumulative counters, Claude cache categories, retention boundaries, integrity-verified backup/restore, export beyond 20,000 rows with spreadsheet-formula escaping, content filtering and invalid endpoint rejection.
-- Real Ollama native non-streaming and streaming inference succeeds through the observation gateway.
-- Concurrent Qwen generation and embedding succeeds; both models are simultaneously resident.
-- Three observed Qwen requests recorded exactly 75 input and 45 output tokens; decode rates matched provider counts and durations.
-- A nonexistent model's HTTP 404 was preserved.
-- Windows GPU load/local/shared memory are exposed on the test system.
-- A signed PawnIO driver plus elevated diagnostic exposes CPU Tctl/Tdie and NVMe temperatures. GPU VR SoC is available; GPU core/hotspot temperature is not exposed by this collector on this machine.
-- The isolated elevated sensor helper connects to the unprivileged dashboard. A live compact screenshot shows CPU temperature at 46 °C and GPU VR SoC at 33 °C alongside both loaded models.
-- Actual screenshots cover Compact, Overview, Hardware, Models and Settings, with the approved ECG branding.
-- The Windows installer completed successfully under a custom directory and created a working desktop shortcut pointing to the configured data folder. The installed executable passed the nine data tests.
-- All seven live Ollama checks passed again from the installed app. See the [machine-readable result](validation/ollama-windows.json).
-- An actual snapshot's SHA-256 and SQLite integrity check passed. CLI restoration into an isolated folder recovered exact token totals and preserved the previous database as a rollback copy.
-- Sign-in startup was enabled and the registered executable/data paths were verified. History survived application restarts.
+Current platform CI results, installed-app Ollama tests and sensor permission checks are recorded below after they complete. Physical Ubuntu GPU/temperature tests remain unperformed. Missing sensors stay unavailable; GPU VR SoC is not a GPU-core-temperature substitute.
 
-## Cross-platform CI
-
-**All checks passed** in [run 39146480045](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39146480045), building commit `91c9dd400bec5e1ebcb035fcdf9e3dc415c249dc`. Windows completed in 3m31s; Linux in 2m21s. Release downloads use that run's artifacts and published SHA-256 checksums.
-
-The [build workflow](https://github.com/nikhilgs817/AI_PULSE/actions/workflows/build.yml) validates:
-
-- Windows and Ubuntu 24.04 self-contained builds and nine data/privacy/backup checks.
-- Windows hardware collection with a positive physical RAM reading.
-- Windows GUI launch, a second shortcut launch activating the same window, and clean shutdown.
-- Windows installer execution, installed-app tests, and uninstall preserving the data directory.
-- Ubuntu GUI launch under Xvfb, with actual CPU and RAM samples asserted in SQLite.
-- DEB installation, installed-app tests and GUI launch, followed by uninstall.
-- AppImage packaging and execution of its data tests through extraction/run mode.
-
-The Ubuntu screenshot below is from the CI virtual machine. It has no exposed GPU or Ollama service; unavailable readings correctly remain blank.
-
-![Ubuntu virtual desktop with live memory collection](images/ubuntu.png)
-
-Saved test output: [Windows](validation/windows-data-tests.txt), [Linux](validation/linux-data-tests.txt).
-
-## Test hardware
-
-Windows 11 Pro; AMD Ryzen AI Max+ 395 / Radeon 8060S; approximately 128 GB unified memory; Ollama 0.40.5. These observations do not guarantee all sensor types on other machines.
-
-## Remaining limitations
-
-- No physical Ubuntu GPU/sensor test has been performed on this Windows development host.
-- Full Kubernetes node/pod/GPU-exporter ingestion is future work; named remote Ollama discovery is implemented.
-- No cloud billing/quota connector or universal Claude Desktop Chat/Cowork usage reader.
-- No OpenTelemetry ingest, live queue/KV-cache metrics or time-to-first-token metric in this preview.
-- Alerts are in-app; native desktop toasts are not implemented.
-- Long-duration soak testing and manufacturer-calibrated temperature comparison are not yet complete.
-- Windows public signing requires a publisher identity/certificate; the initial package is unsigned.
-- On the development PC, Windows Application Control blocked a later locally compiled binary with `FileLoadException / 0x800711C7`. The working installed preview was left running. The blocked update was not installed or allowed through a security exception. This is separate from clean Windows CI validation; restrictive devices require a policy-approved or appropriately signed build.
-
-No virtual-machine screenshot or compiler result is claimed as a physical Ubuntu GPU/temperature test.
+See the [previous preview's validation](VALIDATION-0.1.0.md) for the initial Windows/Ubuntu package, real Ollama and sensor-helper baseline. Historical results do not replace current-release checks.

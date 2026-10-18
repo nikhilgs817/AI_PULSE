@@ -1,0 +1,29 @@
+PASS: Horizontal compact layout contains only the small header, five readings and model toggle
+PASS: Loaded-model dropdown opens without expanding the dashboard
+PASS: All fixture models were discovered through Ollama HTTP polling
+PASS: Loaded-model row exists: fixture-model-01:test
+PASS: Loaded-model row exists: fixture-model-02:test
+PASS: Loaded-model row exists: fixture-model-03:test
+PASS: Loaded-model row exists: fixture-model-04:test
+PASS: Loaded-model row exists: fixture-model-05:test
+PASS: Loaded-model row exists: fixture-model-06:test
+PASS: Loaded-model row exists: fixture-model-07:test
+PASS: Loaded-model row exists: fixture-model-08:test
+PASS: Loaded-model row exists: fixture-model-09:test
+PASS: Loaded-model row exists: fixture-model-10:test
+PASS: Loaded-model row exists: fixture-model-11:test
+PASS: Loaded-model row exists: fixture-model-12:test
+PASS: Many models scroll inside a bounded compact dropdown
+PASS: Loaded-model scroll position survives live refresh
+PASS: Closing loaded-model dropdown restores compact height
+PASS: Vertical compact layout changes width and height
+PASS: Expanded dashboard restores full-size branding
+PASS: Sidebar collapses to named icon buttons
+PASS: Search text and keyboard focus survive live refresh
+PASS: Unmatched sensor search has an explicit empty state
+PASS: Sensors has an independent search field
+PASS: Search survives tab changes
+PASS: Agents exposes searchable retained session metadata
+PASS: Sidebar expands back to icon and label navigation
+PASS: Default 90-day history does not offer unavailable year ranges
+PASS: One-year retention enables the 365-day history range

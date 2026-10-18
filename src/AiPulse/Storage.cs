@@ -8,8 +8,11 @@ public sealed class Storage : IDisposable
 {
     readonly object gate=new();
     readonly SqliteConnection db;
-    public Storage(string path)
+    int retentionDays=90;
+    public int RetentionDays {get=>Volatile.Read(ref retentionDays);set=>Volatile.Write(ref retentionDays,Math.Clamp(value,7,365));}
+    public Storage(string path,int retentionDays=90)
     {
+        RetentionDays=retentionDays;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false}.ToString());db.Open();
         Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
@@ -18,6 +21,7 @@ public sealed class Storage : IDisposable
         Execute("""
         CREATE TABLE IF NOT EXISTS metrics(time INTEGER NOT NULL,id TEXT NOT NULL,value REAL NOT NULL,PRIMARY KEY(time,id)) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS minute_metrics(time INTEGER NOT NULL,id TEXT NOT NULL,total REAL NOT NULL,count INTEGER NOT NULL,minimum REAL NOT NULL,maximum REAL NOT NULL,PRIMARY KEY(time,id)) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS minute_metrics_sensor_time ON minute_metrics(id,time);
         CREATE TABLE IF NOT EXISTS sensors(id TEXT PRIMARY KEY,name TEXT,device TEXT,unit TEXT,source TEXT);
         CREATE TABLE IF NOT EXISTS usage(id TEXT PRIMARY KEY,source TEXT,model TEXT,session TEXT,time INTEGER,input INTEGER,output INTEGER,cached INTEGER,cache_write INTEGER,reasoning INTEGER,duration REAL,rate REAL,status TEXT);
         CREATE INDEX IF NOT EXISTS usage_time ON usage(time);
@@ -50,7 +54,7 @@ public sealed class Storage : IDisposable
     }
     public void PutUsage(Usage u)
     {
-        if(u.Time<J.Now-90*86400||u.Time>J.Now+300)return;
+        if(u.Time<J.Now-RetentionDays*86400L||u.Time>J.Now+300)return;
         lock(gate) Execute("""
         INSERT INTO usage VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10,@p11,@p12)
         ON CONFLICT(id) DO UPDATE SET input=max(input,excluded.input),output=max(output,excluded.output),cached=max(cached,excluded.cached),cache_write=max(cache_write,excluded.cache_write),reasoning=max(reasoning,excluded.reasoning),duration=coalesce(excluded.duration,duration),rate=coalesce(excluded.rate,rate),status=excluded.status
@@ -60,9 +64,9 @@ public sealed class Storage : IDisposable
     {
         lock(gate) Execute("INSERT INTO sessions VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(id) DO UPDATE SET model=CASE WHEN excluded.model='' THEN model ELSE excluded.model END,state=excluded.state,last_seen=excluded.last_seen WHERE excluded.last_seen>=last_seen",id,source,model,state,time);
     }
-    public List<SessionInfo> Sessions(int days=1)
+    public List<SessionInfo> Sessions(int days=1,string search="")
     {
-        lock(gate){using var c=Command("SELECT s.id,s.source,s.model,s.state,s.last_seen,coalesce(sum(u.input),0),coalesce(sum(u.output),0),coalesce(sum(u.cached),0) FROM sessions s LEFT JOIN usage u ON u.session=s.id AND u.time>=@p0 WHERE s.last_seen>=@p0 GROUP BY s.id ORDER BY s.last_seen DESC LIMIT 100",J.Now-days*86400);
+        lock(gate){using var c=Command("SELECT s.id,s.source,s.model,s.state,s.last_seen,coalesce(sum(u.input),0),coalesce(sum(u.output),0),coalesce(sum(u.cached),0) FROM sessions s LEFT JOIN usage u ON u.session=s.id AND u.time>=@p0 WHERE s.last_seen>=@p0 AND (@p1='' OR instr(lower(s.id||' '||s.source||' '||s.model||' '||s.state),lower(@p1))>0) GROUP BY s.id ORDER BY s.last_seen DESC LIMIT 100",J.Now-days*86400L,search.Trim());
         using var r=c.ExecuteReader();var rows=new List<SessionInfo>();while(r.Read())rows.Add(new(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7)));return rows;}
     }
     public List<Usage> UsageSince(long since)
@@ -103,6 +107,7 @@ public sealed class Storage : IDisposable
     }
     public void Checkpoint(string path,long offset,string state)
     {lock(gate)Execute("INSERT INTO checkpoints VALUES(@p0,@p1,@p2) ON CONFLICT(path) DO UPDATE SET offset=excluded.offset,state=excluded.state",path,offset,state);}
+    public void ResetImportCheckpoints(){lock(gate)Execute("DELETE FROM checkpoints");}
     public void Alert(string key,string title,string detail,bool active)
     {lock(gate)Execute("INSERT INTO alerts VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(key) DO UPDATE SET title=excluded.title,detail=excluded.detail,time=CASE WHEN active<>excluded.active THEN excluded.time ELSE time END,active=excluded.active",key,title,detail,J.Now,active?1:0);}
     public List<AlertInfo> Alerts()
@@ -111,7 +116,7 @@ public sealed class Storage : IDisposable
     }
     public void Retain(long now)
     {
-        lock(gate){Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",now-90*86400);Execute("DELETE FROM usage WHERE time<@p0",now-90*86400);Execute("DELETE FROM sessions WHERE last_seen<@p0",now-90*86400);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",now-90*86400);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
+        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
     }
     public string Backup(string folder)
     {
@@ -120,10 +125,10 @@ public sealed class Storage : IDisposable
         lock(gate){using var dest=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=temp,Pooling=false}.ToString());dest.Open();db.BackupDatabase(dest);using var c=dest.CreateCommand();c.CommandText="PRAGMA integrity_check";if((string?)c.ExecuteScalar()!="ok")throw new InvalidDataException("Backup verification failed");}
         File.Move(temp,file,true);
         using(var f=File.OpenRead(file)) File.WriteAllText(file+".sha256",Convert.ToHexString(SHA256.HashData(f)));
-        // Keep seven newest daily points and thirteen newest weekly points.
+        // Snapshot coverage follows the selected history window (13 weeks by default).
         var files=Directory.GetFiles(folder,"pulse-*.db").OrderDescending().ToArray();
         var keep=files.GroupBy(f=>File.GetLastWriteTimeUtc(f).Date).Take(7).Select(g=>g.First()).ToHashSet();
-        foreach(var f in files.GroupBy(f=>{var d=File.GetLastWriteTimeUtc(f).Date;return d.AddDays(-((int)d.DayOfWeek+6)%7);}).Take(13).Select(g=>g.First()))keep.Add(f);
+        foreach(var f in files.GroupBy(f=>{var d=File.GetLastWriteTimeUtc(f).Date;return d.AddDays(-((int)d.DayOfWeek+6)%7);}).Take((int)Math.Ceiling(RetentionDays/7.0)).Select(g=>g.First()))keep.Add(f);
         foreach(var f in files.Where(f=>!keep.Contains(f))){File.Delete(f);File.Delete(f+".sha256");}
         return file;
     }

@@ -15,11 +15,18 @@ public sealed class SensorBridge : IDisposable
     readonly CancellationTokenSource stop=new();
     public List<Reading> Readings {get;private set;}=[];
     public long LastSeen {get;private set;}
-    public string Status{get;private set;}="Standard sensor access";
+    public string Status{get;private set;}="Deep sensor access is not connected";
+    public bool Connecting {get;private set;}
+    public bool Connected=>LastSeen>0&&J.Now-LastSeen<8;
+    public static bool DriverInstalled
+    {
+        get{if(!OperatingSystem.IsWindows())return false;try{using var key=Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\PawnIO");return key!=null;}catch{return false;}}
+    }
     Task? receiver;
     public void Enable()
     {
         if(!OperatingSystem.IsWindows()||receiver is {IsCompleted:false})return;
+        if(!DriverInstalled){Status="PawnIO driver is missing";return;}
         string pipe="ai-pulse-sensors-"+Guid.NewGuid().ToString("N");
         // CurrentUserOnly also compares elevation levels on Windows. Use an explicit
         // user SID ACL and verify both process IDs so a medium-integrity UI can receive
@@ -33,24 +40,28 @@ public sealed class SensorBridge : IDisposable
         {
             var exe=Environment.ProcessPath!;
             if(Path.GetFileNameWithoutExtension(exe).Equals("dotnet",StringComparison.OrdinalIgnoreCase))throw new InvalidOperationException("Use the packaged executable for sensor access.");
+            Connecting=true;
             helper=Process.Start(new ProcessStartInfo(exe){Arguments=$"--sensor-helper --pipe {pipe} --parent {Environment.ProcessId}",UseShellExecute=true,Verb="runas",WindowStyle=ProcessWindowStyle.Hidden})??throw new InvalidOperationException("Sensor helper did not start.");
             Status="Waiting for sensor helper";
         }
-        catch(Exception e){server.Dispose();Paths.Log("sensor-elevation",e);Status="Sensor permission not granted";return;}
+        catch(Exception e){Connecting=false;server.Dispose();Paths.Log("sensor-elevation",e);Status=e is System.ComponentModel.Win32Exception {NativeErrorCode:1223}?"Sensor permission was declined":"Windows could not start the sensor helper";return;}
         receiver=Task.Run(async()=>
         {
             using(server)
             {
                 try
                 {
-                    using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(TimeSpan.FromMinutes(2));await server.WaitForConnectionAsync(timeout.Token);
+                    using var timeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                    var connection=server.WaitForConnectionAsync(timeout.Token);var exited=helper.WaitForExitAsync(timeout.Token);
+                    if(await Task.WhenAny(connection,exited)==exited&&!server.IsConnected)throw new IOException("Sensor helper exited before connecting.");
+                    await connection;
                     if(!GetNamedPipeClientProcessId(server.SafePipeHandle,out uint childId)||childId!=helper.Id)throw new UnauthorizedAccessException("Unexpected sensor peer.");
                     using var reader=new StreamReader(server);
                     while(!stop.IsCancellationRequested)
-                    {var line=await reader.ReadLineAsync(stop.Token);if(line==null)break;if(line.Length>2_000_000)break;var rows=JsonSerializer.Deserialize<List<Reading>>(line);if(rows!=null){Readings=rows;LastSeen=J.Now;Status="Deep sensor access connected";}}
+                    {using var readTimeout=CancellationTokenSource.CreateLinkedTokenSource(stop.Token);readTimeout.CancelAfter(TimeSpan.FromSeconds(15));var line=await reader.ReadLineAsync(readTimeout.Token);if(line==null)break;if(line.Length>2_000_000)break;var rows=JsonSerializer.Deserialize<List<Reading>>(line);if(rows!=null){Readings=rows;LastSeen=J.Now;Connecting=false;Status="Deep sensor access connected";}}
                 }
                 catch(Exception e){if(!stop.IsCancellationRequested)Paths.Log("sensor-pipe",e);}
-                Status="Sensor helper disconnected";helper.Dispose();
+                Connecting=false;LastSeen=0;Readings=[];Status="Sensor helper disconnected — reconnect to restore deep sensors";helper.Dispose();
             }
         });
     }

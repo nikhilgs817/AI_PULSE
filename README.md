@@ -6,21 +6,21 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
-> **0.1.0 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
+> **0.2.0 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
 ![AI Pulse expanded dashboard](docs/images/overview.png)
 
-These are screenshots of the running app, using the cyan-to-violet ECG brand.
+These are screenshots of the running app. See the [illustrated guide](docs/USER-GUIDE.md) for both widget orientations, model dropdown, collapsible sidebar and search.
 
 ## Download and install
 
 Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose your platform:
 
-- **Windows 11 x64:** `AI-Pulse-Setup-0.1.0-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
-- **Ubuntu Desktop x64:** `ai-pulse_0.1.0_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
-- **Linux portable:** `AI-Pulse-0.1.0-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
+- **Windows 11 x64:** `AI-Pulse-Setup-0.2.0-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
+- **Ubuntu Desktop x64:** `ai-pulse_0.2.0_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
+- **Linux portable:** `AI-Pulse-0.2.0-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
 
 The app bundles its .NET runtime, interface and SQLite database engine. **You do not install Python, Docker, .NET or a database server to use it.** Ubuntu still relies on standard OS libraries, resolved by the package manager. The database is created automatically on first launch.
 
@@ -30,12 +30,12 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 
 ## What you can do
 
-- **Keep every loaded model visible.** Compact mode lists model name, host, loaded/generating state, runtime memory and the last observed decode rate. Larger lists scroll under a fixed hardware strip.
+- **Keep only critical readings visible.** The 560 × 132 horizontal widget and 260 × 300 vertical widget have a loaded-model dropdown. Open it to see every model, host, state, memory and last observed decode rate; large lists scroll within a bounded panel.
 - **Watch the machine.** GPU load and memory, CPU load, physical RAM, network transfer, disk capacity, process usage and exposed temperature/power/fan/clock sensors.
 - **Measure Ollama requests.** The optional local gateway observes input/output/cache tokens, decode tokens per second, request duration, streaming completion and errors.
 - **Track supported agent sessions.** Import Codex and Claude Code usage metadata from local session files. Repeated records are deduplicated. Prompts and replies are not saved.
-- **Review history.** Seven days of detailed readings, 90 days of minute summaries and request records, charts and CSV usage exports.
-- **Protect the data.** Verified SQLite snapshots, seven daily and thirteen weekly restore points, and an in-app restore flow that preserves the previous database.
+- **Review history.** Seven days of detailed readings and configurable 7–365-day summaries, usage records and CSV exports. The shipping default remains 90 days.
+- **Protect the data.** Verified SQLite snapshots, seven daily restore points plus weekly snapshots covering the configured retention period (13 weeks by default; 53 for a year), and an in-app restore flow that preserves the previous database.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).
 
 ## First five minutes
@@ -45,7 +45,7 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 3. Click **Expand ↗**, then **Settings** to check connection coverage.
 4. For exact Ollama request tokens, point a compatible client to **`http://127.0.0.1:11435`**. AI Pulse forwards to your existing Ollama server. Direct traffic to port 11434 is not counted.
 5. If CPU temperatures are unavailable on Windows, follow [deep sensor setup](docs/INSTALLATION.md#deep-sensors-on-windows). Ordinary monitoring continues without elevation.
-6. Pin the window, resize it, and optionally enable **Launch at sign-in** in Settings.
+6. Use **↕ / ↔** to choose a compact orientation, **▾ Loaded models** to show models, and the pin control to keep it on top. Drag any non-interactive surface to move it. Sign-in startup is optional in Settings.
 
 The app does not install model weights or change Ollama's existing server configuration.
 

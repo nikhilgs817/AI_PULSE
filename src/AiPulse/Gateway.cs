@@ -19,7 +19,7 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings) : IAs
         try
         {
             var builder=WebApplication.CreateSlimBuilder();builder.Logging.ClearProviders();builder.WebHost.UseKestrel(o=>{o.Listen(IPAddress.Loopback,settings.GatewayPort);o.Limits.MaxRequestBodySize=16*1024*1024;});
-            app=builder.Build();app.MapGet("/health",()=>Results.Json(new{service="AI Pulse observation gateway",version="0.1.0"}));
+            app=builder.Build();app.MapGet("/health",()=>Results.Json(new{service="AI Pulse observation gateway",version="0.2.0"}));
             app.Run(Forward);await app.StartAsync(ct);Status="Listening on 127.0.0.1:"+settings.GatewayPort;
         }catch(Exception e){Paths.Log("gateway-start",e);Status="Port unavailable; direct Ollama remains usable";}
     }
