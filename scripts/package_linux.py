@@ -1,14 +1,14 @@
 """Produce a Debian package with the self-contained runtime, SQLite and desktop integration.
 Uses only Python's standard library; can run on Windows or Linux.
 """
-import io, pathlib, tarfile, time, argparse, os, hashlib
+import io, pathlib, tarfile, time, argparse, os, hashlib, shutil, subprocess, tempfile
 p=argparse.ArgumentParser();p.add_argument('--source',default='build/linux-x64');p.add_argument('--output',default='build/releases');p.add_argument('--version',default='0.1.0');a=p.parse_args()
 source=pathlib.Path(a.source);out=pathlib.Path(a.output);out.mkdir(parents=True,exist_ok=True)
 assert (source/'AiPulse').is_file(),'Publish linux-x64 first'
 
 def archive(items):
     buffer=io.BytesIO()
-    with tarfile.open(fileobj=buffer,mode='w:gz',format=tarfile.PAX_FORMAT) as tar:
+    with tarfile.open(fileobj=buffer,mode='w:gz',format=tarfile.GNU_FORMAT) as tar:
         directories={str(parent) for name,_,_ in items for parent in pathlib.PurePosixPath(name).parents if str(parent)!='.'}
         for directory in sorted(directories,key=lambda p:(p.count('/'),p)):
             info=tarfile.TarInfo(directory+'/');info.type=tarfile.DIRTYPE;info.mode=0o755;info.uid=info.gid=0;info.uname=info.gname='root';info.mtime=0;tar.addfile(info)
@@ -37,6 +37,15 @@ for f in sorted(source.rglob('*')):
 files.append(('usr/bin/ai-pulse',b'#!/bin/sh\nexec /usr/lib/ai-pulse/AiPulse "$@"\n',0o755))
 files.append(('usr/share/applications/ai-pulse.desktop',b'[Desktop Entry]\nType=Application\nName=AI Pulse\nComment=Hardware and AI model monitoring\nExec=ai-pulse\nIcon=ai-pulse\nTerminal=false\nCategories=System;Monitor;\nStartupWMClass=AiPulse\n',0o644))
 files.append(('usr/share/pixmaps/ai-pulse.png',pathlib.Path('src/AiPulse/Assets/pulse.png').read_bytes(),0o644))
+if shutil.which('dpkg-deb'):
+    # Use the native builder to handle long filenames and Debian archive details.
+    target=out/f'ai-pulse_{a.version}_amd64.deb'
+    with tempfile.TemporaryDirectory(prefix='deb-stage-',dir=source.parent) as staging:
+        stage=pathlib.Path(staging);(stage/'DEBIAN').mkdir();(stage/'DEBIAN/control').write_text(control)
+        for name,data,mode in files:
+            f=stage/name;f.parent.mkdir(parents=True,exist_ok=True);f.write_bytes(data);f.chmod(mode)
+        subprocess.run(['dpkg-deb','--root-owner-group','-Zxz','--build',str(stage),str(target)],check=True)
+    print(target);print(hashlib.sha256(target.read_bytes()).hexdigest());raise SystemExit(0)
 components=[('debian-binary',b'2.0\n'),('control.tar.gz',archive([('control',control.encode(),0o644)])),('data.tar.gz',archive(files))]
 target=out/f'ai-pulse_{a.version}_amd64.deb'
 with target.open('wb') as f:

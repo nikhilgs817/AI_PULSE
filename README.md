@@ -1,4 +1,4 @@
-![AIPULSE ECG logo](src/AiPulse/Assets/wordmark-dark.png)
+![AIPULSE ECG logo](docs/images/logo.png)
 
 # AIPULSE
 
