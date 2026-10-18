@@ -24,6 +24,19 @@ jobs:
           $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--self-test --data-dir ./build/self-test' -WindowStyle Hidden -Wait -PassThru
           Get-Content ./build/self-test/self-test-results.txt
           if($p.ExitCode -ne 0){throw 'Self-tests failed'}
+      - name: Verify Windows hardware and reopening a running window
+        shell: pwsh
+        run: |
+          $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--diagnose --data-dir ./build/hardware-test' -WindowStyle Hidden -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'Hardware diagnostic failed'}
+          $report=Get-Content ./build/hardware-test/diagnostics.json -Raw | ConvertFrom-Json
+          $ram=$report.Readings | Where-Object Id -eq 'ram.total'
+          if(!($ram.Value -gt 0)){throw 'Windows RAM collection failed'}
+          $first=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--data-dir ./build/activation-test --exit-after 25' -WindowStyle Hidden -PassThru
+          Start-Sleep -Seconds 4
+          $second=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--data-dir ./build/activation-test' -WindowStyle Hidden -PassThru
+          if(!$second.WaitForExit(10000) -or $second.ExitCode -ne 0){throw 'Second shortcut launch did not activate the existing window'}
+          if(!$first.WaitForExit(40000) -or $first.ExitCode -ne 0){throw 'GUI smoke test did not close cleanly'}
       - name: Create installer and portable archive
         shell: pwsh
         run: |
