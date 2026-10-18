@@ -24,11 +24,12 @@ public sealed class App : Application
             life.ShutdownMode=ShutdownMode.OnExplicitShutdown;
             var settings=Paths.Load();if(Program.Arguments.Contains("--expanded"))settings.Compact=false;
             Monitor=new(settings);var window=new MainWindow(Monitor);life.MainWindow=window;
+            var activation=new InstanceActivation(()=>{window.Show();window.WindowState=WindowState.Normal;window.Activate();});
             var menu=new NativeMenu();var show=new NativeMenuItem("Open AI Pulse");show.Click+=(_,_)=>{window.Show();window.Activate();};menu.Items.Add(show);
             var compact=new NativeMenuItem("Compact / expanded");compact.Click+=(_,_)=>{window.Show();window.ToggleMode();};menu.Items.Add(compact);
             var quit=new NativeMenuItem("Quit AI Pulse");quit.Click+=(_,_)=>{Quitting=true;life.Shutdown();};menu.Items.Add(quit);
             try{var tray=new TrayIcon{ToolTipText="AI Pulse · local AI monitoring",Menu=menu,Icon=new WindowIcon(AssetLoader.Open(new Uri("avares://AiPulse/Assets/pulse.ico")))};tray.Clicked+=(_,_)=>{window.Show();window.Activate();};TrayIcon.SetIcons(this,new TrayIcons{tray});}catch{}
-            life.Exit+=(_,_)=>{Quitting=true;Monitor.Dispose();};Monitor.Start();
+            life.Exit+=(_,_)=>{Quitting=true;activation.Dispose();Monitor.Dispose();};Monitor.Start();
         }
         base.OnFrameworkInitializationCompleted();
     }

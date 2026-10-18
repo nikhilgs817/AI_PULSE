@@ -68,5 +68,5 @@ Remote endpoints should be on a private network or protected transport. URLs wit
 - **CPU temperature missing:** follow the deep sensor instructions. Sensors still unavailable after that may be unsupported.
 - **Stale readings:** the collector has stopped producing fresh samples. Restart the app and inspect the diagnostic/log files.
 - **No new history while asleep:** collection cannot run when the computer is asleep/off. Gaps are expected; backups catch up after resume.
-- **App already running:** use its tray Open action. One process per data directory prevents concurrent collectors from duplicating history.
+- **App already running:** open the shortcut again to bring its existing window forward, or use the tray Open action. One process per data directory prevents concurrent collectors from duplicating history.
 - **Model traffic fails after closing AI Pulse:** clients configured to use its gateway need AI Pulse running. Change the client back to the direct Ollama endpoint for rollback.

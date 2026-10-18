@@ -15,7 +15,14 @@ public static class Program
         try
         {
             bool exclusiveMode=!args.Contains("--diagnose")&&!args.Contains("--self-test");
-            using var instance=exclusiveMode?new FileStream(Path.Combine(Paths.Root,"instance.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None):null;
+            FileStream? acquired=null;
+            if(exclusiveMode)
+            {
+                try{acquired=new FileStream(Path.Combine(Paths.Root,"instance.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
+                catch(IOException) when(!args.Contains("--collect")&&!args.Contains("--restore"))
+                {if(InstanceActivation.TryShow())return 0;throw;}
+            }
+            using var instance=acquired;
             if(args.Contains("--diagnose"))
             {
                 using var h=new Hardware();h.Sample();Thread.Sleep(1500);var readings=h.Sample();
