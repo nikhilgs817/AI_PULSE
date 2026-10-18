@@ -1,0 +1,9 @@
+PASS: Duplicate hardware samples ignored; maxima preserved
+PASS: Usage replay deduplicated; cache/reasoning are subsets
+PASS: Codex repeated cumulative counts are not double-counted
+PASS: Claude cached input normalized and duplicate message deduplicated
+PASS: 90-day history retention boundary
+PASS: Verified snapshot restores exact token totals
+PASS: CSV exports beyond 20,000 records and escapes spreadsheet formulas
+PASS: Prompt bodies not persisted
+PASS: Invalid endpoint rejected

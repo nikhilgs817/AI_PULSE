@@ -1,6 +1,6 @@
 # Validation report
 
-Release candidate: 0.1.0 preview. Results below distinguish completed tests from work not yet validated.
+Release: 0.1.0 preview. Validation performed on October 18, 2026. Results below distinguish local hardware tests, virtual CI checks and unperformed tests.
 
 ## Completed locally
 
@@ -14,7 +14,28 @@ Release candidate: 0.1.0 preview. Results below distinguish completed tests from
 - A signed PawnIO driver plus elevated diagnostic exposes CPU Tctl/Tdie and NVMe temperatures. GPU VR SoC is available; GPU core/hotspot temperature is not exposed by this collector on this machine.
 - The isolated elevated sensor helper connects to the unprivileged dashboard. A live compact screenshot shows CPU temperature at 46 °C and GPU VR SoC at 33 °C alongside both loaded models.
 - Actual screenshots cover Compact, Overview, Hardware, Models and Settings, with the approved ECG branding.
-- GitHub's Ubuntu 24.04 runner successfully compiled and launched the GUI under Xvfb and passed the data tests. Its first DEB test caught missing archive directory entries, corrected before release.
+- The Windows installer completed successfully under a custom directory and created a working desktop shortcut pointing to the configured data folder. The installed executable passed the nine data tests.
+- All seven live Ollama checks passed again from the installed app. See the [machine-readable result](validation/ollama-windows.json).
+- An actual snapshot's SHA-256 and SQLite integrity check passed. CLI restoration into an isolated folder recovered exact token totals and preserved the previous database as a rollback copy.
+- Sign-in startup was enabled and the registered executable/data paths were verified. History survived application restarts.
+
+## Cross-platform CI
+
+The [build workflow](https://github.com/nikhilgs817/AI_PULSE/actions/workflows/build.yml) validates:
+
+- Windows and Ubuntu 24.04 self-contained builds and nine data/privacy/backup checks.
+- Windows hardware collection with a positive physical RAM reading.
+- Windows GUI launch, a second shortcut launch activating the same window, and clean shutdown.
+- Windows installer execution, installed-app tests, and uninstall preserving the data directory.
+- Ubuntu GUI launch under Xvfb, with actual CPU and RAM samples asserted in SQLite.
+- DEB installation, installed-app tests and GUI launch, followed by uninstall.
+- AppImage packaging and execution of its data tests through extraction/run mode.
+
+The Ubuntu screenshot below is from the CI virtual machine. It has no exposed GPU or Ollama service; unavailable readings correctly remain blank.
+
+![Ubuntu virtual desktop with live memory collection](images/ubuntu.png)
+
+Saved test output: [Windows](validation/windows-data-tests.txt), [Linux](validation/linux-data-tests.txt).
 
 ## Test hardware
 
@@ -29,5 +50,6 @@ Windows 11 Pro; AMD Ryzen AI Max+ 395 / Radeon 8060S; approximately 128 GB unifi
 - Alerts are in-app; native desktop toasts are not implemented.
 - Long-duration soak testing and manufacturer-calibrated temperature comparison are not yet complete.
 - Windows public signing requires a publisher identity/certificate; the initial package is unsigned.
+- On the development PC, Windows Application Control blocked a later locally compiled binary with `FileLoadException / 0x800711C7`. The working installed preview was left running. The blocked update was not installed or allowed through a security exception. This is separate from clean Windows CI validation; restrictive devices require a policy-approved or appropriately signed build.
 
-Do not interpret a working screenshot or compiler success as completion of an unperformed hardware/installer test. CI and release results should be appended with their actual outcomes.
+No virtual-machine screenshot or compiler result is claimed as a physical Ubuntu GPU/temperature test.

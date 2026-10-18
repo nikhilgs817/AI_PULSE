@@ -9,6 +9,8 @@
 
 The preview installer is not publisher-signed. Windows may identify an unknown publisher. Obtain it only from the intended repository/release and compare the published checksum; do not disable Windows security protections. A trusted signing identity is needed for a polished public distribution.
 
+Devices with Application Control policies may block the unsigned app entirely. If that happens, use a build approved by the device administrator or wait for an appropriately signed release; the installer cannot override that policy.
+
 The default install is per-user. Ordinary monitoring does not require administrator privileges. The portable ZIP can be extracted into a writable folder and launched by opening `AiPulse.exe`.
 
 ### Deep sensors on Windows

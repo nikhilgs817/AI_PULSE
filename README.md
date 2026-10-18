@@ -20,7 +20,7 @@ Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose
 
 - **Windows 11 x64:** `AI-Pulse-Setup-0.1.0-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
 - **Ubuntu Desktop x64:** `ai-pulse_0.1.0_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
-- **Linux portable:** an AppImage is produced by the Linux packaging workflow when available; see the release assets. It may require “Allow executing file as program” and a compatible desktop environment.
+- **Linux portable:** `AI-Pulse-0.1.0-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
 
 The app bundles its .NET runtime, interface and SQLite database engine. **You do not install Python, Docker, .NET or a database server to use it.** Ubuntu still relies on standard OS libraries, resolved by the package manager. The database is created automatically on first launch.
 
@@ -72,6 +72,7 @@ See the [user guide](docs/USER-GUIDE.md) and [metric definitions](docs/METRICS.m
 - [k3s expansion plan](docs/K3S.md)
 - [Architecture and development](docs/DEVELOPMENT.md)
 - [Third-party notices](THIRD-PARTY-NOTICES.md)
+- [ECG logo and brand assets](docs/BRANDING.md)
 
 ## Build from source
 
