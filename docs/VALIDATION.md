@@ -21,6 +21,8 @@ Release: 0.1.0 preview. Validation performed on October 18, 2026. Results below 
 
 ## Cross-platform CI
 
+**All checks passed** in [run 39146480045](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39146480045), building commit `91c9dd400bec5e1ebcb035fcdf9e3dc415c249dc`. Windows completed in 3m31s; Linux in 2m21s. Release downloads use that run's artifacts and published SHA-256 checksums.
+
 The [build workflow](https://github.com/nikhilgs817/AI_PULSE/actions/workflows/build.yml) validates:
 
 - Windows and Ubuntu 24.04 self-contained builds and nine data/privacy/backup checks.
