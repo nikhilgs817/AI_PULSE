@@ -103,7 +103,7 @@ public sealed class MainWindow : Window
         {
             var row=new Grid{ColumnDefinitions=new ColumnDefinitions("*,100,90,90"),Margin=new Thickness(12,10)};var name=new StackPanel{Spacing=3};name.Children.Add(Text(m.Name,13,"#e6edf9",true));name.Children.Add(Text(m.Host+" · Ollama",10,"#7f93af"));row.Children.Add(name);
             var state=Text(m.State,11,m.State=="Generating"?"#59dfae":"#9aabc3");Grid.SetColumn(state,1);row.Children.Add(state);
-            var r=Text(rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} t/s\nlast request":"— tok/s",11,"#55cee5");Grid.SetColumn(r,2);row.Children.Add(r);
+            var r=Text(m.Host=="This PC"&&rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} t/s\nlast request":"— tok/s",11,"#55cee5");Grid.SetColumn(r,2);row.Children.Add(r);
             var memory=Text(J.Size(m.MemoryGiB),11,"#c3a8ff");Grid.SetColumn(memory,3);row.Children.Add(memory);
             var card=new Border{Child=row,Background=Panel,CornerRadius=new CornerRadius(7)};card.PointerPressed+=(_,_)=>{page="Models";if(service.Settings.Compact)ToggleMode();else RenderBody();};list.Children.Add(card);
         }
