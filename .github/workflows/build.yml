@@ -33,6 +33,19 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Installer build failed'}
           Compress-Archive build/win-x64/* build/releases/AI-Pulse-0.1.0-win-x64-portable.zip
           Get-ChildItem build/releases -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content build/releases/SHA256SUMS-windows.txt
+      - name: Install and uninstall the Windows package
+        shell: pwsh
+        run: |
+          $installDir=Join-Path $PWD 'build/installed-app'
+          $dataDir=Join-Path $PWD 'build/installed-data'
+          $args='/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="'+$installDir+'" /DATA_DIR="'+$dataDir+'"'
+          $p=Start-Process ./build/releases/AI-Pulse-Setup-0.1.0-x64.exe -ArgumentList $args -WindowStyle Hidden -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'Installer failed'}
+          $p=Start-Process (Join-Path $installDir 'AiPulse.exe') -ArgumentList ('--self-test --data-dir "'+$dataDir+'"') -WindowStyle Hidden -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'Installed executable failed tests'}
+          $p=Start-Process (Join-Path $installDir 'unins000.exe') -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -WindowStyle Hidden -Wait -PassThru
+          if($p.ExitCode -ne 0){throw 'Uninstaller failed'}
+          if(!(Test-Path (Join-Path $dataDir 'self-test-results.txt'))){throw 'Uninstall removed user data'}
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
