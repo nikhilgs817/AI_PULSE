@@ -25,7 +25,7 @@ Some sensors still may not exist in the driver's interface. On the tested Radeon
 
 ### Upgrade or uninstall
 
-Open a newer installer to upgrade. Close AI Pulse from its tray **Quit AI Pulse** action first. Your data lives outside installed program files and is preserved. Use Windows **Installed apps** or the Start menu uninstaller to remove the app. Remove its sign-in entry in Settings before uninstalling if you enabled it. Data and backups are not automatically deleted.
+Open a newer installer to upgrade. Close AI Pulse with **Ctrl+Q** or its tray **Quit AI Pulse** action first. Your data lives outside installed program files and is preserved. Use Windows **Installed apps** or the Start menu uninstaller to remove the app. The uninstaller removes a sign-in entry pointing to that installation. Data and backups are not automatically deleted.
 
 ## Ubuntu
 

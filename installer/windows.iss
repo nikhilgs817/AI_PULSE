@@ -46,6 +46,24 @@ function GetDataArguments(Param: String): String;
 var DataDir: String;
 begin
   DataDir := ExpandConstant('{param:DATA_DIR|}');
+  if DataDir = '' then DataDir := GetPreviousData('DataDir', '');
   if DataDir = '' then Result := ''
   else Result := '--data-dir "' + DataDir + '"';
+end;
+
+procedure RegisterPreviousData(PreviousDataKey: Integer);
+var DataDir: String;
+begin
+  DataDir := ExpandConstant('{param:DATA_DIR|}');
+  if DataDir = '' then DataDir := GetPreviousData('DataDir', '');
+  SetPreviousData(PreviousDataKey, 'DataDir', DataDir);
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var RunValue: String;
+begin
+  if CurUninstallStep = usUninstall then
+    if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AI Pulse', RunValue) then
+      if Pos(Lowercase(ExpandConstant('{app}\AiPulse.exe')), Lowercase(RunValue)) > 0 then
+        RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'AI Pulse');
 end;

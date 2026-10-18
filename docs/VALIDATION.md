@@ -5,14 +5,16 @@ Release candidate: 0.1.0 preview. Results below distinguish completed tests from
 ## Completed locally
 
 - Windows and Linux x64 self-contained builds compile.
-- Eight built-in data/backup/privacy tests pass: sample deduplication, request replay deduplication, Codex cumulative counters, Claude cache categories, retention boundaries, integrity-verified backup/restore, content filtering and invalid endpoint rejection.
+- Nine built-in data/backup/privacy tests pass: sample deduplication, request replay deduplication, Codex cumulative counters, Claude cache categories, retention boundaries, integrity-verified backup/restore, export beyond 20,000 rows with spreadsheet-formula escaping, content filtering and invalid endpoint rejection.
 - Real Ollama native non-streaming and streaming inference succeeds through the observation gateway.
 - Concurrent Qwen generation and embedding succeeds; both models are simultaneously resident.
 - Three observed Qwen requests recorded exactly 75 input and 45 output tokens; decode rates matched provider counts and durations.
 - A nonexistent model's HTTP 404 was preserved.
 - Windows GPU load/local/shared memory are exposed on the test system.
 - A signed PawnIO driver plus elevated diagnostic exposes CPU Tctl/Tdie and NVMe temperatures. GPU VR SoC is available; GPU core/hotspot temperature is not exposed by this collector on this machine.
-- The actual compact UI opens and shows live hardware/model/agent data. More final-package/UI results will be recorded after packaging.
+- The isolated elevated sensor helper connects to the unprivileged dashboard. A live compact screenshot shows CPU temperature at 46 °C and GPU VR SoC at 33 °C alongside both loaded models.
+- Actual screenshots cover Compact, Overview, Hardware, Models and Settings, with the approved ECG branding.
+- GitHub's Ubuntu 24.04 runner successfully compiled and launched the GUI under Xvfb and passed the data tests. Its first DEB test caught missing archive directory entries, corrected before release.
 
 ## Test hardware
 

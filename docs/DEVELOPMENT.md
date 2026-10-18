@@ -1,5 +1,7 @@
 # Architecture and development
 
+The Windows sensor helper uses a user SID access-control list plus mutual process-ID checks. It intentionally does not use `PipeOptions.CurrentUserOnly`, which also requires matching elevation levels ([Microsoft documentation](https://learn.microsoft.com/dotnet/api/system.io.pipes.pipeoptions)). The elevated helper cannot receive commands and connects with anonymous impersonation level.
+
 ## Components
 
 ```text

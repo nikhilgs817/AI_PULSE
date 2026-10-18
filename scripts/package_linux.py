@@ -9,6 +9,9 @@ assert (source/'AiPulse').is_file(),'Publish linux-x64 first'
 def archive(items):
     buffer=io.BytesIO()
     with tarfile.open(fileobj=buffer,mode='w:gz',format=tarfile.PAX_FORMAT) as tar:
+        directories={str(parent) for name,_,_ in items for parent in pathlib.PurePosixPath(name).parents if str(parent)!='.'}
+        for directory in sorted(directories,key=lambda p:(p.count('/'),p)):
+            info=tarfile.TarInfo(directory+'/');info.type=tarfile.DIRTYPE;info.mode=0o755;info.uid=info.gid=0;info.uname=info.gname='root';info.mtime=0;tar.addfile(info)
         for name,data,mode in items:
             info=tarfile.TarInfo(name);info.size=len(data);info.mode=mode;info.uid=info.gid=0;info.uname=info.gname='root';info.mtime=0
             tar.addfile(info,io.BytesIO(data))
@@ -33,7 +36,7 @@ for f in sorted(source.rglob('*')):
     if f.is_file():files.append(('usr/lib/ai-pulse/'+f.relative_to(source).as_posix(),f.read_bytes(),0o755 if f.name=='AiPulse' or f.suffix=='.so' else 0o644))
 files.append(('usr/bin/ai-pulse',b'#!/bin/sh\nexec /usr/lib/ai-pulse/AiPulse "$@"\n',0o755))
 files.append(('usr/share/applications/ai-pulse.desktop',b'[Desktop Entry]\nType=Application\nName=AI Pulse\nComment=Hardware and AI model monitoring\nExec=ai-pulse\nIcon=ai-pulse\nTerminal=false\nCategories=System;Monitor;\nStartupWMClass=AiPulse\n',0o644))
-files.append(('usr/share/icons/hicolor/64x64/apps/ai-pulse.png',pathlib.Path('src/AiPulse/Assets/pulse.png').read_bytes(),0o644))
+files.append(('usr/share/pixmaps/ai-pulse.png',pathlib.Path('src/AiPulse/Assets/pulse.png').read_bytes(),0o644))
 components=[('debian-binary',b'2.0\n'),('control.tar.gz',archive([('control',control.encode(),0o644)])),('data.tar.gz',archive(files))]
 target=out/f'ai-pulse_{a.version}_amd64.deb'
 with target.open('wb') as f:

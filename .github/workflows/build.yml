@@ -65,6 +65,8 @@ jobs:
           python3 scripts/package_linux.py
           sudo apt-get install -y ./build/releases/ai-pulse_0.1.0_amd64.deb
           ai-pulse --self-test --data-dir build/installed-test
+          xvfb-run -a ai-pulse --data-dir build/installed-gui --capture --exit-after 1
+          test -s build/installed-gui/compact-live.png
           sudo apt-get remove -y ai-pulse
       - name: Package AppImage
         run: |
@@ -73,6 +75,8 @@ jobs:
           chmod +x tools/appimagetool.AppImage
           cd tools && ./appimagetool.AppImage --appimage-extract && cd ..
           APPIMAGETOOL="$PWD/tools/squashfs-root/AppRun" bash scripts/package-appimage.sh
+          chmod +x build/releases/AI-Pulse-0.1.0-x86_64.AppImage
+          build/releases/AI-Pulse-0.1.0-x86_64.AppImage --appimage-extract-and-run --self-test --data-dir build/appimage-test
           (cd build/releases && sha256sum *.deb *.AppImage > SHA256SUMS-linux.txt)
       - uses: actions/upload-artifact@v4
         with:
