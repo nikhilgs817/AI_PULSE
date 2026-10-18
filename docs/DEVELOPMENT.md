@@ -1,0 +1,56 @@
+# Architecture and development
+
+## Components
+
+```text
+Hardware (Windows or Linux) ───────────┐
+Optional elevated sensor helper ──────┤
+Ollama residency discovery ───────────┤
+Local request observation gateway ────┼─> normalized readings / usage
+Codex & Claude Code metadata readers ┘              │
+                                 ┌─────────────────┴─────────────┐
+                            Avalonia UI                      SQLite
+                        compact + full views         history / alerts / backups
+```
+
+The UI uses Avalonia and C#/.NET 10. SQLite is in-process via Microsoft.Data.Sqlite. Windows hardware uses OS counters plus LibreHardwareMonitor; Linux uses procfs/hwmon/DRM. The gateway is Kestrel bound to loopback. A single storage lock serializes writes/backup snapshots, and a process lock protects each data root from duplicate app instances.
+
+`AgentUsage` reads supported JSONL files incrementally with persisted byte offsets and accounting state. It never stores raw lines. `Gateway` forwards response bytes without reserializing them and retains only allowlisted final usage. Neither integration claims visibility into unobserved requests.
+
+The Windows deep-sensor helper is a separate elevated invocation of the same binary. It sends hardware data through a random named pipe restricted to the same user. It accepts no command payload. It terminates when the parent process exits. The main UI and HTTP receiver do not elevate.
+
+## Build
+
+Install the .NET 10 SDK on the development machine. Dependency versions are declared in the project and lockfile. NuGet packages are stored under `packages/nuget` in the project.
+
+```powershell
+./scripts/build.ps1 -Runtime win-x64
+./scripts/build.ps1 -Runtime linux-x64
+```
+
+The PowerShell wrapper copies documentation/notices into the published folder. On Linux, run `dotnet publish` and copy those documents as shown in the CI workflow. Self-contained publishes include both .NET and ASP.NET runtime dependencies and native SQLite libraries.
+
+Use Inno Setup to compile `installer/windows.iss`. Run `python3 scripts/package_linux.py` to generate a DEB; it writes executable permissions explicitly even when run on Windows. `scripts/package-appimage.sh` uses AppImage's official build tooling on Linux.
+
+## Tests and diagnostics
+
+```powershell
+./build/win-x64/AiPulse.exe --self-test --data-dir ./build/test-data
+./build/win-x64/AiPulse.exe --diagnose --data-dir ./build/diagnostic
+./build/win-x64/AiPulse.exe --collect --seconds 30 --data-dir ./build/collector-test
+```
+
+`--self-test` checks deduplication, provider accounting, retention and a real SQLite backup/restore. `--diagnose` writes hardware readings to `diagnostics.json` and exits. `--collect` runs collection for a bounded duration without opening a window. See the dedicated Ollama test guide for real inference traffic.
+
+For UI captures, `--capture` saves the rendered window after startup. `--expanded` opens the full dashboard and `--page Models` selects a page. `--exit-after N` supports bounded GUI smoke testing; with capture enabled, the countdown follows the capture delay. Screenshots must remain clearly identified as live captures or test fixtures.
+
+## Release checklist
+
+1. Build both self-contained targets and run tests.
+2. Validate clean installation without a developer runtime, and upgrade/uninstall without deleting personal history.
+3. Exercise desktop UI on Windows and a Linux desktop/X11 test environment; test real Linux hardware separately.
+4. Verify final packages include app libraries, documentation, license notices and no user data/secrets.
+5. Publish checksums and document exactly which platform/hardware combinations were tested.
+6. Use trusted publisher signing for a production Windows release. Preview builds must be labeled unsigned.
+
+The GitHub workflow builds packages and runs Linux tests; virtual graphics do not validate native GPU telemetry. Runtime/provider adapters are expected to need maintenance when driver or source-app formats change.
