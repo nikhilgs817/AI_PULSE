@@ -119,23 +119,23 @@ public sealed partial class MainWindow : Window
                 bool collapsed=service.Settings.SidebarCollapsed;
                 var layout=new Grid{ColumnDefinitions=new ColumnDefinitions(collapsed?"60,*":"174,*")};var nav=new StackPanel{Spacing=6,Margin=new Thickness(8,14)};
                 var collapse=Btn(collapsed?"»":"«  Collapse menu");ToolTip.SetTip(collapse,collapsed?"Expand menu":"Collapse menu");Avalonia.Automation.AutomationProperties.SetName(collapse,collapsed?"Expand menu":"Collapse menu");collapse.Click+=(_,_)=>{service.Settings.SidebarCollapsed=!collapsed;Paths.Save(service.Settings);layoutPage=null;RenderBody();};nav.Children.Add(collapse);
-                foreach(var item in new[]{"Overview","Hardware","Sensors","Models","Agents","History","Alerts","Settings"})
+                foreach(var item in new[]{"Overview","Hardware","Sensors","Models","Agents","Token","History","Alerts","Settings"})
                 {
                     var contents=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12};contents.Children.Add(NavIcon(item));if(!collapsed)contents.Children.Add(Text(item,13));
                     var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand)};
-                    ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{page=item;scroller=null;RenderBody();};nav.Children.Add(b);
+                    ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{if(page==item)return;page=item;scroller=null;layoutPage=null;RenderBody();};nav.Children.Add(b);
                 }
                 if(!collapsed){var host=Text("This PC\n"+(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux")+" · v0.2.0",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
                 layout.Children.Add(new Border{Child=new ScrollViewer{Content=nav},BorderBrush=Line,BorderThickness=new Thickness(0,0,1,0)});
                 var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=new Thickness(26,20)};
                 if(page is "Hardware" or "Sensors" or "Agents")
                 {
-                    var search=new TextBox{Text=Query,PlaceholderText=page=="Agents"?"Search source, model, session or status…":"Search device, sensor, source or process…",Margin=new Thickness(0,0,0,16)};
+                    var search=new TextBox{Text=Query,PlaceholderText=page=="Agents"?"Search source, model, session or status…":page=="Hardware"?"Search hardware, device or specification…":"Search device, sensor, unit, source or process…",Margin=new Thickness(0,0,0,16)};
                     Avalonia.Automation.AutomationProperties.SetName(search,"Search "+page);search.TextChanged+=(_,_)=>{searches[page]=search.Text??"";if(scroller!=null)scroller.Offset=default;RenderBody();};main.Children.Add(search);
                 }
                 scroller=new ScrollViewer{HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);main.Children.Add(scroller);Grid.SetColumn(main,1);layout.Children.Add(main);body.Content=layout;layoutPage=page;
             }
-            scroller!.Content=page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>HardwarePage(true),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()};scroller.Offset=offset;
+            scroller!.Content=page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()};scroller.Offset=offset;
         }finally{rebuilding=false;}
     }
     static Control NavIcon(string name)
@@ -146,6 +146,7 @@ public sealed partial class MainWindow : Window
             "Sensors"=>"M1,10 H5 L8,3 L12,17 L15,10 H19",
             "Models"=>"M10,1 L19,6 L10,11 L1,6 Z M1,10 L10,15 L19,10 M1,14 L10,19 L19,14",
             "Agents"=>"M4,6 H16 V16 H4 Z M10,2 V6 M7,10 H8 M12,10 H13 M7,13 H13 M1,9 V13 M19,9 V13",
+            "Token"=>"M10,1 L18,5 V15 L10,19 L2,15 V5 Z M6,7 H14 M10,7 V14",
             "History"=>"M3,6 A8,8 0 1 1 2,12 M3,1 V6 H8 M10,5 V10 L14,12",
             "Alerts"=>"M10,2 L19,18 H1 Z M10,7 V12 M10,14 V16",
             _=>"M10,1 L13,4 L17,4 L17,8 L19,10 L17,13 L17,17 L13,17 L10,19 L7,17 L3,17 L3,13 L1,10 L3,7 L3,3 L7,3 Z M10,7 A3,3 0 1 0 10,13 A3,3 0 1 0 10,7"};
@@ -221,14 +222,23 @@ public sealed partial class MainWindow : Window
         }
         return Card(content);
     }
-    Control HardwarePage(bool sensorsOnly=false)
+    Control HardwarePage()
     {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading(sensorsOnly?"Sensors":"Hardware",service.Health));stack.Children.Add(SensorCard());
+        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Hardware","Device specifications and capacity · live measurements are in Sensors"));
+        var inventory=(service.Hardware?.Inventory??[]).Where(r=>Matches(r.Category,r.Name,r.Details)).ToList();
+        stack.Children.Add(Text("Device inventory · "+inventory.Count+" matches",16,null,true));
+        stack.Children.Add(Table(["Category","Device","Specifications"],inventory.Select(r=>new[]{r.Category,r.Name,r.Details}),"*,2*,3*"));
+        if(inventory.Count==0)stack.Children.Add(Text(service.Hardware?.Inventory.Count>0?"No hardware matches your search.":"Discovering hardware…",13,"#8da1bd"));
+        return stack;
+    }
+    Control SensorsPage()
+    {
+        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Sensors","Live temperatures, utilization, power, clocks, fans and resource activity · "+service.Health));stack.Children.Add(SensorCard());
         var readings=service.Readings.Where(r=>Matches(r.Device,r.Name,r.Source,r.Unit)).OrderBy(r=>r.Device).ThenBy(r=>r.Name).ToList();
         stack.Children.Add(Text("Sensor inventory · "+readings.Count+" matches",16,null,true));
         stack.Children.Add(Table(["Device","Sensor","Value","Unit","Source"],readings.Select(r=>new[]{r.Device,r.Name,r.Value?.ToString("0.##")??"Unavailable",r.Unit,r.Source}),"1.4*,2*,*,70,1.5*"));
         if(readings.Count==0)stack.Children.Add(Text("No sensors match your search.",13,"#8da1bd"));
-        if(!sensorsOnly){stack.Children.Add(Text("Top processes",16,null,true));stack.Children.Add(Table(["Process","PID","CPU (host %)","Working set MiB"],(service.Hardware?.Processes??[]).Where(p=>Matches(p.Name,p.Id.ToString())).Select(p=>new[]{p.Name,p.Id.ToString(),p.Cpu.ToString("0.0"),p.MemoryMiB.ToString("N0")}),"2*,*,*,*"));}return stack;
+        stack.Children.Add(Text("Live process activity",16,null,true));stack.Children.Add(Table(["Process","PID","CPU (host %)","Working set MiB"],(service.Hardware?.Processes??[]).Where(p=>Matches(p.Name,p.Id.ToString())).Select(p=>new[]{p.Name,p.Id.ToString(),p.Cpu.ToString("0.0"),p.MemoryMiB.ToString("N0")}),"2*,*,*,*"));return stack;
     }
     Control ModelsPage()
     {
@@ -312,7 +322,7 @@ public sealed partial class MainWindow : Window
     static Button Btn(string label)=>new(){Content=label,Cursor=new Cursor(StandardCursorType.Hand)};
     static Control Heading(string title,string sub){var s=new StackPanel{Spacing=7};s.Children.Add(Text(title,27,"#f0f4ff",true));s.Children.Add(Text(sub,12,"#8ba0bd"));return s;}
     static Border Card(Control child)=>new(){Child=child,Padding=new Thickness(18),Background=Panel,CornerRadius=new CornerRadius(10),BorderBrush=Line,BorderThickness=new Thickness(1)};
-    static Border Metric(string label,string value,string caption){var s=new StackPanel{Spacing=10};s.Children.Add(Text(label,10,"#a1b4ce"));s.Children.Add(Text(value,29,"#e9f0ff",true));s.Children.Add(Text(caption,10,"#7f93af"));return Card(s);}
+    static Border Metric(string label,string value,string caption){var s=new StackPanel{Spacing=10};s.Children.Add(Text(label,15,"#e1e9f7",true));s.Children.Add(Text(value,29,"#e9f0ff",true));s.Children.Add(Text(caption,10,"#7f93af"));return Card(s);}
     static Control Pair(string label,string value){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};grid.Children.Add(Text(label,12,"#9eb1ca"));var v=Text(value,16,"#72d4e8",true);Grid.SetColumn(v,1);grid.Children.Add(v);return grid;}
     static Control Message(string title,string detail){var s=new StackPanel{Spacing=6};s.Children.Add(Text(title,13,"#bba3ff",true));s.Children.Add(Text(detail,12,"#9eb1ca"));return Card(s);}
     static Control Table(string[] headers,IEnumerable<string[]> data,string columns)

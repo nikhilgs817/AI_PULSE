@@ -34,8 +34,10 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 
 - **Keep only critical readings visible.** The 560 × 132 horizontal widget and 260 × 300 vertical widget have a loaded-model dropdown. Open it to see every model, host, state, memory and last observed decode rate; large lists scroll within a bounded panel.
 - **Watch the machine.** GPU load and memory, CPU load, physical RAM, network transfer, disk capacity, process usage and exposed temperature/power/fan/clock sensors.
+- **Separate specifications from measurements.** Hardware lists CPU/GPU, memory capacity, volumes and network adapters. Sensors shows live readings, process activity and sensor-access status; each has its own search.
 - **Measure Ollama requests.** The optional local gateway observes input/output/cache tokens, decode tokens per second, request duration, streaming completion and errors.
 - **Track supported agent sessions.** Import Codex and Claude Code usage metadata from local session files. Repeated records are deduplicated. Prompts and replies are not saved.
+- **Inspect the Token page.** Separate on-prem Ollama and tool usage, with exact counts by source/model, input/output/cache/reasoning splits, selectable history and CSV export. Incomplete observations and coverage gaps are explicit.
 - **Review history.** Seven days of detailed readings and configurable 7–365-day summaries, usage records and CSV exports. The shipping default remains 90 days.
 - **Protect the data.** Verified SQLite snapshots, seven daily restore points plus weekly snapshots covering the configured retention period (13 weeks by default; 53 for a year), and an in-app restore flow that preserves the previous database.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).

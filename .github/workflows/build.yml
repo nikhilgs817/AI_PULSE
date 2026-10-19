@@ -45,7 +45,7 @@ jobs:
           @{EnableGateway=$false;ReadAgentUsage=$false;OllamaUrl='http://127.0.0.1:11436'} | ConvertTo-Json | Set-Content build/ui-checks/settings.json
           try {$p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--ui-test --expect-models 12 --data-dir ./build/ui-checks' -WindowStyle Hidden -Wait -PassThru} finally {Stop-Process -Id $fixture.Id}
           Get-Content build/ui-checks/ui-test-results.txt
-          if($p.ExitCode -ne 0){Get-Content build/ui-checks/startup-error.txt -ErrorAction SilentlyContinue;throw 'UI checks failed'}
+          if($p.ExitCode -ne 0 -or (Select-String -Path build/ui-checks/ui-test-results.txt -Pattern '^FAIL:')){Get-Content build/ui-checks/startup-error.txt -ErrorAction SilentlyContinue;throw 'UI checks failed'}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -117,6 +117,7 @@ jobs:
           echo '{"EnableGateway":false,"ReadAgentUsage":false,"OllamaUrl":"http://127.0.0.1:11436"}' > build/ui-checks/settings.json
           xvfb-run -a sh -c 'openbox >/tmp/aipulse-openbox.log 2>&1 & build/linux-x64/AiPulse --ui-test --expect-models 12 --data-dir build/ui-checks'
           cat build/ui-checks/ui-test-results.txt
+          ! grep -q '^FAIL:' build/ui-checks/ui-test-results.txt
       - name: Package DEB and validate installation
         run: |
           python3 scripts/package_linux.py

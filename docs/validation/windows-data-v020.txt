@@ -6,6 +6,10 @@ PASS: Claude cached input normalized and duplicate message deduplicated
 PASS: 90-day history retention boundary
 PASS: Verified snapshot restores exact token totals
 PASS: CSV exports beyond 20,000 records and escapes spreadsheet formulas
+PASS: Token aggregates cover all records beyond the 20,000-row display limit
+PASS: On-prem and tool splits preserve cache subsets without double-counting totals
+PASS: Token ranges separate recent history and flag incomplete observations
+PASS: Reasoning stays a subset of output and same model names remain separated by source
 PASS: Prompt bodies not persisted
 PASS: 365-day history and usage boundaries preserve in-range records only
 PASS: Year-old usage survives verified backup and restore

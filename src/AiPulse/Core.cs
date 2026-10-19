@@ -12,6 +12,11 @@ public record SessionInfo(string Id, string Source, string Model, string State, 
 public record MetricPoint(long Time, double Average, double Minimum, double Maximum);
 public record AlertInfo(string Key, string Title, string Detail, long Time, bool Active);
 public record Endpoint(string Name, string Url);
+public record TokenBreakdown(string Source,string Model,long Input,long Output,long Cached,long CacheWrite,long Reasoning,long Uncached,long Records,long Incomplete)
+{
+    public bool OnPrem=>Source=="Ollama";
+    public long Total=>Input+Output;
+}
 
 public sealed class AppSettings
 {

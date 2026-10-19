@@ -12,6 +12,8 @@ public sealed class Hardware : IDisposable
     public string CpuName {get;private set;}="CPU";
     public string GpuName {get;private set;}="GPU";
     public List<ProcessInfo> Processes {get;private set;}=[];
+    public List<HardwareItem> Inventory {get;private set;}=[];
+    DateTime nextInventory=DateTime.MinValue;
     ulong lastIdle,lastKernel,lastUser;
     long linuxTotal,linuxIdle;
     DateTime lastNetwork=DateTime.UtcNow, lastProcesses=DateTime.UtcNow;
@@ -59,6 +61,7 @@ public sealed class Hardware : IDisposable
         }
         lastNetwork=DateTime.UtcNow;Add("network.rx","Download","Network","MiB/s",has?rx/1048576:null);Add("network.tx","Upload","Network","MiB/s",has?tx/1048576:null);
         if((DateTime.UtcNow-lastProcesses).TotalSeconds>=5)SampleProcesses();
+        if(DateTime.UtcNow>=nextInventory){Inventory=HardwareInventory.Read(CpuName,GpuName,list.FirstOrDefault(r=>r.Id=="ram.total")?.Value);nextInventory=DateTime.UtcNow.AddMinutes(1);}
         return list;
     }
     void AddStandardAliases(List<Reading> rows)

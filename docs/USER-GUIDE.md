@@ -34,13 +34,19 @@ Loaded models are different from agent sessions. Agent usage remains available o
 
 ![Overview](images/overview.png)
 
-The headline cards show GPU load, GPU core temperature availability, system memory and observed tokens in the last 24 hours. The GPU chart plots minute-average samples. Unified-memory figures remain separate because they overlap. The connection panel explains token coverage.
+The headline cards show GPU load, GPU core temperature availability, system memory and observed tokens in the last 24 hours. Their headings use the same 15-point semibold style as the other cards. The GPU chart plots minute-average samples. Unified-memory figures remain separate because they overlap. The connection panel explains token coverage.
 
 ## Hardware
 
-![Hardware search and sensor access](images/hardware-search.png)
+![Hardware specifications search](images/hardware-search.png)
 
-Use the persistent search field in **Hardware** or **Sensors** to filter by device, sensor, unit or source. Hardware also filters its top-process list by name or PID. Search keeps its focus during live updates and remembers its text when you change tabs. No-match results are explicit.
+Hardware is the specification inventory: CPU identity and available logical processors, GPU identity, usable physical RAM capacity, storage-volume capacities/filesystems, platform architecture and network-adapter identities. It has no temperatures, utilization, fan readings or process activity. Search filters category, device and specifications. Capacity means the OS-visible amount, not a promise of the marketed installed capacity; logical processors are not physical-core counts.
+
+## Sensors
+
+![Live sensor search](images/sensors-search.png)
+
+Sensors owns live measurements and sensor access. Its search filters device, sensor, unit, source and process names/PIDs. Hardware, Sensors and Agents each preserve their own search text and keyboard focus during live refreshes. No-match results are explicit.
 
 Browse each exposed sensor with device, value, unit and source. This includes per-core load, clocks, temperatures, powers, fans and storage readings when supported. Top processes show CPU as a percentage of total host capacity and working-set memory. Working sets can overlap shared pages and should not be summed as exact physical usage.
 
@@ -61,6 +67,23 @@ Search by source, model, session ID or recorded status. Search covers all sessio
 Supported local Codex and Claude Code session records supply model identity, token categories and last activity. This importer follows source formats and may need updates when those tools change. It reads metadata; it does not persist conversation contents. Claude Desktop Chat/Cowork coverage is not implied by Claude Code support.
 
 “Working” is based on an observed Codex lifecycle event. “Recent activity” is weaker evidence. After inactivity, unresolved sessions show **Quiet / unknown**. A running process is not proof that an agent is generating.
+
+## Token
+
+![Separate on-prem and tool token usage](images/token-split.png)
+
+This screenshot uses explicitly synthetic token records for layout verification; it is not an inference benchmark or bill.
+
+Choose the last 24 hours or 7/30/90/180/365 days, limited by your retention setting. The page shows two independent sections:
+
+- **On-prem models:** Ollama token usage observed through the AIPULSE gateway, grouped by model. Direct requests to port 11434 and remote endpoints used only for discovery are outside this coverage.
+- **Tools & other usage:** Codex and Claude Code metadata from supported local session files, grouped by source and model. A source identifies the tool, not the model's hosting location. Claude Desktop Chat/Cowork usage may not be available.
+
+Each section shows exact input/output totals and a model table containing input, output, cache reads, cache writes, reasoning and total tokens. The input summary also shows uncached input. Cache reads and writes are **subsets of input**; reasoning is a **subset of output**. Total is input plus output. Zero means no recorded tokens in that field, which may reflect a provider that does not expose it. Incomplete/failed observations are counted and explicitly flagged; any reported partial counts remain included.
+
+Usage records are events, not necessarily individual requests. A tool routed through the Ollama gateway may produce both tool and on-prem observations, so the page does not add the two sections into a combined consumption total. It does not infer cloud invoices, subscription allowances or dollar costs.
+
+All aggregates cover the entire selected period, including more than 20,000 records. **Export selected period CSV** exports the same time range and all token categories to the local exports folder. Narrow windows let the detailed tables scroll horizontally. Remote k3s discovery alone does not supply token counts; an instrumented runtime or gateway is still required.
 
 ## History and alerts
 

@@ -78,6 +78,19 @@ public sealed class Storage : IDisposable
     {
         lock(gate){using var c=Command("SELECT coalesce(sum(input),0),coalesce(sum(output),0),coalesce(sum(cached),0),count(*) FROM usage WHERE time>=@p0",since);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
     }
+    public List<TokenBreakdown> TokenBreakdown(long since)
+    {
+        // Aggregate in SQLite over the entire selected range, without UsageSince's display cap.
+        lock(gate){using var c=Command("""
+            SELECT source,model,sum(input),sum(output),sum(cached),sum(cache_write),sum(reasoning),
+                   sum(max(0,input-cached-cache_write)),count(*),
+                   sum(CASE WHEN status IN ('Completed','Reported') THEN 0 ELSE 1 END)
+            FROM usage WHERE time>=@p0 GROUP BY source,model ORDER BY sum(input+output) DESC,source,model
+            """,since);
+            using var r=c.ExecuteReader();var rows=new List<TokenBreakdown>();
+            while(r.Read())rows.Add(new(r.GetString(0),r.GetString(1),r.GetInt64(2),r.GetInt64(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8),r.GetInt64(9)));
+            return rows;}
+    }
     public void ExportUsage(string file,long since)
     {
         // Stream the full retained range without the UI's row cap or an unbounded in-memory list.

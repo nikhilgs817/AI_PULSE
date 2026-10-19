@@ -44,6 +44,8 @@ Use Inno Setup to compile `installer/windows.iss`. Run `python3 scripts/package_
 
 `--self-test` checks deduplication, provider accounting, retention and a real SQLite backup/restore. `--diagnose` writes hardware readings to `diagnostics.json` and exits. `--collect` runs collection for a bounded duration without opening a window. See the dedicated Ollama test guide for real inference traffic.
 
+For an intermittent desktop crash, add `--diagnostic-stack` to retain the exception's call stack in the local `startup-error.txt`. This is opt-in; review the file before sharing because stack traces can contain local source paths. It does not enable remote reporting.
+
 For UI captures, `--capture` saves the rendered window after startup. `--expanded` opens the full dashboard and `--page Models` selects a page. `--exit-after N` supports bounded GUI smoke testing; with capture enabled, the countdown follows the capture delay. Screenshots must remain clearly identified as live captures or test fixtures.
 
 ## Release checklist
@@ -61,4 +63,4 @@ The GitHub workflow builds packages and runs Linux tests; virtual graphics do no
 
 `--ui-test --data-dir <isolated test folder>` runs real Avalonia controls and saves screenshots/results. Never point it at your personal data directory: it changes test settings. `tests/ui_fixture.py` provides 12 explicitly synthetic Ollama models on loopback port 11436. Configure the isolated app's `OllamaUrl` accordingly and add `--expect-models 12` to verify discovery, every model row, bounded scrolling and scroll preservation. This is a UI/protocol simulation, not a model-performance benchmark.
 
-Both platform CI jobs run the checks. They also cover both compact orientations, restored full-size header, sidebar collapse/expand, search focus across refresh, independent tab searches, empty results and the one-year history selector. Native pointer dragging is separately checked on Windows. Real Ollama inference uses the separate smoke test.
+Both platform CI jobs run the checks. They also cover both compact orientations, restored full-size header, Maximize/Restore, returning from maximized to compact, preserving the active header during input, sidebar collapse/expand, search focus across refresh, independent tab searches, empty results and the one-year history selector. Native pointer dragging and blank-header double-click are separately checked on Windows. Real Ollama inference uses the separate smoke test. Start with a fresh test settings file; the UI checks intentionally finish with 365-day retention.

@@ -22,6 +22,16 @@ public static class SelfTests
                 var backup=db.Backup(Path.Combine(root,"backups"));Storage.VerifyBackup(backup);File.Copy(backup,Path.Combine(root,"restore.db"));using var restored=new Storage(Path.Combine(root,"restore.db"));Check(restored.Totals(now-1).Input==265,"Verified snapshot restores exact token totals");
                 for(int i=0;i<20001;i++)db.PutUsage(new("bulk-"+i,"Test","=unsafe-formula","bulk",now,1,0,0,0,0,null,null,"Completed"));
                 var export=Path.Combine(root,"export.csv");db.ExportUsage(export,now-1);var lines=File.ReadLines(export);Check(lines.Count()==20005&&lines.Any(l=>l.Contains("'=unsafe-formula")),"CSV exports beyond 20,000 records and escapes spreadsheet formulas");
+                var split=db.TokenBreakdown(now-1);Check(split.Sum(r=>r.Input)==db.Totals(now-1).Input&&split.Sum(r=>r.Records)==20004&&split.Single(r=>r.Source=="Test").Input==20001,"Token aggregates cover all records beyond the 20,000-row display limit");
+                var local=split.Single(r=>r.OnPrem);var claude=split.Single(r=>r.Source=="Claude Code");Check(local.Total==120&&claude.Input==65&&claude.Uncached==10&&claude.Cached==50&&claude.CacheWrite==5&&claude.Total==77,"On-prem and tool splits preserve cache subsets without double-counting totals");
+            }
+            using(var tokens=new Storage(Path.Combine(root,"tokens.db")))
+            {
+                long now=J.Now;tokens.PutUsage(new("old-token","Ollama","model","",now-3*86400,100,10,0,0,0,null,null,"Completed"));
+                tokens.PutUsage(new("partial-token","Ollama","model","",now,5,2,0,0,0,null,null,"Cancelled · usage incomplete"));
+                tokens.PutUsage(new("tool-token","Codex","model","session",now,10,8,3,0,4,null,null,"Reported"));
+                var day=tokens.TokenBreakdown(now-86400);Check(day.Single(r=>r.OnPrem).Total==7&&day.Single(r=>r.OnPrem).Incomplete==1&&tokens.TokenBreakdown(now-7*86400).Single(r=>r.OnPrem).Total==117,"Token ranges separate recent history and flag incomplete observations");
+                Check(day.Single(r=>!r.OnPrem).Reasoning==4&&day.Single(r=>!r.OnPrem).Total==18,"Reasoning stays a subset of output and same model names remain separated by source");
             }
             Check(!System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(root,"test.db"))).Contains("SECRET_PROMPT_SHOULD_NOT_PERSIST"),"Prompt bodies not persisted");
             using(var year=new Storage(Path.Combine(root,"year.db"),365))
