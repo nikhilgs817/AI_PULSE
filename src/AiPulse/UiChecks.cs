@@ -20,18 +20,19 @@ public sealed partial class MainWindow
         try
         {
             service.Settings.Compact=true;service.Settings.CompactVertical=false;modelsExpanded=false;ApplyWindowLayout();RenderBody();await Shot("compact-horizontal");
-            Check(Width==560&&Height==132&&header.Bounds.Height==34,"Horizontal compact layout contains only the small header, five readings and model toggle");
-            await Click("Toggle loaded models");Check(modelsExpanded&&Height>132,"Loaded-model dropdown opens without expanding the dashboard");await Shot("compact-models");
+            Check(Width==560&&Height==142&&header.Bounds.Height==34,"Horizontal compact layout includes five hardware readings, daily activity and model toggle");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="ACTIVE AGENTS")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="TOKENS TODAY"),"Compact mode displays agent activity and calendar-day tokens");
+            await Click("Toggle loaded models");Check(modelsExpanded&&Height>142,"Loaded-model dropdown opens without expanding the dashboard");await Shot("compact-models");
             int expectedIndex=Array.IndexOf(Program.Arguments,"--expect-models");
             if(expectedIndex>=0)
             {
                 int expected=int.Parse(Program.Arguments[expectedIndex+1]);Check(service.Ollama.Models.Count==expected,"All fixture models were discovered through Ollama HTTP polling");
                 foreach(var model in service.Ollama.Models)Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text==model.Name),"Loaded-model row exists: "+model.Name);
-                var scroll=this.GetVisualDescendants().OfType<ScrollViewer>().Single();Check(scroll.Extent.Height>scroll.Viewport.Height&&Height<=432,"Many models scroll inside a bounded compact dropdown");
+                var scroll=this.GetVisualDescendants().OfType<ScrollViewer>().Single();Check(scroll.Extent.Height>scroll.Viewport.Height&&Height<=442,"Many models scroll inside a bounded compact dropdown");
                 scroll.Offset=new Vector(0,scroll.Extent.Height);await Task.Delay(150);Refresh();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<ScrollViewer>().Single().Offset.Y>0,"Loaded-model scroll position survives live refresh");
             }
-            await Click("Toggle loaded models");Check(!modelsExpanded&&Height==132,"Closing loaded-model dropdown restores compact height");
-            await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==260&&Height==300,"Vertical compact layout changes width and height");await Shot("compact-vertical");
+            await Click("Toggle loaded models");Check(!modelsExpanded&&Height==142,"Closing loaded-model dropdown restores compact height");
+            await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==260&&Height==256,"Vertical compact layout fits seven readings in tight 28-pixel rows");await Shot("compact-vertical");
             await Click("Expand dashboard");Check(!service.Settings.Compact&&header.Bounds.Height==64,"Expanded dashboard restores full-size branding");
             var pressedHeader=header.Content;ButtonNamed("Maximize window").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(ReferenceEquals(pressedHeader,header.Content),"Window-state changes keep the active header attached until input completes");
@@ -60,6 +61,9 @@ public sealed partial class MainWindow
             await Click("Token");await Click("Token");Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="On-prem models")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Tools & other usage"),"Token separates on-prem models from tools and other usage");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="1,500")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="1,950"),"Token displays exact independent totals for both sections");await Shot("token-split");
             tokenDays=7;RenderBody();await Task.Delay(150);Check(tokenDays==7&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Cache write¹"),"Token supports period selection and detailed cache/reasoning columns");
+            await Click("Show compact dashboard");Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="TOKENS TODAY: "+J.Count(3450)),"Compact daily token value updates from stored input/output observations");
+            Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="ACTIVE AGENTS: —"),"Disabled agent import is shown as unavailable rather than zero active agents");
+            await Shot("compact-activity");await Click("Expand dashboard");
             await Click("History");Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"Default 90-day history does not offer unavailable year ranges");
             service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
             await Shot("history-year");

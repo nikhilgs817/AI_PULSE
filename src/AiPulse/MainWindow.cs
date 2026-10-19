@@ -77,7 +77,8 @@ public sealed partial class MainWindow : Window
         Height=compact?CompactHeight():820;
         BuildHeader();layoutPage=null;
     }
-    double CompactHeight()=> (service.Settings.CompactVertical?300:132)+(modelsExpanded?Math.Min(300,Math.Max(66,service.Ollama.Models.Count*(service.Settings.CompactVertical?94:76)+12)):0);
+    double CompactBaseHeight=>service.Settings.CompactVertical?256:142;
+    double CompactHeight()=>CompactBaseHeight+(modelsExpanded?Math.Min(300,Math.Max(66,service.Ollama.Models.Count*(service.Settings.CompactVertical?94:76)+12)):0);
     void BuildHeader()
     {
         bool compact=service.Settings.Compact;
@@ -125,7 +126,7 @@ public sealed partial class MainWindow : Window
                     var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand)};
                     ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{if(page==item)return;page=item;scroller=null;layoutPage=null;RenderBody();};nav.Children.Add(b);
                 }
-                if(!collapsed){var host=Text("This PC\n"+(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux")+" · v0.2.0",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
+                if(!collapsed){var host=Text("This PC\n"+(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux")+" · v0.2.1",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
                 layout.Children.Add(new Border{Child=new ScrollViewer{Content=nav},BorderBrush=Line,BorderThickness=new Thickness(0,0,1,0)});
                 var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=new Thickness(26,20)};
                 if(page is "Hardware" or "Sensors" or "Agents")
@@ -155,22 +156,33 @@ public sealed partial class MainWindow : Window
     Control Compact()
     {
         bool vertical=service.Settings.CompactVertical;
-        var grid=new Grid{RowDefinitions=new RowDefinitions("*,26,Auto"),Margin=new Thickness(8,0)};
-        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?"*,*,*,*,*":"*")};
+        var grid=new Grid{RowDefinitions=new RowDefinitions(vertical?"196,26,Auto":"52,30,26,Auto"),Margin=new Thickness(8,0)};
+        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?"28,28,28,28,28,28,28":"*")};
         string[] labels=["GPU TEMP","GPU LOAD","GPU LOCAL","RAM USED","CPU TEMP"];
         string[] ids=["gpu.temperature","gpu.load","gpu.local","ram.used","cpu.temperature"];
         if(service.Value("gpu.temperature")==null&&service.Readings.FirstOrDefault(r=>r.Name=="GPU VR SoC") is {Value:not null} soc){labels[0]="GPU VR SOC";ids[0]=soc.Id;}
         for(int i=0;i<ids.Length;i++)
         {
             var label=Text(labels[i],vertical?12:11,"#a9bdd9",true);label.FontWeight=FontWeight.Bold;var value=Text(Format(ids[i]),19,"#e9f0ff",true);
-            var cell=new Grid{Margin=new Thickness(6,vertical?5:10),RowDefinitions=new RowDefinitions(vertical?"*":"Auto,*"),ColumnDefinitions=new ColumnDefinitions(vertical?"*,Auto":"*")};cell.Children.Add(label);
+            var cell=new Grid{Margin=new Thickness(6,vertical?2:5),RowDefinitions=new RowDefinitions(vertical?"*":"Auto,*"),ColumnDefinitions=new ColumnDefinitions(vertical?"*,Auto":"*")};cell.Children.Add(label);
             if(vertical)Grid.SetColumn(value,1);else Grid.SetRow(value,1);cell.Children.Add(value);
             ToolTip.SetTip(cell,ids[i]=="cpu.temperature"&&service.Value(ids[i])==null?SensorDescription():service.LastSample==0?"Waiting for collector":J.Now-service.LastSample>8?"Reading is stale":"Live · updated every 2 seconds");
             if(vertical)Grid.SetRow(cell,i);else Grid.SetColumn(cell,i);metrics.Children.Add(cell);
         }
         grid.Children.Add(metrics);
+        var now=DateTimeOffset.Now;var activity=service.Store.CompactActivity(J.DayStart(now,TimeZoneInfo.Local),now.ToUnixTimeSeconds());
+        Control ActivityCell(string title,string value,string help)
+        {
+            var cell=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),Margin=new Thickness(6,2)};
+            var label=Text(title,vertical?12:11,"#a9bdd9",true);label.FontWeight=FontWeight.Bold;cell.Children.Add(label);
+            var number=Text(value,vertical?19:16,"#e9f0ff",true);Grid.SetColumn(number,1);cell.Children.Add(number);ToolTip.SetTip(cell,help);Avalonia.Automation.AutomationProperties.SetName(cell,title+": "+value);return cell;
+        }
+        var agents=ActivityCell("ACTIVE AGENTS",service.Settings.ReadAgentUsage?activity.ActiveAgents.ToString("N0"):"—",service.Settings.ReadAgentUsage?"Sessions reporting Working or Recent activity within the last 5 minutes. Completed, interrupted and quiet sessions are excluded. This does not prove the model is generating right now.":"Agent usage import is disabled. Enable Read local usage metadata in Settings to count recent active sessions.");
+        var tokens=ActivityCell("TOKENS TODAY",J.Count(activity.Tokens),$"{activity.Tokens:N0} observed input + output tokens since local midnight ({now:MMM d}). Cache is already included.\nOn-prem: {activity.OnPrem:N0} · tools: {activity.Tools:N0}. These sources can overlap when a tool uses the monitored Ollama gateway. Open Token for details.");
+        if(vertical){Grid.SetRow(agents,5);metrics.Children.Add(agents);Grid.SetRow(tokens,6);metrics.Children.Add(tokens);}
+        else{var activityRow=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*")};activityRow.Children.Add(agents);Grid.SetColumn(tokens,1);activityRow.Children.Add(tokens);Grid.SetRow(activityRow,1);grid.Children.Add(activityRow);}
         var toggle=Btn((modelsExpanded?"▴":"▾")+"  Loaded models · "+service.Ollama.Models.Count+(service.LastSample>0&&J.Now-service.LastSample>8?" · STALE":""));toggle.Padding=new Thickness(6,2);toggle.MinHeight=24;toggle.FontSize=11;toggle.HorizontalAlignment=HorizontalAlignment.Stretch;toggle.HorizontalContentAlignment=HorizontalAlignment.Left;toggle.Background=Brushes.Transparent;
-        Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,1);grid.Children.Add(toggle);
+        Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,vertical?1:2);grid.Children.Add(toggle);
         if(modelsExpanded)
         {
             var list=new StackPanel{Spacing=5,Margin=new Thickness(0,3,0,6)};
@@ -183,7 +195,7 @@ public sealed partial class MainWindow : Window
                 row.Children.Add(Text(m.Host=="This PC"&&rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} tok/s · last observed request":"Decode rate unavailable",10,"#55cee5"));
                 list.Children.Add(new Border{Child=row,Background=Panel,CornerRadius=new CornerRadius(5)});
             }
-            var scroll=new ScrollViewer{Content=list,Height=CompactHeight()-(vertical?300:132),VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Offset=compactOffset};scroll.ScrollChanged+=(_,_)=>compactOffset=scroll.Offset;Grid.SetRow(scroll,2);grid.Children.Add(scroll);
+            var scroll=new ScrollViewer{Content=list,Height=CompactHeight()-CompactBaseHeight,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Offset=compactOffset};scroll.ScrollChanged+=(_,_)=>compactOffset=scroll.Offset;Grid.SetRow(scroll,vertical?2:3);grid.Children.Add(scroll);
         }
         return grid;
     }
@@ -311,7 +323,7 @@ public sealed partial class MainWindow : Window
             }catch(Exception e){notice="Restore was not started: "+e.Message;RenderBody();}
         };stack.Children.Add(restore);
         var quit=Btn("Quit AI Pulse · Ctrl+Q");quit.Click+=(_,_)=>Quit();stack.Children.Add(quit);
-        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse 0.2.0 · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
+        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse 0.2.1 · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
     }
     public void Capture()
     {

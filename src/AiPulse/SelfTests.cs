@@ -34,6 +34,20 @@ public static class SelfTests
                 Check(day.Single(r=>!r.OnPrem).Reasoning==4&&day.Single(r=>!r.OnPrem).Total==18,"Reasoning stays a subset of output and same model names remain separated by source");
             }
             Check(!System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(root,"test.db"))).Contains("SECRET_PROMPT_SHOULD_NOT_PERSIST"),"Prompt bodies not persisted");
+            using(var compact=new Storage(Path.Combine(root,"compact.db")))
+            {
+                long now=J.Now,midnight=J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local);
+                compact.PutUsage(new("yesterday","Ollama","m","",midnight-1,900,100,500,0,0,null,null,"Completed"));
+                compact.PutUsage(new("today","Codex","m","",midnight,100,20,60,0,5,null,null,"Reported"));
+                compact.PutUsage(new("future","Ollama","m","",now+120,800,100,0,0,0,null,null,"Completed"));
+                for(int i=0;i<102;i++)compact.Session("active-"+i,"Codex","m","Working",now-10);
+                compact.Session("recent","Claude Code","m","Recent activity",now-20);compact.Session("complete","Codex","m","Completed",now);compact.Session("interrupted","Codex","m","Interrupted",now);compact.Session("quiet","Codex","m","Working",now-301);compact.Session("future-session","Codex","m","Working",now+60);
+                var summary=compact.CompactActivity(midnight,now);
+                Check(summary.ActiveAgents==103,"Compact active count includes all recent sessions beyond the 100-row list and excludes quiet/completed/future sessions");
+                Check(summary.Tokens==120&&summary.Tools==120&&summary.OnPrem==0,"Tokens today starts at local midnight, excludes future records and does not add cache/reasoning twice");
+                var zone=TimeZoneInfo.CreateCustomTimeZone("test-offset",TimeSpan.FromHours(-5),"test","test");
+                Check(J.DayStart(DateTimeOffset.Parse("2026-10-19T02:00:00Z"),zone)==DateTimeOffset.Parse("2026-10-18T05:00:00Z").ToUnixTimeSeconds(),"Local calendar-day boundary differs from UTC midnight and rolling 24 hours");
+            }
             using(var year=new Storage(Path.Combine(root,"year.db"),365))
             {
                 long now=J.Now,inside=now-364*86400L,outside=now-366*86400L;

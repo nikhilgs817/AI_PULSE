@@ -95,6 +95,11 @@ public static class J
     public static double? Dbl(this JsonElement j,string key) {var v=j.Get(key);return v.ValueKind==JsonValueKind.Number&&v.TryGetDouble(out var n)&&double.IsFinite(n)?n:null;}
     public static string Hash(string s) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(s))).ToLowerInvariant();
     public static long Now => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    public static long DayStart(DateTimeOffset now,TimeZoneInfo zone)
+    {
+        var date=TimeZoneInfo.ConvertTime(now,zone).Date;
+        return new DateTimeOffset(date,zone.GetUtcOffset(date)).ToUnixTimeSeconds();
+    }
     public static long Timestamp(JsonElement j) => DateTimeOffset.TryParse(j.Str("timestamp"),out var t)?t.ToUnixTimeSeconds():Now;
     public static string Count(long n) => n>=1_000_000?$"{n/1_000_000.0:0.00}M":n>=1000?$"{n/1000.0:0.0}k":n.ToString("N0");
     public static string Size(double? v) => v.HasValue?$"{v:0.0} GiB":"—";

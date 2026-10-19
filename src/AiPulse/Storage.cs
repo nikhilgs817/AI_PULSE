@@ -78,6 +78,16 @@ public sealed class Storage : IDisposable
     {
         lock(gate){using var c=Command("SELECT coalesce(sum(input),0),coalesce(sum(output),0),coalesce(sum(cached),0),count(*) FROM usage WHERE time>=@p0",since);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
     }
+    public (long ActiveAgents,long Tokens,long OnPrem,long Tools) CompactActivity(long since,long now)
+    {
+        lock(gate){using var c=Command("""
+            SELECT (SELECT count(*) FROM sessions WHERE state IN ('Working','Recent activity') AND last_seen>=@p1-300 AND last_seen<=@p1),
+                   coalesce(sum(input+output),0),
+                   coalesce(sum(CASE WHEN source='Ollama' THEN input+output ELSE 0 END),0),
+                   coalesce(sum(CASE WHEN source<>'Ollama' THEN input+output ELSE 0 END),0)
+            FROM usage WHERE time>=@p0 AND time<=@p1
+            """,since,now);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
+    }
     public List<TokenBreakdown> TokenBreakdown(long since)
     {
         // Aggregate in SQLite over the entire selected range, without UsageSince's display cap.

@@ -6,7 +6,7 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
-> **0.2.0 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
+> **0.2.1 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
@@ -20,9 +20,9 @@ Screenshots with `fixture-model-*` names use synthetic Ollama responses to demon
 
 Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose your platform:
 
-- **Windows 11 x64:** `AI-Pulse-Setup-0.2.0-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
-- **Ubuntu Desktop x64:** `ai-pulse_0.2.0_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
-- **Linux portable:** `AI-Pulse-0.2.0-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
+- **Windows 11 x64:** `AI-Pulse-Setup-0.2.1-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
+- **Ubuntu Desktop x64:** `ai-pulse_0.2.1_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
+- **Linux portable:** `AI-Pulse-0.2.1-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
 
 The app bundles its .NET runtime, interface and SQLite database engine. **You do not install Python, Docker, .NET or a database server to use it.** Ubuntu still relies on standard OS libraries, resolved by the package manager. The database is created automatically on first launch.
 
