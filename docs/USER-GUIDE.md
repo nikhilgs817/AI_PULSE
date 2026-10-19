@@ -14,6 +14,8 @@ The dropdown screenshot above is a UI test using clearly named synthetic model e
 
 Use **↕ / ↔** in the small header to switch between **horizontal (560 × 132 logical pixels)** and **vertical (260 × 300)** layouts. The choice survives restarts. These dimensions exclude native window borders; physical pixels depend on display scaling.
 
+Metric labels use bold 12-point text vertically and 11-point text horizontally, with brighter contrast against the dark background.
+
 ![Vertical compact dashboard](images/compact-vertical.png)
 
 Drag any non-interactive part of the window—including metric labels, readings, cards and blank space—to move it. Buttons, text fields, dropdowns and scrollbars retain their normal interactions. The small circle pin control toggles always-on-top; its tooltip describes the action. Position is saved on a mode switch or close.

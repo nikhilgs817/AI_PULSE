@@ -9,6 +9,12 @@
 - Native Windows pointer input moved the expanded window from the body by 50 pixels horizontally and 30 vertically. Search typing preserved focus through live refreshes.
 - Icon generation checks corner alpha and embeds seven Windows icon resolutions.
 
-Current platform CI results, installed-app Ollama tests and sensor permission checks are recorded below after they complete. Physical Ubuntu GPU/temperature tests remain unperformed. Missing sensors stay unavailable; GPU VR SoC is not a GPU-core-temperature substitute.
+The Windows 0.2.0 installer upgraded the existing installation successfully. A verified pre-upgrade snapshot preserved 1,570 usage records; the existing data directory and 90-day preference were retained. The installed executable reports version 0.2.0.
+
+All seven [real Ollama checks](validation/ollama-windows-v020.json) passed from the installed app: non-streaming, streaming, concurrent generation/embedding, two resident models, preserved HTTP 404, exact token accounting and provider-matched decode rate. Three Qwen requests recorded exactly **75 input and 51 output tokens**. No model weights were downloaded.
+
+After the owner approved the isolated helper on October 19, CPU temperature was recorded continuously at approximately 46–48 °C. PawnIO was already installed; no security policy was changed. Deep-sensor permission remains session-scoped.
+
+The initial 0.2.0 build passed both Windows and Ubuntu CI in [run 39173518066](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39173518066). A final build includes the requested larger bold compact labels. Physical Ubuntu GPU/temperature tests remain unperformed. Missing sensors stay unavailable; GPU VR SoC is not a GPU-core-temperature substitute.
 
 See the [previous preview's validation](VALIDATION-0.1.0.md) for the initial Windows/Ubuntu package, real Ollama and sensor-helper baseline. Historical results do not replace current-release checks.

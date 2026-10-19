@@ -154,7 +154,7 @@ public sealed partial class MainWindow : Window
         if(service.Value("gpu.temperature")==null&&service.Readings.FirstOrDefault(r=>r.Name=="GPU VR SoC") is {Value:not null} soc){labels[0]="GPU VR SOC";ids[0]=soc.Id;}
         for(int i=0;i<ids.Length;i++)
         {
-            var label=Text(labels[i],9,"#8ea3c0");var value=Text(Format(ids[i]),19,"#e9f0ff",true);
+            var label=Text(labels[i],vertical?12:11,"#a9bdd9",true);label.FontWeight=FontWeight.Bold;var value=Text(Format(ids[i]),19,"#e9f0ff",true);
             var cell=new Grid{Margin=new Thickness(6,vertical?5:10),RowDefinitions=new RowDefinitions(vertical?"*":"Auto,*"),ColumnDefinitions=new ColumnDefinitions(vertical?"*,Auto":"*")};cell.Children.Add(label);
             if(vertical)Grid.SetColumn(value,1);else Grid.SetRow(value,1);cell.Children.Add(value);
             ToolTip.SetTip(cell,ids[i]=="cpu.temperature"&&service.Value(ids[i])==null?SensorDescription():service.LastSample==0?"Waiting for collector":J.Now-service.LastSample>8?"Reading is stale":"Live · updated every 2 seconds");
