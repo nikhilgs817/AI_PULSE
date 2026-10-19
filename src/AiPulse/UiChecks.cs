@@ -33,6 +33,10 @@ public sealed partial class MainWindow
             await Click("Toggle loaded models");Check(!modelsExpanded&&Height==132,"Closing loaded-model dropdown restores compact height");
             await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==260&&Height==300,"Vertical compact layout changes width and height");await Shot("compact-vertical");
             await Click("Expand dashboard");Check(!service.Settings.Compact&&header.Bounds.Height==64,"Expanded dashboard restores full-size branding");
+            await Click("Maximize window");Check(WindowState==WindowState.Maximized&&ButtonNamed("Restore window")!=null,"Expanded window maximizes and exposes Restore");
+            await Click("Restore window");Check(WindowState==WindowState.Normal&&ButtonNamed("Maximize window")!=null,"Restore returns to a normal resizable window");
+            await Click("Maximize window");await Click("Show compact dashboard");Check(service.Settings.Compact&&WindowState==WindowState.Normal&&!CanMaximize,"Compact mode leaves maximization and remains a small widget");
+            await Click("Expand dashboard");
             await Shot("overview-expanded");
             await Click("Collapse menu");Check(service.Settings.SidebarCollapsed&&ButtonNamed("Expand menu")!=null,"Sidebar collapses to named icon buttons");await Shot("sidebar-collapsed");
             await Click("Hardware");var search=this.GetVisualDescendants().OfType<TextBox>().Single();search.Focus();search.Text="not-a-real-sensor-xyz";await Task.Delay(150);Refresh();await Task.Delay(150);

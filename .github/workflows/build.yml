@@ -97,7 +97,7 @@ jobs:
       - name: GUI smoke test on virtual X11 desktop
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libx11-6 libice6 libsm6 libfontconfig1
+          sudo apt-get install -y xvfb openbox libx11-6 libice6 libsm6 libfontconfig1
           xvfb-run -a build/linux-x64/AiPulse --data-dir build/gui-test --capture --exit-after 3
           test -s build/gui-test/compact-live.png
           python3 - <<'PY'
@@ -115,7 +115,7 @@ jobs:
           fixture_pid=$!
           trap 'kill "$fixture_pid"' EXIT
           echo '{"EnableGateway":false,"ReadAgentUsage":false,"OllamaUrl":"http://127.0.0.1:11436"}' > build/ui-checks/settings.json
-          xvfb-run -a build/linux-x64/AiPulse --ui-test --expect-models 12 --data-dir build/ui-checks
+          xvfb-run -a sh -c 'openbox >/tmp/aipulse-openbox.log 2>&1 & build/linux-x64/AiPulse --ui-test --expect-models 12 --data-dir build/ui-checks'
           cat build/ui-checks/ui-test-results.txt
       - name: Package DEB and validate installation
         run: |

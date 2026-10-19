@@ -18,6 +18,9 @@ PASS: Loaded-model scroll position survives live refresh
 PASS: Closing loaded-model dropdown restores compact height
 PASS: Vertical compact layout changes width and height
 PASS: Expanded dashboard restores full-size branding
+PASS: Expanded window maximizes and exposes Restore
+PASS: Restore returns to a normal resizable window
+PASS: Compact mode leaves maximization and remains a small widget
 PASS: Sidebar collapses to named icon buttons
 PASS: Search text and keyboard focus survive live refresh
 PASS: Unmatched sensor search has an explicit empty state

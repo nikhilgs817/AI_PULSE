@@ -43,8 +43,10 @@ public sealed partial class MainWindow : Window
             if(!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)return;
             for(var v=e.Source as Visual;v!=null&&v!=this;v=v.GetVisualParent())
                 if(v is Button or TextBox or ComboBox or Slider or ScrollBar or NumericUpDown or ToggleSwitch or MenuItem)return;
+            if(!service.Settings.Compact&&e.ClickCount==2&&e.Source is Visual source&&source.GetVisualAncestors().Contains(header)){ToggleMaximize();e.Handled=true;return;}
             BeginMoveDrag(e);
         },RoutingStrategies.Bubble);
+        PropertyChanged+=(_,e)=>{if(e.Property==WindowStateProperty)BuildHeader();};
         Closing+=(_,e)=>{if(Application.Current is App a&&!a.Quitting){SavePosition();if(OperatingSystem.IsWindows()){e.Cancel=true;Hide();}else{a.Quitting=true;(a.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();}}};
         Opened+=async(_,_)=>
         {
@@ -67,7 +69,8 @@ public sealed partial class MainWindow : Window
     void ApplyWindowLayout()
     {
         bool compact=service.Settings.Compact,vertical=service.Settings.CompactVertical;
-        MinWidth=compact?(vertical?240:560):850;MinHeight=compact?100:520;CanResize=!compact;
+        if(compact&&WindowState==WindowState.Maximized)WindowState=WindowState.Normal;
+        MinWidth=compact?(vertical?240:560):850;MinHeight=compact?100:520;CanResize=!compact;CanMaximize=!compact;
         shell.RowDefinitions=new RowDefinitions(compact?"34,*,0":"64,*,34");footer.IsVisible=!compact;
         Width=compact?(vertical?260:560):1280;
         Height=compact?CompactHeight():820;
@@ -85,10 +88,13 @@ public sealed partial class MainWindow : Window
         Action(Topmost?"●":"○",Topmost?"Unpin window":"Pin window on top",()=>{Topmost=!Topmost;service.Settings.Pinned=Topmost;Paths.Save(service.Settings);BuildHeader();});
         if(compact)Action(service.Settings.CompactVertical?"↔":"↕","Switch compact orientation",()=>{service.Settings.CompactVertical=!service.Settings.CompactVertical;Paths.Save(service.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();});
         Action(compact?"↗":"Compact ↙",compact?"Expand dashboard":"Show compact dashboard",ToggleMode);
-        Action("—","Minimize",()=>WindowState=WindowState.Minimized);Action("×","Close to tray",Close);
+        Action("—","Minimize",()=>WindowState=WindowState.Minimized);
+        if(!compact)Action(WindowState==WindowState.Maximized?"❐":"□",WindowState==WindowState.Maximized?"Restore window":"Maximize window",ToggleMaximize);
+        Action("×",OperatingSystem.IsWindows()?"Close to tray":"Close window",Close);
         Grid.SetColumn(controls,1);title.Children.Add(controls);
         header.Content=new Border{Child=title,Padding=compact?new Thickness(8,3):new Thickness(18,10),BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1)};
     }
+    void ToggleMaximize(){if(!service.Settings.Compact)WindowState=WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized;}
     public void ToggleMode(){SavePosition();service.Settings.Compact=!service.Settings.Compact;Paths.Save(service.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();}
     void Refresh()
     {

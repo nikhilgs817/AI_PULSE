@@ -22,6 +22,8 @@ Drag any non-interactive part of the window—including metric labels, readings,
 
 **↗** or **Ctrl+D** opens the full dashboard and restores the larger ECG wordmark. **Compact ↙** returns to the widget. On Windows, close hides to the tray while collection continues; Linux close exits. **Ctrl+Q**, Settings **Quit AI Pulse**, or tray **Quit AI Pulse** stops collection.
 
+Expanded mode includes standard **Minimize, Maximize/Restore and Close** controls on both Windows and Ubuntu. Double-click the non-interactive header to maximize or restore. Returning to compact mode leaves maximization and restores the small widget dimensions. Ubuntu window placement is managed by your desktop/compositor.
+
 The sidebar has **Collapse menu / Expand menu** controls. Collapsed mode shows recognizable icons with tooltips and accessible names; expanded mode restores text labels.
 
 ![Collapsed sidebar](images/sidebar-collapsed.png)
