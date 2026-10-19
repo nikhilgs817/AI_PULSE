@@ -43,10 +43,11 @@ public sealed partial class MainWindow : Window
             if(!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)return;
             for(var v=e.Source as Visual;v!=null&&v!=this;v=v.GetVisualParent())
                 if(v is Button or TextBox or ComboBox or Slider or ScrollBar or NumericUpDown or ToggleSwitch or MenuItem)return;
-            if(!service.Settings.Compact&&e.ClickCount==2&&e.Source is Visual source&&source.GetVisualAncestors().Contains(header)){ToggleMaximize();e.Handled=true;return;}
+            if(!service.Settings.Compact&&e.ClickCount==2&&e.GetPosition(this).Y<header.Bounds.Bottom){e.Handled=true;Dispatcher.UIThread.Post(ToggleMaximize);return;}
             BeginMoveDrag(e);
         },RoutingStrategies.Bubble);
-        PropertyChanged+=(_,e)=>{if(e.Property==WindowStateProperty)BuildHeader();};
+        // Keep the pressed visual attached until native pointer processing finishes.
+        PropertyChanged+=(_,e)=>{if(e.Property==WindowStateProperty)Dispatcher.UIThread.Post(BuildHeader);};
         Closing+=(_,e)=>{if(Application.Current is App a&&!a.Quitting){SavePosition();if(OperatingSystem.IsWindows()){e.Cancel=true;Hide();}else{a.Quitting=true;(a.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();}}};
         Opened+=async(_,_)=>
         {

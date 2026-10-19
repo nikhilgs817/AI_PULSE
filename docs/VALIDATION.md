@@ -5,6 +5,7 @@
 - The updated self-contained executable runs on the Minisforum Ryzen AI Max+ 395 / Radeon 8060S machine.
 - 17 data checks cover accounting, privacy, 90/365-day retention, year-old backup restoration, search before the 100-session limit, replay on increased retention, reduced-retention cleanup and invalid sensor values.
 - UI checks cover both compact orientations, full-size expanded branding, collapsible navigation, persistent search focus/text, no-match states and the one-year selector.
+- Expanded Maximize/Restore and returning from a maximized dashboard to compact mode pass the real-window checks. Ubuntu CI runs these with Openbox inside Xvfb, in addition to Linux CPU/RAM and package installation tests.
 - A loopback Ollama protocol fixture exposes 12 synthetic models: every row is rendered, the dropdown height is bounded and its scroll position survives refresh. These fixture models do not run inference.
 - Native Windows pointer input moved the expanded window from the body by 50 pixels horizontally and 30 vertically. Search typing preserved focus through live refreshes.
 - Icon generation checks corner alpha and embeds seven Windows icon resolutions.

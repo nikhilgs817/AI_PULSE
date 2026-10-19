@@ -48,7 +48,7 @@ public static class Program
             }
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);return Environment.ExitCode;
         }
-        catch(Exception e){Paths.Log("fatal",e);File.WriteAllText(Path.Combine(Paths.Root,"startup-error.txt"),e.GetType().Name+": "+e.Message+(args.Contains("--ui-test")?"\n"+e.StackTrace:""));return 1;}
+        catch(Exception e){Paths.Log("fatal",e);File.WriteAllText(Path.Combine(Paths.Root,"startup-error.txt"),e.GetType().Name+": "+e.Message+(args.Contains("--ui-test")||args.Contains("--diagnostic-stack")?"\n"+e.StackTrace:""));return 1;}
     }
     public static AppBuilder BuildAvaloniaApp()=>AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
 }

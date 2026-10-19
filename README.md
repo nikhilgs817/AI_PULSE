@@ -14,6 +14,8 @@ AI Pulse is a dark Windows and Ubuntu application for people running local AI. P
 
 These are screenshots of the running app. See the [illustrated guide](docs/USER-GUIDE.md) for both widget orientations, model dropdown, collapsible sidebar and search.
 
+Screenshots with `fixture-model-*` names use synthetic Ollama responses to demonstrate many-model layouts; they do not represent inference benchmarks.
+
 ## Download and install
 
 Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose your platform:
