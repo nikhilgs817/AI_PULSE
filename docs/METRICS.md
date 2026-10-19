@@ -30,10 +30,18 @@ Codex cumulative token counters are converted into incremental records; repeated
 
 Claude Code usage records report ordinary input, cache-read input and cache-creation input separately. AI Pulse adds those categories into total input, while preserving cache-read/write subsets. Repeated records for the same request/message update the stored maximum rather than multiplying usage. Complex future provider schema changes can require adapter updates.
 
-Local usage-file import is bounded and incremental, with byte checkpoints. Oversized non-usage lines are skipped. Data before the 90-day window is not imported into usage totals. The app does not currently ingest OpenTelemetry or cloud account billing APIs; the verified local-record adapters provide the initial Codex/Claude integration.
+Local usage-file import is bounded and incremental, with byte checkpoints. Oversized non-usage lines are skipped. Data before the configured retention window is not imported into usage totals. The app does not currently ingest OpenTelemetry or cloud account billing APIs; the verified local-record adapters provide the initial Codex/Claude integration.
 
 ## Storage and history
 
-Hardware is sampled approximately every two seconds. Charts display sample means from minute buckets; min/max/count are retained. Gaps mean no observation. Process lists update approximately every five seconds and model discovery every four seconds. Endpoint timeouts can delay a refresh, so it is not a real-time safety system.
+Hardware is sampled approximately every two seconds. Charts display sample means from minute buckets; min/max/count are retained. Gaps mean no observation. Process lists update approximately every six seconds and model discovery every four seconds. Endpoint timeouts can delay a refresh, so it is not a real-time safety system.
 
 Request and sensor records are deduplicated before aggregation. Tokens sum across actual observed calls, including separate retries performed by the client. They do not estimate unobserved calls or subscription billing.
+
+## Capacity and agent resources
+
+Hardware shows OS-visible total RAM, available RAM, GPU local capacity/shared limit where exposed, fixed-volume total/used/available space and per-adapter link speed. GPU capacities are driver limits, not an extra pool to add to host RAM. Disk used is total minus total free; available respects the current user quota. Network speed is Mbps and sampled traffic is MiB/s. Only connected adapters appear initially; search includes disconnected adapters.
+
+Agent app CPU is the summed process CPU-time delta divided by elapsed wall time and available logical processors. The collector detects named Codex, Claude and Ollama executables and attributes readable child processes to the nearest named app ancestor. Each PID is counted once. Process start times prevent PID reuse from contaminating CPU deltas or parent assignment. First samples and reset counters remain unknown. Protected/inaccessible processes can make totals incomplete.
+
+Memory is a sum of working sets, not a unique-page physical-memory total. Session metadata does not supply a reliable process mapping, so app totals are shared across sessions. Cloud model CPU/RAM and per-process GPU allocations are unavailable. App CPU, summed working set and process count use stable `agent.<app>.*` metric IDs and follow ordinary retention; per-PID rows are live only.

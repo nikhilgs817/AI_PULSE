@@ -131,7 +131,7 @@ public sealed partial class MainWindow : Window
                 var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=new Thickness(26,20)};
                 if(page is "Hardware" or "Sensors" or "Agents")
                 {
-                    var search=new TextBox{Text=Query,PlaceholderText=page=="Agents"?"Search source, model, session or status…":page=="Hardware"?"Search hardware, device or specification…":"Search device, sensor, unit, source or process…",Margin=new Thickness(0,0,0,16)};
+                    var search=new TextBox{Text=Query,PlaceholderText=page=="Agents"?"Search app, process, PID, model, session or status…":page=="Hardware"?"Search hardware, device or specification…":"Search device, sensor, unit, source or process…",Margin=new Thickness(0,0,0,16)};
                     Avalonia.Automation.AutomationProperties.SetName(search,"Search "+page);search.TextChanged+=(_,_)=>{searches[page]=search.Text??"";if(scroller!=null)scroller.Offset=default;RenderBody();};main.Children.Add(search);
                 }
                 scroller=new ScrollViewer{HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);main.Children.Add(scroller);Grid.SetColumn(main,1);layout.Children.Add(main);body.Content=layout;layoutPage=page;
@@ -260,10 +260,11 @@ public sealed partial class MainWindow : Window
                 return new[]{r.Device,Format(r.Id),Format(prefix+".used"),Format(prefix+".free"),r.Value>0&&used.HasValue?$"{100*used/r.Value:0.0}%":"—"};
             }),"1.4*,*,*,*,*"));
         }
-        var nics=service.Readings.Where(r=>r.Id.StartsWith("nic.")&&r.Id.EndsWith(".up")&&Matches("Network adapter",r.Device,r.Value==1?"Connected":"Disconnected")).OrderByDescending(r=>r.Value).ThenBy(r=>r.Device).ToList();
+        var nics=service.Readings.Where(r=>r.Id.StartsWith("nic.")&&r.Id.EndsWith(".up")&&(r.Value==1||!string.IsNullOrWhiteSpace(Query))&&Matches("Network adapter",r.Device,r.Value==1?"Connected":"Disconnected")).OrderByDescending(r=>r.Value).ThenBy(r=>r.Device).ToList();
         if(nics.Count>0)
         {
             stack.Children.Add(Text("Network · link capacity and live traffic",16,null,true));
+            stack.Children.Add(Text("Connected adapters shown by default. Search to include disconnected adapters; all identities are in Device specifications.",11,"#8ba0bd"));
             stack.Children.Add(Table(["Adapter","Status","Link capacity","Download","Upload"],nics.Select(r=>{var prefix=r.Id[..^3];return new[]{r.Device,r.Value==1?"Connected":"Disconnected",Format(prefix+".speed"),Format(prefix+".rx"),Format(prefix+".tx")};}),"2*,1.1*,*,*,*"));
         }
         var inventory=(service.Hardware?.Inventory??[]).Where(r=>Matches(r.Category,r.Name,r.Details)).ToList();

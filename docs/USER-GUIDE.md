@@ -46,7 +46,7 @@ The headline cards show GPU load, GPU core temperature availability, system memo
 
 Hardware pairs **capacity with current consumption**: total-host CPU utilization and logical processor count, GPU utilization, RAM used/total/available, local GPU memory allocated/capacity and shared GPU memory allocated/limit. GPU memory limits are OS/driver-reported; unavailable capacities show a dash. Shared and unified GPU memory overlap system RAM and must not be added to physical RAM usage.
 
-Storage shows capacity, used space, available space and percent used for each fixed volume. Available space respects the current user's quota, so used plus available need not equal total capacity. Network adapters show connection status, link capacity in Mbps and current download/upload in MiB/s. Link capacity is the negotiated adapter speed, not a measured internet speed. Disconnected or warming-up counters show a dash.
+Storage shows capacity, used space, available space and percent used for each fixed volume. Available space respects the current user's quota, so used plus available need not equal total capacity. Connected adapters appear by default; search includes disconnected adapters. Network adapters show connection status, link capacity in Mbps and current download/upload in MiB/s. Link capacity is the negotiated adapter speed, not a measured internet speed. Disconnected or warming-up counters show a dash.
 
 Search filters hardware names, categories and specifications. Expand **Device specifications** for the full inventory. Logical processors are not physical-core counts; capacity means the OS-visible amount. Detailed temperatures, fans, power and clocks remain in Sensors.
 
