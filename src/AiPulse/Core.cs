@@ -6,7 +6,7 @@ namespace AiPulse;
 
 public record Reading(string Id, string Name, string Device, string Unit, double? Value, string Source);
 public record ModelInfo(string Host, string Name, string State, double? MemoryGiB, double? GpuGiB, string Quantization, long Context, string Digest);
-public record ProcessInfo(int Id, string Name, double Cpu, double MemoryMiB);
+public record ProcessInfo(int Id, string Name, double? Cpu, double MemoryMiB);
 public record Usage(string Id, string Source, string Model, string Session, long Time, long Input, long Output, long Cached, long CacheWrite, long Reasoning, double? DurationMs, double? DecodeRate, string Status);
 public record SessionInfo(string Id, string Source, string Model, string State, long LastSeen, long Input, long Output, long Cached);
 public record MetricPoint(long Time, double Average, double Minimum, double Maximum);

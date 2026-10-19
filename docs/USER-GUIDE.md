@@ -6,15 +6,19 @@
 
 The fixed top strip shows GPU temperature when exposed (otherwise an explicitly labeled GPU VR SoC sensor when available), GPU utilization, local GPU allocation, physical memory used and CPU temperature. A dash means no reliable reading.
 
-Compact mode starts with just five readings and a **▾ Loaded models** control. Click it to reveal every resident model, including host, state, model-reported memory and last observed decode speed. Close it to return to the small widget. The list scrolls within a panel no more than 300 pixels high, so many models do not take over your screen.
+Compact mode shows five hardware readings, **Active agents**, **Tokens today**, and a **▾ Loaded models** control. The vertical layout uses tight 28-pixel rows. Click it to reveal every resident model, including host, state, model-reported memory and last observed decode speed. Close it to return to the small widget. The list scrolls within a panel no more than 300 pixels high, so many models do not take over your screen.
 
 ![Loaded-model dropdown](images/compact-models.png)
 
 The dropdown screenshot above is a UI test using clearly named synthetic model entries. It checks scrolling without loading model weights.
 
-Use **↕ / ↔** in the small header to switch between **horizontal (560 × 132 logical pixels)** and **vertical (260 × 300)** layouts. The choice survives restarts. These dimensions exclude native window borders; physical pixels depend on display scaling.
+Use **↕ / ↔** in the small header to switch between **horizontal (560 × 142 logical pixels)** and **vertical (260 × 256)** layouts. The choice survives restarts. These dimensions exclude native window borders; physical pixels depend on display scaling.
 
 Metric labels use bold 12-point text vertically and 11-point text horizontally, with brighter contrast against the dark background.
+
+**Active agents** counts sessions reporting Working or Recent activity within the last five minutes. Completed, interrupted and quiet sessions are excluded; this is recent session activity, not proof of current generation. When agent import is disabled the count shows a dash.
+
+**Tokens today** shows observed input plus output since midnight in your local time zone, and resets at the next local day. Cached input and reasoning are already included. Hover for the exact count and on-prem/tool breakdown; sources can overlap when a tool uses the monitored Ollama gateway. The Token page retains its independent sections for detailed analysis.
 
 ![Vertical compact dashboard](images/compact-vertical.png)
 
@@ -38,9 +42,13 @@ The headline cards show GPU load, GPU core temperature availability, system memo
 
 ## Hardware
 
-![Hardware specifications search](images/hardware-search.png)
+![Hardware capacity and live usage](images/hardware-live.png)
 
-Hardware is the specification inventory: CPU identity and available logical processors, GPU identity, usable physical RAM capacity, storage-volume capacities/filesystems, platform architecture and network-adapter identities. It has no temperatures, utilization, fan readings or process activity. Search filters category, device and specifications. Capacity means the OS-visible amount, not a promise of the marketed installed capacity; logical processors are not physical-core counts.
+Hardware pairs **capacity with current consumption**: total-host CPU utilization and logical processor count, GPU utilization, RAM used/total/available, local GPU memory allocated/capacity and shared GPU memory allocated/limit. GPU memory limits are OS/driver-reported; unavailable capacities show a dash. Shared and unified GPU memory overlap system RAM and must not be added to physical RAM usage.
+
+Storage shows capacity, used space, available space and percent used for each fixed volume. Available space respects the current user's quota, so used plus available need not equal total capacity. Network adapters show connection status, link capacity in Mbps and current download/upload in MiB/s. Link capacity is the negotiated adapter speed, not a measured internet speed. Disconnected or warming-up counters show a dash.
+
+Search filters hardware names, categories and specifications. Expand **Device specifications** for the full inventory. Logical processors are not physical-core counts; capacity means the OS-visible amount. Detailed temperatures, fans, power and clocks remain in Sensors.
 
 ## Sensors
 
@@ -61,6 +69,14 @@ The loaded list comes from each Ollama endpoint's runtime state. The installed i
 Recent observed requests display input/output counts, decode rate, elapsed duration and outcome. Only gateway traffic is included. Direct Ollama clients, including clients that cannot change their server URL, may be visible as loaded models without request counts.
 
 ## Agents
+
+![Agent resource consumption (synthetic process fixture)](images/agents-resources-fixture.png)
+
+**Live app resource consumption** shows Codex, Claude and Ollama CPU usage, working-set memory and readable process count. Expand an app for each process name, PID, CPU and memory. Totals include descendants, including helper and runner processes, without the Sensors top-25 limit. Search also matches app/process names and PIDs.
+
+CPU is a percentage of the entire host, sampled about every six seconds. New processes show **Warming up** until there are two samples; samples older than 15 seconds show unavailable. Memory sums working sets, which can share pages. These are **local app totals shared across sessions**, not per-conversation allocations or remote/cloud server usage. Per-session CPU/RAM and per-process GPU allocation are not exposed. Process identity is discovered from standard executable names and readable parent relationships; custom wrappers without a named app ancestor and protected processes may be missing. No command-line arguments or prompt text are collected. App CPU/memory/count metrics follow the normal history retention; per-PID details remain live only.
+
+The screenshot above uses an explicitly synthetic process fixture to demonstrate totals and expandable details; it is not measured model performance.
 
 Search by source, model, session ID or recorded status. Search covers all sessions in the configured retention window before displaying the newest 100 matches.
 

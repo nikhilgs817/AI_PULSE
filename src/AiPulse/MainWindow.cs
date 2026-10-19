@@ -202,7 +202,8 @@ public sealed partial class MainWindow : Window
     string Format(string id)
     {
         double? v=service.Value(id);if(id=="gpu.load"&&!v.HasValue)v=service.Value("gpu.engine");
-        if(!v.HasValue)return "—";return service.Readings.FirstOrDefault(r=>r.Id==id)?.Unit=="°C"||id.Contains("temperature")?$"{v:0}°C":id.Contains("load")?$"{v:0}%":$"{v:0.0} GiB";
+        if(!v.HasValue)return "—";var unit=service.Readings.FirstOrDefault(r=>r.Id==id)?.Unit??"";
+        return unit=="°C"||id.Contains("temperature")?$"{v:0}°C":unit=="%"||id.Contains("load")?$"{v:0}%":$"{v:0.0} {unit}".TrimEnd();
     }
     Control Overview()
     {
@@ -236,13 +237,42 @@ public sealed partial class MainWindow : Window
     }
     Control HardwarePage()
     {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Hardware","Device specifications and capacity · live measurements are in Sensors"));
+        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Hardware","Live capacity and consumption · temperatures, fans, power and clocks are in Sensors"));
+        var cards=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=12,LineSpacing=12};
+        void Capacity(string title,string value,string detail,string? device=null)
+        {
+            if(!Matches(title,detail,device??""))return;
+            var card=Metric(title,value,detail);card.Width=280;card.MinHeight=140;cards.Children.Add(card);
+        }
+        Capacity("CPU UTILIZATION",Format("cpu.load"),$"{Environment.ProcessorCount} logical processors · % of total host CPU",service.Hardware?.CpuName);
+        Capacity("GPU UTILIZATION",Format("gpu.load"),service.Hardware?.GpuName??"Graphics / compute adapter");
+        Capacity("SYSTEM MEMORY",Format("ram.used"),"Used of "+Format("ram.total")+" total · "+Format("ram.available")+" available");
+        Capacity("GPU LOCAL MEMORY",Format("gpu.local"),"Allocated of "+Format("gpu.local.total")+" reported capacity",service.Hardware?.GpuName);
+        Capacity("GPU SHARED MEMORY",Format("gpu.shared"),"Allocated of "+Format("gpu.shared.total")+" reported limit · overlaps system RAM",service.Hardware?.GpuName);
+        stack.Children.Add(cards);
+        var disks=service.Readings.Where(r=>r.Id.StartsWith("disk.")&&r.Id.EndsWith(".size")&&Matches("Storage volume disk",r.Device)).ToList();
+        if(disks.Count>0)
+        {
+            stack.Children.Add(Text("Storage · capacity and current usage",16,null,true));
+            stack.Children.Add(Table(["Volume","Total capacity","Used","Available","Used %"],disks.Select(r=>
+            {
+                var prefix=r.Id[..^5];var used=service.Value(prefix+".used");
+                return new[]{r.Device,Format(r.Id),Format(prefix+".used"),Format(prefix+".free"),r.Value>0&&used.HasValue?$"{100*used/r.Value:0.0}%":"—"};
+            }),"1.4*,*,*,*,*"));
+        }
+        var nics=service.Readings.Where(r=>r.Id.StartsWith("nic.")&&r.Id.EndsWith(".up")&&Matches("Network adapter",r.Device,r.Value==1?"Connected":"Disconnected")).OrderByDescending(r=>r.Value).ThenBy(r=>r.Device).ToList();
+        if(nics.Count>0)
+        {
+            stack.Children.Add(Text("Network · link capacity and live traffic",16,null,true));
+            stack.Children.Add(Table(["Adapter","Status","Link capacity","Download","Upload"],nics.Select(r=>{var prefix=r.Id[..^3];return new[]{r.Device,r.Value==1?"Connected":"Disconnected",Format(prefix+".speed"),Format(prefix+".rx"),Format(prefix+".tx")};}),"2*,1.1*,*,*,*"));
+        }
         var inventory=(service.Hardware?.Inventory??[]).Where(r=>Matches(r.Category,r.Name,r.Details)).ToList();
-        stack.Children.Add(Text("Device inventory · "+inventory.Count+" matches",16,null,true));
-        stack.Children.Add(Table(["Category","Device","Specifications"],inventory.Select(r=>new[]{r.Category,r.Name,r.Details}),"*,2*,3*"));
-        if(inventory.Count==0)stack.Children.Add(Text(service.Hardware?.Inventory.Count>0?"No hardware matches your search.":"Discovering hardware…",13,"#8da1bd"));
+        var details=new Expander{Header="Device specifications · "+inventory.Count+" matches",HorizontalAlignment=HorizontalAlignment.Stretch,IsExpanded=hardwareDetailsExpanded,Content=Table(["Category","Device","Specifications"],inventory.Select(r=>new[]{r.Category,r.Name,r.Details}),"*,2*,3*")};
+        details.PropertyChanged+=(_,e)=>{if(e.Property==Expander.IsExpandedProperty)hardwareDetailsExpanded=details.IsExpanded;};stack.Children.Add(details);
+        if(inventory.Count==0&&cards.Children.Count==0&&disks.Count==0&&nics.Count==0)stack.Children.Add(Text(service.Hardware?.Inventory.Count>0?"No hardware matches your search.":"Discovering hardware…",13,"#8da1bd"));
         return stack;
     }
+    bool hardwareDetailsExpanded;
     Control SensorsPage()
     {
         var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Sensors","Live temperatures, utilization, power, clocks, fans and resource activity · "+service.Health));stack.Children.Add(SensorCard());
@@ -250,7 +280,7 @@ public sealed partial class MainWindow : Window
         stack.Children.Add(Text("Sensor inventory · "+readings.Count+" matches",16,null,true));
         stack.Children.Add(Table(["Device","Sensor","Value","Unit","Source"],readings.Select(r=>new[]{r.Device,r.Name,r.Value?.ToString("0.##")??"Unavailable",r.Unit,r.Source}),"1.4*,2*,*,70,1.5*"));
         if(readings.Count==0)stack.Children.Add(Text("No sensors match your search.",13,"#8da1bd"));
-        stack.Children.Add(Text("Live process activity",16,null,true));stack.Children.Add(Table(["Process","PID","CPU (host %)","Working set MiB"],(service.Hardware?.Processes??[]).Where(p=>Matches(p.Name,p.Id.ToString())).Select(p=>new[]{p.Name,p.Id.ToString(),p.Cpu.ToString("0.0"),p.MemoryMiB.ToString("N0")}),"2*,*,*,*"));return stack;
+        stack.Children.Add(Text("Live process activity",16,null,true));stack.Children.Add(Table(["Process","PID","CPU (host %)","Working set MiB"],(service.Hardware?.Processes??[]).Where(p=>Matches(p.Name,p.Id.ToString())).Select(p=>new[]{p.Name,p.Id.ToString(),p.Cpu?.ToString("0.0")??"—",p.MemoryMiB.ToString("N0")}),"2*,*,*,*"));return stack;
     }
     Control ModelsPage()
     {
@@ -268,7 +298,11 @@ public sealed partial class MainWindow : Window
     }
     Control AgentsPage()
     {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Agents",service.Agents.Status));stack.Children.Add(Message("Metadata only","Input/output/cache tokens are read from supported local session records. Prompts, replies and tool output are not stored. Quiet sessions are not assumed completed."));
+        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Agents","Live app resources and retained session activity"));
+        stack.Children.Add(AgentResourcePanel(service.Hardware?.AgentApps??[],service.Hardware?.ProcessSampleTime??default,service.Hardware?.UnreadableProcesses??0));
+        stack.Children.Add(Text("Session activity & tokens",16,null,true));
+        stack.Children.Add(Text(service.Agents.Status,12,"#8ba0bd"));
+        stack.Children.Add(Message("Metadata only","Input/output/cache tokens are read from supported local session records. Prompts, replies and tool output are not stored. Quiet sessions are not assumed completed."));
         var sessions=service.Store.Sessions(service.Settings.RetentionDays,Query);stack.Children.Add(Table(["Source / session","Model","State","Input","Output","Last activity"],sessions.Select(s=>new[]{s.Source+"\n"+s.Id[..Math.Min(12,s.Id.Length)],s.Model,J.Now-s.LastSeen>300&&s.State is "Working" or "Recent activity"?"Quiet / unknown":s.State,J.Count(s.Input),J.Count(s.Output),DateTimeOffset.FromUnixTimeSeconds(s.LastSeen).ToLocalTime().ToString("MMM d HH:mm")}),"1.5*,1.7*,1.3*,*,*,1.3*"));
         if(sessions.Count==0)stack.Children.Add(Text("No sessions match. Search includes all retained sessions; up to 100 results are shown.",13,"#8da1bd"));return stack;
     }

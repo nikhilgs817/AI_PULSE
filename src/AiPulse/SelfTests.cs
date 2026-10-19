@@ -9,6 +9,14 @@ public static class SelfTests
         void Check(bool condition,string name){if(!condition)throw new Exception("FAILED: "+name);results.Add("PASS: "+name);}
         try
         {
+            var processFixture=new List<AgentProcess>{new(1,0,"Codex",10,2,100),new(2,1,"node",11,3,50),new(3,2,"helper",12,1,20),new(4,1,"ollama",13,4,300),new(5,4,"runner",14,5,400),new(6,0,"unrelated-codex-tool",10,90,900),new(7,8,"cycle",20,1,1),new(8,7,"cycle",20,1,1),new(9,1,"old-child",9,1,5)};
+            processFixture.Add(processFixture[1]);
+            var resources=AgentResources.Group(processFixture);
+            Check(resources.Count==2&&resources.Single(r=>r.App=="Codex").Cpu==6&&resources.Single(r=>r.App=="Codex").MemoryMiB==170&&resources.Single(r=>r.App=="Ollama").Cpu==9,"Process trees assign descendants once, prefer nearest named app, reject unrelated names, cycles and reused parent IDs");
+            Check(AgentResources.Group(Enumerable.Range(1,120).Select(i=>new AgentProcess(i,i==1?0:1,i==1?"claude":"helper",i,0,1))).Single().Processes.Count==120,"Agent resource totals include every readable process beyond the top-25 sensor table");
+            Check(AgentResources.CpuDelta(10,8,(10,4),2,4)==50&&AgentResources.CpuDelta(11,8,(10,4),2,4)==null&&AgentResources.CpuDelta(10,8,null,2,4)==null&&AgentResources.CpuDelta(10,3,(10,4),2,4)==null,"Process CPU uses host capacity and warms up for first samples, PID reuse and reset counters");
+            Check(AgentResources.Group([new(1,0,"claude",10,null,20)]).Single().Cpu==null,"Unknown CPU samples remain unavailable instead of reporting false idle");
+            Check(AgentResources.Parents().GetValueOrDefault(Environment.ProcessId)>0,"Native process discovery finds this process's parent on the current OS");
             Check(J.SensorValue(-316368.19,"%")==null&&J.SensorValue(101,"%")==null&&J.SensorValue(double.NaN,"°C")==null&&J.SensorValue(32,"°C")==32&&J.SensorValue(0,"%")==0,"Impossible sensor values are unavailable; valid idle and temperature readings survive");
             using(var db=new Storage(Path.Combine(root,"test.db")))
             {

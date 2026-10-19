@@ -11,7 +11,7 @@ public static class HardwareInventory
     {
         var rows=new List<HardwareItem>{
             new("CPU",cpu,$"{Environment.ProcessorCount} available logical processors · {RuntimeInformation.OSArchitecture}"),
-            new("GPU",gpu,"Graphics / compute adapter · allocations and utilization are in Sensors"),
+            new("GPU",gpu,"Graphics / compute adapter"),
             new("Memory","System RAM",memoryGiB.HasValue?$"{memoryGiB:0.0} GiB usable physical capacity":"Capacity unavailable"),
             new("Platform",RuntimeInformation.OSDescription,RuntimeInformation.OSArchitecture+" operating system")};
         foreach(var disk in DriveInfo.GetDrives())

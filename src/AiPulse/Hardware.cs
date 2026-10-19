@@ -12,13 +12,16 @@ public sealed class Hardware : IDisposable
     public string CpuName {get;private set;}="CPU";
     public string GpuName {get;private set;}="GPU";
     public List<ProcessInfo> Processes {get;private set;}=[];
+    public List<AgentResource> AgentApps {get;private set;}=[];
+    public DateTime ProcessSampleTime {get;private set;}
+    public int UnreadableProcesses {get;private set;}
     public List<HardwareItem> Inventory {get;private set;}=[];
     DateTime nextInventory=DateTime.MinValue;
     ulong lastIdle,lastKernel,lastUser;
     long linuxTotal,linuxIdle;
     DateTime lastNetwork=DateTime.UtcNow, lastProcesses=DateTime.UtcNow;
     readonly Dictionary<string,(long In,long Out)> network=[];
-    readonly Dictionary<int,double> processTimes=[];
+    readonly Dictionary<int,(long Started,double Seconds)> processTimes=[];
     List<PerformanceCounter> gpuCounters=[];
     DateTime nextGpuRefresh=DateTime.MinValue;
     public Hardware()
@@ -51,22 +54,43 @@ public sealed class Hardware : IDisposable
         AddStandardAliases(list);
         foreach(var drive in DriveInfo.GetDrives())
         {
-            try{if(!drive.IsReady||drive.DriveType!=DriveType.Fixed)continue;Add("disk."+drive.Name+".free","Disk free",drive.Name,"GiB",drive.AvailableFreeSpace/1073741824.0);Add("disk."+drive.Name+".size","Disk capacity",drive.Name,"GiB",drive.TotalSize/1073741824.0);}catch{}
+            try{if(!drive.IsReady||drive.DriveType!=DriveType.Fixed)continue;Add("disk."+drive.Name+".free","Disk available",drive.Name,"GiB",drive.AvailableFreeSpace/1073741824.0);Add("disk."+drive.Name+".size","Disk capacity",drive.Name,"GiB",drive.TotalSize/1073741824.0);Add("disk."+drive.Name+".used","Disk used",drive.Name,"GiB",(drive.TotalSize-drive.TotalFreeSpace)/1073741824.0);}catch{}
         }
         double dt=(DateTime.UtcNow-lastNetwork).TotalSeconds;double rx=0,tx=0;bool has=false;
         foreach(var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if(nic.OperationalStatus!=OperationalStatus.Up||nic.NetworkInterfaceType==NetworkInterfaceType.Loopback)continue;
-            try{var s=nic.GetIPStatistics();if(network.TryGetValue(nic.Id,out var p)&&dt>0){rx+=Math.Max(0,s.BytesReceived-p.In)/dt;tx+=Math.Max(0,s.BytesSent-p.Out)/dt;has=true;}network[nic.Id]=(s.BytesReceived,s.BytesSent);}catch{}
+            if(nic.NetworkInterfaceType==NetworkInterfaceType.Loopback)continue;
+            try
+            {
+                var id="nic."+nic.Id;bool up=nic.OperationalStatus==OperationalStatus.Up;
+                Add(id+".up","Link connected",nic.Name,"",up?1:0);
+                Add(id+".speed","Link capacity",nic.Name,"Mbps",nic.Speed>0?nic.Speed/1e6:null);
+                double? down=null,outgoing=null;
+                if(up)
+                {
+                    var s=nic.GetIPStatistics();
+                    if(network.TryGetValue(nic.Id,out var p)&&dt>0&&s.BytesReceived>=p.In&&s.BytesSent>=p.Out){down=(s.BytesReceived-p.In)/dt/1048576;outgoing=(s.BytesSent-p.Out)/dt/1048576;rx+=down.Value*1048576;tx+=outgoing.Value*1048576;has=true;}
+                    network[nic.Id]=(s.BytesReceived,s.BytesSent);
+                }
+                else network.Remove(nic.Id);
+                Add(id+".rx","Download",nic.Name,"MiB/s",down);Add(id+".tx","Upload",nic.Name,"MiB/s",outgoing);
+            }catch{}
         }
         lastNetwork=DateTime.UtcNow;Add("network.rx","Download","Network","MiB/s",has?rx/1048576:null);Add("network.tx","Upload","Network","MiB/s",has?tx/1048576:null);
-        if((DateTime.UtcNow-lastProcesses).TotalSeconds>=5)SampleProcesses();
+        if(ProcessSampleTime==default||(DateTime.UtcNow-lastProcesses).TotalSeconds>=5)SampleProcesses();
+        foreach(var app in AgentApps)
+        {
+            var id="agent."+app.App.ToLowerInvariant();
+            Add(id+".cpu","App CPU utilization",app.App,"%",app.Cpu,"OS process tree");
+            Add(id+".memory","App working set (sum)",app.App,"MiB",app.MemoryMiB,"OS process tree");
+            Add(id+".processes","Readable processes",app.App,"",app.Processes.Count,"OS process tree");
+        }
         if(DateTime.UtcNow>=nextInventory){Inventory=HardwareInventory.Read(CpuName,GpuName,list.FirstOrDefault(r=>r.Id=="ram.total")?.Value);nextInventory=DateTime.UtcNow.AddMinutes(1);}
         return list;
     }
     void AddStandardAliases(List<Reading> rows)
     {
-        Reading? Find(string device,string unit,params string[] names)=>rows.FirstOrDefault(r=>r.Device==device&&r.Unit==unit&&r.Value.HasValue&&names.Any(n=>r.Name.Contains(n,StringComparison.OrdinalIgnoreCase)));
+        Reading? Find(string device,string unit,params string[] names)=>names.Select(n=>rows.FirstOrDefault(r=>r.Device==device&&r.Unit==unit&&r.Value.HasValue&&r.Name.Contains(n,StringComparison.OrdinalIgnoreCase))).FirstOrDefault(r=>r!=null);
         void Alias(string id,string name,Reading? r,string unit,string device){if(rows.All(x=>x.Id!=id))rows.Add(new(id,name,device,unit,r?.Value,r?.Source??"Not exposed"));}
         Alias("gpu.temperature","GPU temperature",Find(GpuName,"°C","GPU Core","GPU Temperature"),"°C",GpuName);
         Alias("cpu.temperature","CPU temperature",Find(CpuName,"°C","Tctl","Package","Core Max","CPU"),"°C",CpuName);
@@ -75,6 +99,8 @@ public sealed class Hardware : IDisposable
         var shared=Find(GpuName,"MiB","D3D Shared Memory Used");
         if(!rows.Any(r=>r.Id=="gpu.local"))rows.Add(new("gpu.local","GPU local allocation",GpuName,"GiB",dedicated?.Value/1024,dedicated?.Source??"Not exposed"));
         if(!rows.Any(r=>r.Id=="gpu.shared"))rows.Add(new("gpu.shared","GPU shared allocation",GpuName,"GiB",shared?.Value/1024,shared?.Source??"Not exposed"));
+        foreach(var item in new[]{("gpu.local.total","GPU local capacity",new[]{"D3D Dedicated Memory Total","GPU Memory Total"}),("gpu.shared.total","GPU shared limit",new[]{"D3D Shared Memory Total"})})
+            if(!rows.Any(r=>r.Id==item.Item1)){var capacity=Find(GpuName,"MiB",item.Item3);rows.Add(new(item.Item1,item.Item2,GpuName,"GiB",capacity?.Value/1024,capacity?.Source??"Not exposed"));}
         Alias("gpu.power","GPU power",Find(GpuName,"W","GPU Package","GPU Core","GPU Power"),"W",GpuName);
     }
     void SampleGpuEngines(List<Reading> rows)
@@ -123,17 +149,26 @@ public sealed class Hardware : IDisposable
             {
                 var dev=dir+"/device";if(!Directory.Exists(dev))continue;
                 if(File.Exists(dev+"/gpu_busy_percent")){GpuName=Path.GetFileName(dir)+" GPU";rows.Add(new("gpu.load","GPU utilization",GpuName,"%",double.Parse(File.ReadAllText(dev+"/gpu_busy_percent")),"DRM"));}
-                foreach(var pair in new[]{("mem_info_vram_used","gpu.local","GPU local allocation"),("mem_info_gtt_used","gpu.shared","GPU shared allocation")})
+                foreach(var pair in new[]{("mem_info_vram_used","gpu.local","GPU local allocation"),("mem_info_gtt_used","gpu.shared","GPU shared allocation"),("mem_info_vram_total","gpu.local.total","GPU local capacity"),("mem_info_gtt_total","gpu.shared.total","GPU shared limit")})
                     if(File.Exists(dev+"/"+pair.Item1))rows.Add(new(pair.Item2,pair.Item3,GpuName,"GiB",double.Parse(File.ReadAllText(dev+"/"+pair.Item1))/1073741824.0,"DRM"));
             }
         }catch(Exception e){Paths.Log("linux-hardware",e);Status="Some Linux counters unavailable";}
     }
     void SampleProcesses()
     {
-        var now=DateTime.UtcNow;double elapsed=(now-lastProcesses).TotalSeconds;var rows=new List<ProcessInfo>();var seen=new HashSet<int>();
-        foreach(var p in Process.GetProcesses())using(p){try{double t=p.TotalProcessorTime.TotalSeconds;double cpu=processTimes.TryGetValue(p.Id,out var previous)?Math.Clamp((t-previous)/elapsed/Environment.ProcessorCount*100,0,100):0;processTimes[p.Id]=t;seen.Add(p.Id);rows.Add(new(p.Id,p.ProcessName,cpu,p.WorkingSet64/1048576.0));}catch{}}
+        var now=DateTime.UtcNow;double elapsed=(now-lastProcesses).TotalSeconds;var rows=new List<AgentProcess>();var seen=new HashSet<int>();var parents=AgentResources.Parents();int unreadable=0;
+        foreach(var p in Process.GetProcesses())using(p)
+        {
+            try
+            {
+                double t=p.TotalProcessorTime.TotalSeconds;long started=p.StartTime.ToUniversalTime().Ticks;
+                double? cpu=AgentResources.CpuDelta(started,t,processTimes.TryGetValue(p.Id,out var previous)?previous:null,elapsed,Environment.ProcessorCount);
+                processTimes[p.Id]=(started,t);seen.Add(p.Id);rows.Add(new(p.Id,parents.GetValueOrDefault(p.Id),p.ProcessName,started,cpu,p.WorkingSet64/1048576.0));
+            }catch{unreadable++;}
+        }
         foreach(var id in processTimes.Keys.Where(id=>!seen.Contains(id)).ToArray())processTimes.Remove(id);
-        Processes=rows.OrderByDescending(p=>p.Cpu).ThenByDescending(p=>p.MemoryMiB).Take(25).ToList();lastProcesses=now;
+        AgentApps=AgentResources.Group(rows);UnreadableProcesses=unreadable;
+        Processes=rows.OrderByDescending(p=>p.Cpu).ThenByDescending(p=>p.MemoryMiB).Take(25).Select(p=>new ProcessInfo(p.Id,p.Name,p.Cpu,p.MemoryMiB)).ToList();lastProcesses=now;ProcessSampleTime=now;
     }
     public void Dispose(){computer?.Dispose();foreach(var c in gpuCounters)c.Dispose();}
     [DllImport("kernel32.dll")] static extern bool GetSystemTimes(out ulong idle,out ulong kernel,out ulong user);
