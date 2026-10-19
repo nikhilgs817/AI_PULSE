@@ -54,7 +54,7 @@ public sealed class Hardware : IDisposable
         AddStandardAliases(list);
         foreach(var drive in DriveInfo.GetDrives())
         {
-            try{if(!drive.IsReady||drive.DriveType!=DriveType.Fixed)continue;Add("disk."+drive.Name+".free","Disk available",drive.Name,"GiB",drive.AvailableFreeSpace/1073741824.0);Add("disk."+drive.Name+".size","Disk capacity",drive.Name,"GiB",drive.TotalSize/1073741824.0);Add("disk."+drive.Name+".used","Disk used",drive.Name,"GiB",(drive.TotalSize-drive.TotalFreeSpace)/1073741824.0);}catch{}
+            try{if(!HardwareInventory.IsStorageVolume(drive))continue;Add("disk."+drive.Name+".free","Disk available",drive.Name,"GiB",drive.AvailableFreeSpace/1073741824.0);Add("disk."+drive.Name+".size","Disk capacity",drive.Name,"GiB",drive.TotalSize/1073741824.0);Add("disk."+drive.Name+".used","Disk used",drive.Name,"GiB",(drive.TotalSize-drive.TotalFreeSpace)/1073741824.0);}catch{}
         }
         double dt=(DateTime.UtcNow-lastNetwork).TotalSeconds;double rx=0,tx=0;bool has=false;
         foreach(var nic in NetworkInterface.GetAllNetworkInterfaces())
