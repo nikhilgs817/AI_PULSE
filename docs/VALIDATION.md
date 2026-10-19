@@ -27,4 +27,6 @@ See the machine-readable [Windows UI results](validation/windows-ui-v020.txt), [
 
 Physical Ubuntu GPU/temperature tests remain unperformed. Missing sensors stay unavailable; GPU VR SoC is not a GPU-core-temperature substitute.
 
+The [0.2.0 preview release](https://github.com/nikhilgs817/AI_PULSE/releases/tag/v0.2.0) contains the final CI Windows installer/portable ZIP and Ubuntu DEB/AppImage, plus platform checksum files. All six uploaded asset digests match local SHA-256 values. The portable ZIP was checked for the bundled runtime/SQLite and for the absence of personal databases, settings and logs.
+
 See the [previous preview's validation](VALIDATION-0.1.0.md) for the initial Windows/Ubuntu package, real Ollama and sensor-helper baseline. Historical results do not replace current-release checks.
