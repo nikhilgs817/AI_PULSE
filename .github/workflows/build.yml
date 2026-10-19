@@ -43,7 +43,16 @@ jobs:
           New-Item -ItemType Directory -Path build/ui-checks -Force | Out-Null
           $fixture=Start-Process python -ArgumentList 'tests/ui_fixture.py' -WindowStyle Hidden -PassThru
           @{EnableGateway=$false;ReadAgentUsage=$false;OllamaUrl='http://127.0.0.1:11436'} | ConvertTo-Json | Set-Content build/ui-checks/settings.json
-          try {$p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--ui-test --expect-models 12 --data-dir ./build/ui-checks' -WindowStyle Hidden -Wait -PassThru} finally {Stop-Process -Id $fixture.Id}
+          try {
+            $ready=$false
+            for($attempt=0;$attempt -lt 30;$attempt++) {
+              if($fixture.HasExited){throw 'Ollama fixture exited before becoming ready'}
+              try {$response=Invoke-RestMethod 'http://127.0.0.1:11436/api/ps' -TimeoutSec 2;if($response.models.Count -eq 12){$ready=$true;break}}catch{}
+              Start-Sleep -Seconds 1
+            }
+            if(!$ready){throw 'Ollama fixture did not become ready'}
+            $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--ui-test --expect-models 12 --data-dir ./build/ui-checks' -WindowStyle Hidden -Wait -PassThru
+          } finally {if(!$fixture.HasExited){Stop-Process -Id $fixture.Id}}
           Get-Content build/ui-checks/ui-test-results.txt
           if($p.ExitCode -ne 0 -or (Select-String -Path build/ui-checks/ui-test-results.txt -Pattern '^FAIL:')){Get-Content build/ui-checks/startup-error.txt -ErrorAction SilentlyContinue;throw 'UI checks failed'}
       - uses: actions/upload-artifact@v4
