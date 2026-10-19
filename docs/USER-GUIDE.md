@@ -44,6 +44,8 @@ The headline cards show GPU load, GPU core temperature availability, system memo
 
 ![Hardware capacity and live usage](images/hardware-live.png)
 
+The Ubuntu test desktop shown here has no exposed GPU. The page scrolls to storage and network measurements below.
+
 Hardware pairs **capacity with current consumption**: total-host CPU utilization and logical processor count, GPU utilization, RAM used/total/available, local GPU memory allocated/capacity and shared GPU memory allocated/limit. GPU memory limits are OS/driver-reported; unavailable capacities show a dash. Shared and unified GPU memory overlap system RAM and must not be added to physical RAM usage.
 
 Storage shows capacity, used space, available space and percent used for each fixed volume. Available space respects the current user's quota, so used plus available need not equal total capacity. Connected adapters appear by default; search includes disconnected adapters. Network adapters show connection status, link capacity in Mbps and current download/upload in MiB/s. Link capacity is the negotiated adapter speed, not a measured internet speed. Disconnected or warming-up counters show a dash.
@@ -76,7 +78,7 @@ Recent observed requests display input/output counts, decode rate, elapsed durat
 
 CPU is a percentage of the entire host, sampled about every six seconds. New processes show **Warming up** until there are two samples; samples older than 15 seconds show unavailable. Memory sums working sets, which can share pages. These are **local app totals shared across sessions**, not per-conversation allocations or remote/cloud server usage. Per-session CPU/RAM and per-process GPU allocation are not exposed. Process identity is discovered from standard executable names and readable parent relationships; custom wrappers without a named app ancestor and protected processes may be missing. No command-line arguments or prompt text are collected. App CPU/memory/count metrics follow the normal history retention; per-PID details remain live only.
 
-The screenshot above uses an explicitly synthetic process fixture to demonstrate totals and expandable details; it is not measured model performance.
+The Ubuntu screenshot above uses an explicitly synthetic process fixture to demonstrate totals and expandable details; it is not measured model performance.
 
 Search by source, model, session ID or recorded status. Search covers all sessions in the configured retention window before displaying the newest 100 matches.
 
