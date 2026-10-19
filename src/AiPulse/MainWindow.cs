@@ -132,7 +132,8 @@ public sealed partial class MainWindow : Window
                 if(page is "Hardware" or "Sensors" or "Agents")
                 {
                     var search=new TextBox{Text=Query,PlaceholderText=page=="Agents"?"Search app, process, PID, model, session or status…":page=="Hardware"?"Search hardware, device or specification…":"Search device, sensor, unit, source or process…",Margin=new Thickness(0,0,0,16)};
-                    Avalonia.Automation.AutomationProperties.SetName(search,"Search "+page);search.TextChanged+=(_,_)=>{searches[page]=search.Text??"";if(scroller!=null)scroller.Offset=default;RenderBody();};main.Children.Add(search);
+                    var searchPage=page;
+                    Avalonia.Automation.AutomationProperties.SetName(search,"Search "+searchPage);search.TextChanged+=(_,_)=>{searches[searchPage]=search.Text??"";if(page!=searchPage)return;if(scroller!=null)scroller.Offset=default;RenderBody();};main.Children.Add(search);
                 }
                 scroller=new ScrollViewer{HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);main.Children.Add(scroller);Grid.SetColumn(main,1);layout.Children.Add(main);body.Content=layout;layoutPage=page;
             }
