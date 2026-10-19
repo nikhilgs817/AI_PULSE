@@ -19,6 +19,12 @@ All seven [real Ollama checks](validation/ollama-windows-v020.json) passed from 
 
 After the owner approved the isolated helper on October 19, CPU temperature was recorded continuously at approximately 46–48 °C. PawnIO was already installed; no security policy was changed. Deep-sensor permission remains session-scoped.
 
-The initial 0.2.0 build passed both Windows and Ubuntu CI in [run 39173518066](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39173518066). A final build includes the requested larger bold compact labels. Physical Ubuntu GPU/temperature tests remain unperformed. Missing sensors stay unavailable; GPU VR SoC is not a GPU-core-temperature substitute.
+The final release source, `d0d5478779737868c40ae121cc58dfeae03ea95e`, passed both Windows and Ubuntu CI in [run 39224124168](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39224124168). Both platforms passed 21 data and 41 UI assertions. CI also verifies Windows installer/uninstaller behavior, Ubuntu DEB installation/removal, bundled-runtime launches, Linux CPU/RAM persistence and AppImage extraction/launch. An intentionally failing local UI check returned exit code 1, confirming that assertion failures fail the process.
+
+The final Windows build was installed and inspected with real records on the Token page. Native repeated selections of Token and Hardware remained stable. Every one of the 1,570 pre-upgrade usage records was still present, SQLite integrity was `ok`, and the 90-day preference was retained. Installed application code matches the tested local build.
+
+See the machine-readable [Windows UI results](validation/windows-ui-v020.txt), [Windows data results](validation/windows-data-v020.txt), [Ubuntu UI results](validation/linux-ui-v020.txt) and [Ubuntu data results](validation/linux-data-v020.txt). [Ubuntu Token screenshot](images/token-ubuntu.png) uses the same synthetic records as Windows.
+
+Physical Ubuntu GPU/temperature tests remain unperformed. Missing sensors stay unavailable; GPU VR SoC is not a GPU-core-temperature substitute.
 
 See the [previous preview's validation](VALIDATION-0.1.0.md) for the initial Windows/Ubuntu package, real Ollama and sensor-helper baseline. Historical results do not replace current-release checks.

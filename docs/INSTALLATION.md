@@ -18,7 +18,7 @@ The default install is per-user. Ordinary monitoring does not require administra
 CPU/board/drive sensors may need privileged hardware access. AI Pulse uses the signed [PawnIO driver](https://pawnio.eu/) through [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor).
 
 1. Install the official **signed** PawnIO distribution if it is not already installed. Do not choose its unrestricted/unsigned edition.
-2. In AI Pulse, select **Hardware, Sensors or Settings → Connect deep sensors**.
+2. In AI Pulse, select **Sensors or Settings → Connect deep sensors**.
 3. Approve the Windows administrator prompt if you want these readings.
 
 This starts a small, separate hardware-only helper. The main dashboard and model gateway remain unprivileged. The helper sends readings through a same-user named pipe, accepts no control commands, and exits when the dashboard process exits. Permission is session-scoped; it is not a permanently elevated startup service. After restarting AI Pulse, connect deep sensors again if needed. The optional **Ask for deep-sensor permission when AIPULSE starts** setting requests this on each launch; it is off by default and still requires your approval.
