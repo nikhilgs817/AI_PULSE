@@ -85,7 +85,7 @@ public sealed class FleetHub : IDisposable
     }
     public static void ValidateSnapshot(HostSnapshot s)
     {
-        if(s.SampledAt>J.Now+300||s.SampledAt<0||s.Readings.Count>5000||s.Models.Count>1000||s.Installed.Count>5000||s.Inventory.Count>5000||s.Processes.Count>1000||s.AgentApps.Sum(a=>a.Processes.Count)>10000||s.ModelStatus.Count>100||s.LogicalProcessors is <1 or >65536)throw new InvalidDataException("Invalid snapshot bounds");
+        if(s.SampledAt>J.Now+300||s.SampledAt<0||s.Readings.Count>5000||s.Models.Count>1000||s.Installed.Count>5000||s.Inventory.Count>5000||s.Processes.Count>1000||s.AgentApps.Sum(a=>a.Processes.Count)>10000||s.ModelStatus.Count>100||s.ActiveRequests.Count>1000||s.ActiveRequests.Values.Any(n=>n<0||n>100000)||s.LogicalProcessors is <1 or >65536)throw new InvalidDataException("Invalid snapshot bounds");
         if(s.SampledAt>0)Storage.ValidateEvent(new(1,"sample",JsonSerializer.Serialize(new SamplePayload(s.SampledAt,s.Readings))));
         // Re-serialization size also bounds nested names and arrays before persistence/querying.
         if(JsonSerializer.SerializeToUtf8Bytes(s).Length>1_500_000)throw new InvalidDataException("Snapshot too large");

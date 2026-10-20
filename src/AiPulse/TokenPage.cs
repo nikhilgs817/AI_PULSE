@@ -35,8 +35,8 @@ public sealed partial class MainWindow
         var export=Btn(tokenExportBusy?"Exporting…":"Export selected period CSV");export.IsEnabled=!tokenExportBusy;
         export.Click+=async(_,_)=>
         {
-            tokenExportBusy=true;long since=J.Now-tokenDays*86400L;RenderBody();
-            try{var file=System.IO.Path.Combine(Paths.Root,"exports","tokens-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".csv");await Task.Run(()=>service.Store.ExportUsage(file,since));tokenNotice="Saved "+file;}
+            var exportStore=service.Store;var exportHost=service.HostName;tokenExportBusy=true;long since=J.Now-tokenDays*86400L;RenderBody();
+            try{var file=System.IO.Path.Combine(Paths.Root,"exports","tokens-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".csv");await Task.Run(()=>exportStore.ExportUsage(file,since));tokenNotice="Exported "+exportHost+" to "+file;}
             catch(Exception e){Paths.Log("token-export",e);tokenNotice="Export failed. Check folder access and available disk space.";}
             finally{tokenExportBusy=false;if(page=="Token")RenderBody();}
         };

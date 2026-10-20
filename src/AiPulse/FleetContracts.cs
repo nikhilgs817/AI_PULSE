@@ -64,6 +64,7 @@ public sealed record HostSnapshot
     public int UnreadableProcesses {get;init;}
     public List<ModelInfo> Models {get;init;}=[];
     public List<ModelInfo> Installed {get;init;}=[];
+    public Dictionary<string,int> ActiveRequests {get;init;}=[];
     public Dictionary<string,string> ModelStatus {get;init;}=[];
     public long QueueCount {get;init;}
     public long QueueBytes {get;init;}

@@ -38,12 +38,12 @@ public sealed class MonitorService : IDisposable
     public void ApplySnapshot(HostSnapshot snapshot,bool live)
     {
         RemoteLive=live;RemoteSnapshot=snapshot;Readings=live?snapshot.Readings: snapshot.Readings.Select(r=>r with{Value=null}).ToList();LastSample=snapshot.SampledAt;Health=snapshot.Health;
-        Ollama.ApplySnapshot(live?snapshot.Models:[],snapshot.Installed,live?snapshot.ModelStatus: new(){[snapshot.Name]="Offline / stale"});
+        Ollama.ApplySnapshot(live?snapshot.Models:[],snapshot.Installed,live?snapshot.ModelStatus: new(){[snapshot.Name]="Offline / stale"},live?snapshot.ActiveRequests:null);
         Settings.ReadAgentUsage=snapshot.ReadAgentUsage;Settings.RetentionDays=snapshot.RetentionDays;Store.RetentionDays=snapshot.RetentionDays;Settings.LastBackup=snapshot.LastBackup;Settings.LastBackupError=snapshot.BackupError;
     }
     public HostSnapshot Snapshot()
     {
-        var q=Store.QueueInfo();return new(){Name=HostName,Platform=HostPlatform,Cpu=CpuName,Gpu=GpuName,LogicalProcessors=LogicalProcessors,SampledAt=LastSample,Health=Health,AgentStatus=AgentStatus,GatewayStatus=GatewayStatus,ReadAgentUsage=Settings.ReadAgentUsage,RetentionDays=Settings.RetentionDays,LastBackup=Settings.LastBackup,BackupError=Settings.LastBackupError,Readings=Readings,Inventory=Inventory,Processes=Processes,AgentApps=AgentApps,ProcessSampleTime=ProcessSampleTime,UnreadableProcesses=UnreadableProcesses,Models=Ollama.Models,Installed=Ollama.Installed,ModelStatus=Ollama.Status,QueueCount=q.Count,QueueBytes=q.Bytes};
+        var q=Store.QueueInfo();return new(){Name=HostName,Platform=HostPlatform,Cpu=CpuName,Gpu=GpuName,LogicalProcessors=LogicalProcessors,SampledAt=LastSample,Health=Health,AgentStatus=AgentStatus,GatewayStatus=GatewayStatus,ReadAgentUsage=Settings.ReadAgentUsage,RetentionDays=Settings.RetentionDays,LastBackup=Settings.LastBackup,BackupError=Settings.LastBackupError,Readings=Readings,Inventory=Inventory,Processes=Processes,AgentApps=AgentApps,ProcessSampleTime=ProcessSampleTime,UnreadableProcesses=UnreadableProcesses,Models=Ollama.Models,Installed=Ollama.Installed,ModelStatus=Ollama.Status,ActiveRequests=Ollama.Active.ToDictionary(),QueueCount=q.Count,QueueBytes=q.Bytes};
     }
     public void Start()
     {
