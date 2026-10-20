@@ -33,10 +33,10 @@ Open a newer installer to upgrade. Close AI Pulse with **Ctrl+Q** or its tray **
 
 Target platforms are Ubuntu Desktop x64 24.04 and 26.04; check the [validation report](VALIDATION.md) for which environments have actually run tests.
 
-Download `ai-pulse_0.2.2_amd64.deb`. If your desktop has a graphical installer for local DEB packages, open it and select Install. Some Ubuntu installations do not associate DEB files with a graphical installer. In that case:
+Download `ai-pulse_0.3.0_amd64.deb`. If your desktop has a graphical installer for local DEB packages, open it and select Install. Some Ubuntu installations do not associate DEB files with a graphical installer. In that case:
 
 ```bash
-sudo apt install ./ai-pulse_0.2.2_amd64.deb
+sudo apt install ./ai-pulse_0.3.0_amd64.deb
 ai-pulse
 ```
 
@@ -59,3 +59,8 @@ Personal history remains in your user data folder.
 Share a release installer, DEB, AppImage or portable ZIP. Do not share your `data`, `backups` or settings folders. Each installation initializes a fresh database, auto-detects its own hardware and looks for local tools. A user without Ollama or agent tools can still use hardware monitoring. Model weights and third-party AI applications are not bundled.
 
 One installer cannot run on both operating systems: choose the matching platform download. ARM64 is not a tested target for this release.
+
+
+## Central monitoring roles
+
+The installer bundles the dashboard, hub and Host Agent runtime. Service installation is an optional, administrator-authorized step in Settings; it starts background collection before sign-in. Follow the [central setup guide](CENTRAL-MONITORING.md), including host pairing, network profiles, history migration and independent service removal. Uninstalling only the desktop application leaves those services and their data intact.

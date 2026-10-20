@@ -6,7 +6,7 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
-> **0.2.2 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
+> **0.3.0 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
@@ -20,9 +20,9 @@ Screenshots with `fixture-model-*` names use synthetic Ollama responses to demon
 
 Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose your platform:
 
-- **Windows 11 x64:** `AI-Pulse-Setup-0.2.2-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
-- **Ubuntu Desktop x64:** `ai-pulse_0.2.2_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
-- **Linux portable:** `AI-Pulse-0.2.2-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
+- **Windows 11 x64:** `AI-Pulse-Setup-0.3.0-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
+- **Ubuntu Desktop x64:** `ai-pulse_0.3.0_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
+- **Linux portable:** `AI-Pulse-0.3.0-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
 
 The app bundles its .NET runtime, interface and SQLite database engine. **You do not install Python, Docker, .NET or a database server to use it.** Ubuntu still relies on standard OS libraries, resolved by the package manager. The database is created automatically on first launch.
 
@@ -32,7 +32,7 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 
 ## What you can do
 
-- **Keep only critical readings visible.** The 560 × 142 horizontal widget and 260 × 256 vertical widget have a loaded-model dropdown. Open it to see every model, host, state, memory and last observed decode rate; large lists scroll within a bounded panel.
+- **Keep only critical readings visible.** The standalone 560 × 142 horizontal and 260 × 256 vertical widgets have a loaded-model dropdown; fleet mode adds a 28-pixel host-selector row. Open it to see every model, host, state, memory and last observed decode rate; large lists scroll within a bounded panel.
 - **See activity at a glance.** Overview combines utilization, capacity, temperatures, model/session activity, daily token splits, app resources and monitoring health, with shared trend ranges.
 - **Watch Wi-Fi traffic.** Select an adapter and see actual download/upload Mbps, link speed and dated traffic graphs.
 - **Watch the machine.** GPU load and memory, CPU load, physical RAM, network transfer, disk capacity, process usage and exposed temperature/power/fan/clock sensors.
@@ -44,9 +44,9 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 - **Protect the data.** Verified SQLite snapshots, seven daily restore points plus weekly snapshots covering the configured retention period (13 weeks by default; 53 for a year), and an in-app restore flow that preserves the previous database.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).
 
-## Central monitoring (0.3.0 preview in validation)
+## Central monitoring
 
-The new fleet implementation adds a hub service, boot-time Windows/Ubuntu Host Agents, durable offline uploads, authenticated HTTPS pairing and a host dropdown in both dashboard modes. Private LAN, VPN and Internet profiles are selectable. See [central setup and limits](docs/CENTRAL-MONITORING.md), [fleet architecture](docs/FLEET-ARCHITECTURE.md) and [monitoring research](docs/MONITORING-RESEARCH.md). Version 0.2.2 downloads remain local-only until the verified 0.3.0 package is published.
+The new fleet implementation adds a hub service, boot-time Windows/Ubuntu Host Agents, durable offline uploads, authenticated HTTPS pairing and a host dropdown in both dashboard modes. Private LAN, VPN and Internet profiles are selectable. See [central setup and limits](docs/CENTRAL-MONITORING.md), [fleet architecture](docs/FLEET-ARCHITECTURE.md) and [monitoring research](docs/MONITORING-RESEARCH.md). Use the same package on the main computer and monitored computers; choose the hub and Host Agent roles in Settings.
 
 ## First five minutes
 

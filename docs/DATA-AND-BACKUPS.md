@@ -47,3 +47,8 @@ Ordinary uninstall preserves history. Explicitly remove the data folder only whe
 ## Privacy
 
 The app stores metric values, model names, session identifiers, timestamps and token categories. The usage readers discard prompts, responses and tool-body content. The gateway temporarily passes request/response bytes but persists only allowlisted usage metadata. Logs store diagnostic component/error types rather than exception bodies that could contain request content. Session/model metadata can still be personal; review exports and screenshots before sharing them.
+
+
+## Central service data
+
+Fleet installations keep each host in a separate central SQLite database. Windows uses ProgramData\AIPULSE\hub and ProgramData\AIPULSE\agent; Ubuntu uses /var/lib/aipulse-hub and /var/lib/aipulse-agent. The desktop cache is derived data under its existing user data folder. See [central monitoring](CENTRAL-MONITORING.md) for service permissions, optional standalone migration, bounded upload journals, snapshot synchronization and coordinated recovery limitations. The ordinary standalone restore button does not restore the running hub.

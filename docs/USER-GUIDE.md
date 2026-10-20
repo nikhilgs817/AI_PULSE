@@ -16,7 +16,7 @@ Compact mode shows five hardware readings, **Active agents**, **Tokens today**, 
 
 The dropdown screenshot above is a UI test using clearly named synthetic model entries. It checks scrolling without loading model weights.
 
-Use **↕ / ↔** in the small header to switch between **horizontal (560 × 142 logical pixels)** and **vertical (260 × 256)** layouts. The choice survives restarts. These dimensions exclude native window borders; physical pixels depend on display scaling.
+Use **↕ / ↔** in the small header to switch between **horizontal (560 × 142 logical pixels)** and **vertical (260 × 256)** layouts. The choice survives restarts. Fleet mode adds a 28-pixel host-selector row: 560 × 170 horizontally or 260 × 284 vertically. These dimensions exclude native window borders; physical pixels depend on display scaling.
 
 Metric labels use bold 12-point text vertically and 11-point text horizontally, with brighter contrast against the dark background.
 
