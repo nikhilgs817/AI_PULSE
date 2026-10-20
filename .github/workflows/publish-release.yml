@@ -1,0 +1,36 @@
+name: Publish verified release artifacts
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful Build and validate run to publish
+        required: true
+        default: '39315549733'
+      tag:
+        description: Existing draft release tag
+        required: true
+        default: v0.2.1
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check successful trusted build and draft release
+        run: python3 scripts/publish_verified_release.py check
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.build_run_id }}
+          pattern: '*-release'
+          path: build/release-upload
+      - name: Verify, upload and publish the six release files
+        run: python3 scripts/publish_verified_release.py publish

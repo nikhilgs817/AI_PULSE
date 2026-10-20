@@ -20,7 +20,7 @@ Metric labels use bold 12-point text vertically and 11-point text horizontally, 
 
 **Tokens today** shows observed input plus output since midnight in your local time zone, and resets at the next local day. Cached input and reasoning are already included. Hover for the exact count and on-prem/tool breakdown; sources can overlap when a tool uses the monitored Ollama gateway. The Token page retains its independent sections for detailed analysis.
 
-![Vertical compact dashboard](images/compact-vertical.png)
+![Vertical compact dashboard](images/compact-vertical-live.jpg)
 
 Drag any non-interactive part of the window—including metric labels, readings, cards and blank space—to move it. Buttons, text fields, dropdowns and scrollbars retain their normal interactions. The small circle pin control toggles always-on-top; its tooltip describes the action. Position is saved on a mode switch or close.
 
@@ -44,7 +44,7 @@ The headline cards show GPU load, GPU core temperature availability, system memo
 
 ![Hardware capacity and live usage](images/hardware-live.png)
 
-The Ubuntu test desktop shown here has no exposed GPU. The page scrolls to storage and network measurements below.
+This capture is from the installed Windows app on the Minisforum machine. The page scrolls to the network measurements below.
 
 Hardware pairs **capacity with current consumption**: total-host CPU utilization and logical processor count, GPU utilization, RAM used/total/available, local GPU memory allocated/capacity and shared GPU memory allocated/limit. GPU memory limits are OS/driver-reported; unavailable capacities show a dash. Shared and unified GPU memory overlap system RAM and must not be added to physical RAM usage.
 
@@ -78,7 +78,7 @@ Recent observed requests display input/output counts, decode rate, elapsed durat
 
 CPU is a percentage of the entire host, sampled about every six seconds. New processes show **Warming up** until there are two samples; samples older than 15 seconds show unavailable. Memory sums working sets, which can share pages. These are **local app totals shared across sessions**, not per-conversation allocations or remote/cloud server usage. Per-session CPU/RAM and per-process GPU allocation are not exposed. Process identity is discovered from standard executable names and readable parent relationships; custom wrappers without a named app ancestor and protected processes may be missing. No command-line arguments or prompt text are collected. App CPU/memory/count metrics follow the normal history retention; per-PID details remain live only.
 
-The Ubuntu screenshot above uses an explicitly synthetic process fixture to demonstrate totals and expandable details; it is not measured model performance.
+The screenshot above uses an explicitly synthetic process fixture to demonstrate totals and expandable details; it is not measured model performance.
 
 Search by source, model, session ID or recorded status. Search covers all sessions in the configured retention window before displaying the newest 100 matches.
 

@@ -1,0 +1,29 @@
+PASS: Process trees assign descendants once, prefer nearest named app, reject unrelated names, cycles and reused parent IDs
+PASS: Agent resource totals include every readable process beyond the top-25 sensor table
+PASS: Process CPU uses host capacity and warms up for first samples, PID reuse and reset counters
+PASS: Unknown CPU samples remain unavailable instead of reporting false idle
+PASS: Native process discovery finds this process's parent on the current OS
+PASS: Impossible sensor values are unavailable; valid idle and temperature readings survive
+PASS: Duplicate hardware samples ignored; maxima preserved
+PASS: Usage replay deduplicated; cache/reasoning are subsets
+PASS: Codex repeated cumulative counts are not double-counted
+PASS: Claude cached input normalized and duplicate message deduplicated
+PASS: 90-day history retention boundary
+PASS: Verified snapshot restores exact token totals
+PASS: CSV exports beyond 20,000 records and escapes spreadsheet formulas
+PASS: Token aggregates cover all records beyond the 20,000-row display limit
+PASS: On-prem and tool splits preserve cache subsets without double-counting totals
+PASS: Token ranges separate recent history and flag incomplete observations
+PASS: Reasoning stays a subset of output and same model names remain separated by source
+PASS: Prompt bodies not persisted
+PASS: Compact active count includes all recent sessions beyond the 100-row list and excludes quiet/completed/future sessions
+PASS: Tokens today starts at local midnight, excludes future records and does not add cache/reasoning twice
+PASS: Local calendar-day boundary differs from UTC midnight and rolling 24 hours
+PASS: 365-day history and usage boundaries preserve in-range records only
+PASS: Year-old usage survives verified backup and restore
+PASS: Agent search filters before the 100-result limit, case-insensitively
+PASS: Reducing retention preserves importer checkpoints
+PASS: Increasing retention schedules a deduplicated agent re-import
+PASS: Reducing retention cleans older hardware and usage records
+PASS: Retention caps at one year and shipping default stays 90 days
+PASS: Invalid endpoint rejected
