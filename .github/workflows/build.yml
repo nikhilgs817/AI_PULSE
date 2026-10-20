@@ -153,7 +153,7 @@ jobs:
           sudo systemctl restart aipulse-hub
           sleep 2
           systemctl is-active aipulse-hub
-          build/linux-x64/AiPulse --create-agent-config --hub-connection "$PWD/build/hub-service-config/dashboard-connection.json" --data-dir build/agent-service-config || { cat build/agent-service-config/startup-error.txt; sudo cat /var/lib/aipulse-hub/logs/app.log; sudo journalctl -u aipulse-hub --no-pager -n 20; exit 1; }
+          build/linux-x64/AiPulse --create-agent-config --hub-connection "$PWD/build/hub-service-config/dashboard-connection.json" --data-dir build/agent-service-config || { cat build/agent-service-config/startup-error.txt || true; sudo cat /var/lib/aipulse-hub/logs/app.log || true; sudo journalctl -u aipulse-hub --no-pager -n 20; exit 1; }
           sudo build/linux-x64/AiPulse --install-fleet agent --source-config "$PWD/build/agent-service-config" --data-dir "$PWD/build/agent-service-config"
           systemctl is-enabled aipulse-agent
           systemctl is-active aipulse-agent

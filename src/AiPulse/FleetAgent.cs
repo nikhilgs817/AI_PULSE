@@ -68,7 +68,7 @@ public static class FleetRuntime
     public static int Run(string role)
     {
         using var instance=new FileStream(Path.Combine(Paths.Root,"service.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);
-        var builder=Host.CreateApplicationBuilder([]);builder.Logging.ClearProviders();builder.Services.AddWindowsService(o=>o.ServiceName=role=="hub"?"AIPULSEHub":"AIPULSEAgent");
+        var builder=Host.CreateApplicationBuilder(new HostApplicationBuilderSettings{Args=[],ContentRootPath=Paths.Root});builder.Logging.ClearProviders();builder.Services.AddWindowsService(o=>o.ServiceName=role=="hub"?"AIPULSEHub":"AIPULSEAgent");
         builder.Services.AddSingleton(new FleetRole(role));builder.Services.AddHostedService<FleetWorker>();
         using var host=builder.Build();host.Run();return Environment.ExitCode;
     }

@@ -67,7 +67,7 @@ public static class FleetInstaller
             }
             Run("chown","-R",account,root);Run("chmod","-R","go-rwx",root);Run("chmod","+x",exe);
             string unit="aipulse-"+role;
-            File.WriteAllText("/etc/systemd/system/"+unit+".service",$"[Unit]\nDescription=AIPULSE {role}\nAfter=network.target\n\n[Service]\nType=simple\nUser={account}\nExecStart={exe} --{role} --data-dir {root}\nRestart=always\nRestartSec=5\nUMask=0077\nNoNewPrivileges=true\nProtectSystem=strict\nProtectHome=read-only\nReadWritePaths={root}\n\n[Install]\nWantedBy=multi-user.target\n");
+            File.WriteAllText("/etc/systemd/system/"+unit+".service",$"[Unit]\nDescription=AIPULSE {role}\nAfter=network.target\n\n[Service]\nType=simple\nUser={account}\nWorkingDirectory={root}\nEnvironment=DOTNET_EnableDiagnostics=0\nPrivateTmp=true\nExecStart={exe} --{role} --data-dir {root}\nRestart=always\nRestartSec=5\nUMask=0077\nNoNewPrivileges=true\nProtectSystem=strict\nProtectHome=read-only\nReadWritePaths={root}\n\n[Install]\nWantedBy=multi-user.target\n");
             Run("systemctl","daemon-reload");Run("systemctl","enable","--now",unit);
         }
     }
