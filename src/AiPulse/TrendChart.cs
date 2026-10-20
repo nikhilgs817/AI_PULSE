@@ -14,6 +14,8 @@ public sealed class TrendChart : Control
     public long? WindowStart{get;set;}
     public long? WindowEnd{get;set;}
     public TimeZoneInfo Zone{get;set;}=TimeZoneInfo.Local;
+    public long ExpectedIntervalSeconds{get;set;}=60;
+    public static bool IsGap(long previous,long next,long interval)=>next<=previous||next-previous>Math.Max(1,interval)*1.5;
     public static string TimeLabel(long time,TimeZoneInfo zone)=>TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(time),zone).ToString("yyyy-MM-dd\nHH:mm");
     public static long[] TimeTicks(long first,long last,int count)=>Enumerable.Range(0,count).Select(i=>first+(long)((last-first)*(double)i/(count-1))).ToArray();
     List<ChartSeries> Lines=>Series.Count>0?Series:[new("Value",Points,"#40d5ed")];
@@ -28,9 +30,7 @@ public sealed class TrendChart : Control
             foreach(var line in lines.Where(s=>s.Points.Count>0))
             {
                 var point=line.Points.MinBy(p=>Math.Abs(p.Time-target))!;
-                var intervals=line.Points.Zip(line.Points.Skip(1),(a,b)=>b.Time-a.Time).Where(d=>d>0).Order().ToArray();
-                long tolerance=intervals.Length>0?intervals[intervals.Length/2]:60;
-                if(Math.Abs(point.Time-target)>tolerance)continue;
+                if(Math.Abs(point.Time-target)>Math.Max(1,ExpectedIntervalSeconds))continue;
                 var at=TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(point.Time),Zone);
                 text.Add($"{line.Name}: {point.Average:0.##} {Unit} · {at:yyyy-MM-dd HH:mm:ss zzz}");
             }
@@ -65,10 +65,9 @@ public sealed class TrendChart : Control
             var values=series.Points.Where(p=>p.Time>=first&&p.Time<=last&&double.IsFinite(p.Average)).OrderBy(p=>p.Time).ToList();
             var brush=Brush.Parse(series.Color);var linePen=new Pen(brush,2);
             Point XY(MetricPoint p)=>new(left+(double)(p.Time-first)/(last-first)*(right-left),bottom-Math.Clamp(p.Average/max,0,1)*(bottom-top));
-            var intervals=values.Zip(values.Skip(1),(a,b)=>b.Time-a.Time).Where(t=>t>0).Order().ToArray();double gap=intervals.Length>0?intervals[intervals.Length/2]*1.5:180;
             using(ctx.PushClip(new Rect(left,top,right-left,bottom-top)))
             {
-                for(int i=1;i<values.Count;i++)if(values[i].Time-values[i-1].Time<=gap)ctx.DrawLine(linePen,XY(values[i-1]),XY(values[i]));
+                for(int i=1;i<values.Count;i++)if(!IsGap(values[i-1].Time,values[i].Time,ExpectedIntervalSeconds))ctx.DrawLine(linePen,XY(values[i-1]),XY(values[i]));
                 foreach(var p in values)ctx.DrawEllipse(brush,null,XY(p),2,2);
             }
         }

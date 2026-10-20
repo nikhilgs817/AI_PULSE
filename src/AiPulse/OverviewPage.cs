@@ -55,10 +55,10 @@ public sealed partial class MainWindow
         }
         stack.Children.Add(range);
         stack.Children.Add(Columns(OverviewChart("CPU / GPU utilization",start,now,"%",100,
-            new("CPU",service.Store.History("cpu.load",start),"#40d5ed"),new("GPU",service.Store.History(service.Value("gpu.load").HasValue?"gpu.load":"gpu.engine",start),"#ad8bfa")),
-            OverviewChart("System memory",start,now,"GiB",service.Value("ram.total"),new ChartSeries("RAM used",service.Store.History("ram.used",start),"#40d5ed"))));
+            new("CPU",service.Store.History("cpu.load",start,now),"#40d5ed"),new("GPU",service.Store.History(service.Value("gpu.load").HasValue?"gpu.load":"gpu.engine",start,now),"#ad8bfa")),
+            OverviewChart("System memory",start,now,"GiB",service.Value("ram.total"),new ChartSeries("RAM used",service.Store.History("ram.used",start,now),"#40d5ed"))));
         stack.Children.Add(Columns(OverviewChart("CPU / GPU temperature",start,now,"°C",null,
-            new("CPU",service.Store.History("cpu.temperature",start),"#40d5ed"),new("GPU core",service.Store.History("gpu.temperature",start),"#ad8bfa")),WifiPanel(NetworkMetrics.From(service.Readings),start,now,fresh)));
+            new("CPU",service.Store.History("cpu.temperature",start,now),"#40d5ed"),new("GPU core",service.Store.History("gpu.temperature",start,now),"#ad8bfa")),WifiPanel(NetworkMetrics.From(service.Readings),start,now,fresh)));
 
         var onPrem=Metric("ON-PREM TOKENS · TODAY",J.Count(activity.OnPrem),"Ollama gateway · input + output since local midnight");
         var tools=Metric("TOOL TOKENS · TODAY",J.Count(activity.Tools),"Codex / Claude Code observations · cache already included");stack.Children.Add(Columns(onPrem,tools));
@@ -98,7 +98,7 @@ public sealed partial class MainWindow
         string Rate(double? v)=>fresh&&selected.Connected&&v.HasValue?$"{v.Value*NetworkMetrics.MiBToMegabits:0.00} Mbps":"—";
         panel.Children.Add(Pair("Download",Rate(selected.DownloadMiBs)));panel.Children.Add(Pair("Upload",Rate(selected.UploadMiBs)));
         panel.Children.Add(Text(selected.Name+" · "+(selected.Connected?"connected":"disconnected")+" · link "+(fresh&&selected.Connected&&selected.LinkMbps.HasValue?$"{selected.LinkMbps:0.#} Mbps":"—"),11,"#8ba0bd"));
-        List<MetricPoint> Megabits(string suffix)=>service.Store.History(selected.Id+suffix,start).Select(p=>new MetricPoint(p.Time,p.Average*NetworkMetrics.MiBToMegabits,p.Minimum*NetworkMetrics.MiBToMegabits,p.Maximum*NetworkMetrics.MiBToMegabits)).ToList();
+        List<MetricPoint> Megabits(string suffix)=>service.Store.History(selected.Id+suffix,start,end).Select(p=>new MetricPoint(p.Time,p.Average*NetworkMetrics.MiBToMegabits,p.Minimum*NetworkMetrics.MiBToMegabits,p.Maximum*NetworkMetrics.MiBToMegabits)).ToList();
         var chart=new TrendChart{Height=150,Unit="Mbps",MaxValue=null,WindowStart=start,WindowEnd=end,Series=[new("Download",Megabits(".rx"),"#40d5ed"),new("Upload",Megabits(".tx"),"#ad8bfa")]};AutomationProperties.SetName(chart,"Wi-Fi throughput · dated time axis · Mbps");
         var legend=new StackPanel{Orientation=Orientation.Horizontal,Spacing=16};legend.Children.Add(Text("● Download",11,"#40d5ed"));legend.Children.Add(Text("● Upload",11,"#ad8bfa"));panel.Children.Add(legend);panel.Children.Add(chart);panel.Children.Add(Text("Actual interface traffic · minute means. Link speed is the router connection rate.",10,"#8ba0bd"));return Card(panel);
     }

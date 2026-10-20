@@ -22,7 +22,7 @@ All profiles use HTTPS with verified hub identity and a separate credential per 
 flowchart LR
   subgraph H1[Monitored Windows or Ubuntu host]
     C[Hardware, Wi-Fi, models and app collectors] --> L[(Local SQLite history + durable outbox)]
-    U[Optional per-user token companion] --> L
+    U[Optional per-user token companion] -->|Restricted local IPC| C
     L --> S[Background sync worker]
   end
   S -->|Outbound HTTPS: latest state + buffered history| H[Always-on hub service]

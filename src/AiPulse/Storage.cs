@@ -118,10 +118,11 @@ public sealed class Storage : IDisposable
             }
         }
     }
-    public List<MetricPoint> History(string id,long since)
+    public static long HistoryBucket(long since,long end)=>end-since>7*86400?3600:end-since>86400?300:60;
+    public List<MetricPoint> History(string id,long since,long? until=null)
     {
-        lock(gate){long bucket=J.Now-since>7*86400?3600:J.Now-since>86400?300:60;
-        using var c=Command("SELECT time/@p2*@p2,sum(total)/sum(count),min(minimum),max(maximum) FROM minute_metrics WHERE id=@p0 AND time>=@p1 GROUP BY time/@p2 ORDER BY time",id,since,bucket);
+        lock(gate){long end=until??J.Now,bucket=HistoryBucket(since,end);
+        using var c=Command("SELECT time/@p2*@p2,sum(total)/sum(count),min(minimum),max(maximum) FROM minute_metrics WHERE id=@p0 AND time>=@p1 AND time<=@p3 GROUP BY time/@p2 ORDER BY time",id,since,bucket,end);
         using var r=c.ExecuteReader();var rows=new List<MetricPoint>();while(r.Read())rows.Add(new(r.GetInt64(0),r.GetDouble(1),r.GetDouble(2),r.GetDouble(3)));return rows;}
     }
     public (long Offset,string State) Checkpoint(string path)

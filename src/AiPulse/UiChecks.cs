@@ -53,7 +53,7 @@ public sealed partial class MainWindow
             long wifiNow=J.Now;for(int i=0;i<6;i++)service.Store.Sample(wifiNow-360+i*60,[new("nic.fixture-wifi.rx","Download","Fixture Wi-Fi","MiB/s",i+1,"UI fixture"),new("nic.fixture-wifi.tx","Upload","Fixture Wi-Fi","MiB/s",(i+1)/2.0,"UI fixture")]);
             var wifiFixture=new List<NetworkSample>{new("nic.fixture-wifi","Fixture Wi-Fi",true,true,600,1,2)};
             scroller!.Content=WifiPanel(wifiFixture,wifiNow-900,wifiNow,true);await Task.Delay(150);
-            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="8.39 Mbps")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="16.78 Mbps")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text!.Contains("link 600 Mbps")),"Wi-Fi shows actual upload/download rates separately from the negotiated link speed");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="8.39 Mbps")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>(t.Text??"").Contains("link 600 Mbps"))&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="16.78 Mbps"),"Wi-Fi shows actual upload/download rates separately from the negotiated link speed");
             Check(this.GetVisualDescendants().OfType<TrendChart>().Single().Series.Count==2&&this.GetVisualDescendants().OfType<TrendChart>().Single().Series.All(s=>s.Points.Count==6),"Wi-Fi graph contains separately identified download/upload histories");await Shot("wifi-speed-fixture");
             scroller.Content=WifiPanel(wifiFixture,wifiNow-900,wifiNow,false);await Task.Delay(150);Check(!this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="8.39 Mbps"||t.Text=="16.78 Mbps"),"Stale Wi-Fi readings are unavailable rather than presented as current speed");
             Refresh();await Task.Delay(150);
@@ -95,7 +95,7 @@ public sealed partial class MainWindow
             await Click("Settings");await Shot("settings");
             File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);
         }
-        catch(Exception e){results.Add("FAIL: "+e.Message);File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);Environment.ExitCode=1;}
+        catch(Exception e){results.Add("FAIL: "+e);File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);Environment.ExitCode=1;}
         finally{if(Application.Current is App app){app.Quitting=true;(app.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown(Environment.ExitCode);}}
     }
 }

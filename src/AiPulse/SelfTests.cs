@@ -16,6 +16,7 @@ public static class SelfTests
             var chartZone=TimeZoneInfo.CreateCustomTimeZone("chart-offset",TimeSpan.FromHours(-5),"test","test");long chartAt=DateTimeOffset.Parse("2026-10-20T02:30:00Z").ToUnixTimeSeconds();
             Check(TrendChart.TimeLabel(chartAt,chartZone).Contains("19")&&TrendChart.TimeLabel(chartAt,chartZone).Contains("21:30")&&TrendChart.TimeLabel(chartAt,TimeZoneInfo.Utc).Contains("20")&&TrendChart.TimeLabel(chartAt,TimeZoneInfo.Utc).Contains("02:30"),"Chart ticks include the observation's date and 24-hour time in the selected timezone across midnight");
             var ticks=TrendChart.TimeTicks(chartAt,chartAt+3*86400,5);Check(ticks.Length==5&&ticks[0]==chartAt&&ticks[^1]==chartAt+3*86400&&ticks.Distinct().Count()==5,"Multi-day chart axes span the requested range with intermediate dated ticks");
+            Check(!TrendChart.IsGap(0,60,60)&&TrendChart.IsGap(0,600,60)&&!TrendChart.IsGap(0,300,300)&&Storage.HistoryBucket(0,86400)==60&&Storage.HistoryBucket(0,2*86400)==300&&Storage.HistoryBucket(0,8*86400)==3600,"Charts break missing periods using the expected aggregation interval, including sparse data and multi-day history");
             var processFixture=new List<AgentProcess>{new(1,0,"Codex",10,2,100),new(2,1,"node",11,3,50),new(3,2,"helper",12,1,20),new(4,1,"ollama",13,4,300),new(5,4,"runner",14,5,400),new(6,0,"unrelated-codex-tool",10,90,900),new(7,8,"cycle",20,1,1),new(8,7,"cycle",20,1,1),new(9,1,"old-child",9,1,5)};
             processFixture.Add(processFixture[1]);
             var resources=AgentResources.Group(processFixture);
@@ -28,7 +29,7 @@ public static class SelfTests
             using(var db=new Storage(Path.Combine(root,"test.db")))
             {
                 var now=J.Now;db.Sample(now,[new("cpu","CPU","test","%",20,"test")]);db.Sample(now,[new("cpu","CPU","test","%",99,"test")]);db.Sample(now+1,[new("cpu","CPU","test","%",40,"test")]);
-                var history=db.History("cpu",now/60*60);Check(history.Sum(p=>p.Average)>0&&history.Max(p=>p.Maximum)==40,"Duplicate hardware samples ignored; maxima preserved");
+                var history=db.History("cpu",now/60*60,now+1);Check(history.Sum(p=>p.Average)>0&&history.Max(p=>p.Maximum)==40,"Duplicate hardware samples ignored; maxima preserved");
                 var usage=new Usage("test","Ollama","test-model","s",now,100,20,50,0,5,2000,10,"Completed");db.PutUsage(usage);db.PutUsage(usage);Check(db.Totals(now-1).Input==100&&db.Totals(now-1).Output==20,"Usage replay deduplicated; cache/reasoning are subsets");
                 var state=new AgentUsage.ParseState{Session="codex-test",Model="test"};string fixture="""{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":10,"reasoning_output_tokens":3}}}}""";
                 using(var j=JsonDocument.Parse(fixture)){AgentUsage.Parse(j.RootElement,true,state,"test",db);AgentUsage.Parse(j.RootElement,true,state,"test",db);}Check(db.Totals(now-1).Input==200,"Codex repeated cumulative counts are not double-counted");
