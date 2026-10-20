@@ -46,7 +46,7 @@ public sealed class FleetHub : IDisposable
     void Save()=>FleetFiles.Write(Path.Combine(root,"hosts.json"),state);
     Storage Store(RegisteredHost host)
     {
-        if(!stores.TryGetValue(host.Id,out var store)){store=new Storage(Path.Combine(root,"hosts",host.Id,"pulse.db"),config.RetentionDays);stores[host.Id]=store;}
+        if(!stores.TryGetValue(host.Id,out var store)){store=new Storage(Path.Combine(root,"hosts",host.Id,"pulse.db"),config.RetentionDays,durable:true);stores[host.Id]=store;}
         return store;
     }
     public bool IsAdmin(string token)=>token.Length>0&&FleetFiles.Matches(token,config.AdminHash);
@@ -95,9 +95,9 @@ public sealed class FleetHub : IDisposable
         if(batch.InstallationId!=host.InstallationId||batch.Events.Count>1000||batch.Events.Sum(e=>e.Payload.Length)>1_000_000)throw new InvalidDataException("Invalid batch");
         lock(gate){if(host.Revoked)throw new UnauthorizedAccessException();Store(host).ApplyBatch(host.InstallationId,batch.Events,true);return new(config.HubId,batch.Events.Select(e=>e.Sequence).ToList());}
     }
-    public HostView? View(string id,long after)
+    public HostView? View(string id,long after,bool liveOnly=false)
     {
-        lock(gate){var h=state.Hosts.FirstOrDefault(h=>h.Id==id);if(h==null)return null;return new(config.HubId,Summary(h),h.Snapshot is {} s?s with{RetentionDays=config.RetentionDays}:null,Store(h).Events(after));}
+        lock(gate){var h=state.Hosts.FirstOrDefault(h=>h.Id==id);if(h==null)return null;return new(config.HubId,Summary(h),h.Snapshot is {} s?s with{RetentionDays=config.RetentionDays}:null,liveOnly?[]:Store(h).Events(after));}
     }
     public void Maintain()
     {
@@ -136,6 +136,7 @@ public sealed class FleetHub : IDisposable
         app.MapPost("/fleet/v1/pair",()=>Pair());
         app.MapPost("/fleet/v1/enroll",(Enrollment r)=>Enroll(r));
         app.MapGet("/fleet/v1/hosts",()=>Hosts());
+        app.MapGet("/fleet/v1/state/{id}",(string id)=>View(id,0,true) is {} view?Results.Ok(view):Results.NotFound());
         app.MapGet("/fleet/v1/hosts/{id}",(string id,long? after)=>View(id,Math.Max(0,after??0)) is {} view?Results.Ok(view):Results.NotFound());
         app.MapPost("/fleet/v1/revoke/{id}",(string id)=>Revoke(id)?Results.Ok():Results.NotFound());
         app.MapPost("/fleet/v1/live",(HttpContext c,HostSnapshot s)=>{Live((RegisteredHost)c.Items["host"]!,s);return Results.Ok();});

@@ -44,7 +44,21 @@ jobs:
             if((Get-CimInstance Win32_Service -Filter "Name='AIPULSEHub'").StartMode -ne 'Auto'){throw 'Service is not automatic'}
             Restart-Service AIPULSEHub
             (Get-Service AIPULSEHub).WaitForStatus('Running',[TimeSpan]::FromSeconds(20))
-          } finally {Stop-Service AIPULSEHub; sc.exe delete AIPULSEHub}
+            $agent=Join-Path $PWD 'build/agent-service-config'
+            $connection=Join-Path $config 'dashboard-connection.json'
+            $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList ('--create-agent-config --hub-connection "'+$connection+'" --data-dir "'+$agent+'"') -WindowStyle Hidden -Wait -PassThru
+            if($p.ExitCode -ne 0){throw 'Agent setup failed'}
+            $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList ('--install-fleet agent --source-config "'+$agent+'" --data-dir "'+$agent+'"') -WindowStyle Hidden -Wait -PassThru
+            if($p.ExitCode -ne 0){throw 'Agent service install failed'}
+            (Get-Service AIPULSEAgent).WaitForStatus('Running',[TimeSpan]::FromSeconds(20))
+            if((Get-CimInstance Win32_Service -Filter "Name='AIPULSEAgent'").StartMode -ne 'Auto'){throw 'Agent service is not automatic'}
+            Restart-Service AIPULSEAgent
+            (Get-Service AIPULSEAgent).WaitForStatus('Running',[TimeSpan]::FromSeconds(20))
+            $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList ('--check-fleet --hub-connection "'+$connection+'" --data-dir "'+$agent+'"') -WindowStyle Hidden -Wait -PassThru
+            if($p.ExitCode -ne 0){throw 'Boot agent did not reach the hub'}
+          } finally {
+            foreach($role in @('agent','hub')){$p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList ('--remove-fleet '+$role+' --data-dir "'+$config+'"') -WindowStyle Hidden -Wait -PassThru}
+          }
       - name: Verify Windows hardware and reopening a running window
         shell: pwsh
         run: |
@@ -139,7 +153,14 @@ jobs:
           sudo systemctl restart aipulse-hub
           sleep 2
           systemctl is-active aipulse-hub
-          sudo systemctl disable --now aipulse-hub
+          build/linux-x64/AiPulse --create-agent-config --hub-connection "$PWD/build/hub-service-config/dashboard-connection.json" --data-dir build/agent-service-config
+          sudo build/linux-x64/AiPulse --install-fleet agent --source-config "$PWD/build/agent-service-config" --data-dir "$PWD/build/agent-service-config"
+          systemctl is-enabled aipulse-agent
+          systemctl is-active aipulse-agent
+          sudo systemctl restart aipulse-agent
+          build/linux-x64/AiPulse --check-fleet --hub-connection "$PWD/build/hub-service-config/dashboard-connection.json" --data-dir build/agent-service-config
+          sudo build/linux-x64/AiPulse --remove-fleet agent --data-dir "$PWD/build/agent-service-config"
+          sudo build/linux-x64/AiPulse --remove-fleet hub --data-dir "$PWD/build/hub-service-config"
       - name: GUI smoke test on virtual X11 desktop
         run: |
           sudo apt-get update

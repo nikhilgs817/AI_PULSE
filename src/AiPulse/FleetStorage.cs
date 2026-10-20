@@ -13,6 +13,7 @@ public sealed partial class Storage
     public long QueueBudgetBytes {get;set;}=2L*1024*1024*1024;
     void InitializeReplication()=>Execute("""
         CREATE TABLE IF NOT EXISTS sync_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,payload TEXT NOT NULL,bytes INTEGER NOT NULL,created INTEGER NOT NULL);
+        CREATE INDEX IF NOT EXISTS sync_events_created ON sync_events(created);
         CREATE TABLE IF NOT EXISTS sync_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sync_queue_stats(id INTEGER PRIMARY KEY CHECK(id=1),bytes INTEGER NOT NULL);
         INSERT OR IGNORE INTO sync_queue_stats SELECT 1,coalesce(sum(bytes),0) FROM sync_events;
@@ -53,6 +54,10 @@ public sealed partial class Storage
             foreach(var e in events.OrderBy(e=>e.Sequence))
             {
                 if(e.Sequence<=applied)continue;
+                using(var observation=JsonDocument.Parse(e.Payload))
+                {
+                    if(observation.RootElement.TryGetProperty("Time",out var time)&&time.GetInt64()<J.Now-RetentionDays*86400L){applied=e.Sequence;continue;}
+                }
                 switch(e.Kind)
                 {
                     case "sample":var s=JsonSerializer.Deserialize<SamplePayload>(e.Payload)!;SampleCore(s.Time,s.Readings);break;
@@ -74,7 +79,7 @@ public sealed partial class Storage
     {
         if(e.Sequence<=0||e.Payload.Length>1_000_000)throw new InvalidDataException("Invalid event bounds");
         static void Text(string? s,int max=512){if(s==null||s.Length>max)throw new InvalidDataException("Invalid telemetry text");}
-        static void Time(long t){if(t<J.Now-366L*86400||t>J.Now+300)throw new InvalidDataException("Observation outside supported clock/retention window");}
+        static void Time(long t){if(t<0||t>J.Now+300)throw new InvalidDataException("Observation outside supported clock/retention window");}
         static void Sensor(Reading r){Text(r.Id);Text(r.Name);Text(r.Device);Text(r.Unit,32);Text(r.Source,128);if(r.Value.HasValue&&!double.IsFinite(r.Value.Value))throw new InvalidDataException("Non-finite metric");}
         switch(e.Kind)
         {

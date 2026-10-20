@@ -10,13 +10,13 @@ public sealed partial class Storage : IDisposable
     readonly SqliteConnection db;
     int retentionDays=90;
     public int RetentionDays {get=>Volatile.Read(ref retentionDays);set=>Volatile.Write(ref retentionDays,Math.Clamp(value,7,365));}
-    public Storage(string path,int retentionDays=90,bool replication=false)
+    public Storage(string path,int retentionDays=90,bool replication=false,bool durable=false)
     {
         RetentionDays=retentionDays;
         Replication=replication;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false}.ToString());db.Open();
-        Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
+        Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous="+(replication||durable?"FULL":"NORMAL")+"; PRAGMA busy_timeout=5000;");
         var version=Convert.ToInt32(Scalar("PRAGMA user_version"));
         if(version>1) throw new InvalidOperationException("Database belongs to a newer AI Pulse version.");
         Execute("""

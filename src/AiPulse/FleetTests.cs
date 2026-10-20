@@ -58,7 +58,7 @@ public static class FleetTests
                 hub.Live(bh,new HostSnapshot{Name="same-name",SampledAt=J.Now,Readings=[new("cpu.load","CPU","d","%",75,"fixture")]});
                 using(var dashboard=new FleetDashboard(connection){SelectedHost=b.HostId})
                 {
-                    dashboard.Start();for(int i=0;i<100&&dashboard.SelectedMonitor?.Store.Totals(now-1).Input!=50;i++)await Task.Delay(100);
+                    dashboard.Start();for(int i=0;i<100&&(dashboard.SelectedMonitor?.Store.Totals(now-1).Input!=50||dashboard.SelectedMonitor?.Value("cpu.load")!=75);i++)await Task.Delay(100);
                     Check(dashboard.SelectedMonitor?.Store.Totals(now-1).Input==50&&dashboard.SelectedMonitor.Value("cpu.load")==75,"The dashboard queries and caches only the selected host's readings and token history");
                 }
                 bool plainRejected=false;try{FleetFiles.ValidateConnection(new(){Url="http://host:11440",CertificateSha256=connection.CertificateSha256});}catch(InvalidDataException){plainRejected=true;}Check(plainRejected,"All network profiles reject plaintext transport");

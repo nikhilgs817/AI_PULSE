@@ -11,43 +11,57 @@ public sealed class FleetAgent(MonitorService monitor,HostAgentConfig config,str
     public async Task Run(CancellationToken ct)
     {
         monitor.Start();int failures=0;
-        while(!ct.IsCancellationRequested)
+        while(config.HostId==""&&!ct.IsCancellationRequested)
         {
             try
             {
                 using var client=FleetFiles.Client(config.Connection);
-                if(config.HostId=="")
-                {
-                    using var response=await client.PostAsJsonAsync("/fleet/v1/enroll",new Enrollment(config.PairingCode,config.InstallationId,config.Name,config.Connection.NetworkType),ct);response.EnsureSuccessStatusCode();
-                    var result=await response.Content.ReadFromJsonAsync<EnrollmentResult>(ct)??throw new InvalidDataException();
-                    config.HostId=result.HostId;config.Connection.Token=result.Token;config.HubEpoch=result.HubId;config.PairingCode="";FleetFiles.Write(configFile,config);
-                    client.DefaultRequestHeaders.Authorization=new("Bearer",result.Token);
-                }
-                // The live lane is independent of history upload. A backlog cannot masquerade as live data.
-                using(var live=await client.PostAsJsonAsync("/fleet/v1/live",monitor.Snapshot() with{Name=config.Name},ct))live.EnsureSuccessStatusCode();
-                for(int round=0;round<4;round++)
-                {
-                    var events=monitor.Store.Events();if(events.Count==0)break;
-                    using var response=await client.PostAsJsonAsync("/fleet/v1/ingest",new IngestBatch(config.InstallationId,events),ct);response.EnsureSuccessStatusCode();
-                    var ack=await response.Content.ReadFromJsonAsync<IngestAck>(ct)??throw new InvalidDataException();
-                    if(ack.HubId!=config.HubEpoch)throw new InvalidDataException("Hub identity changed; re-pair required");
-                    var offered=events.Select(e=>e.Sequence).ToHashSet();if(ack.Accepted.Any(s=>!offered.Contains(s)))throw new InvalidDataException("Invalid acknowledgement");
-                    monitor.Store.Acknowledge(ack.Accepted);
-                    if(ack.Accepted.Count==0)break;
-                }
-                failures=0;Status=monitor.Store.QueueInfo().Count>0?"Connected · history syncing":"Connected · up to date";
-                FleetFiles.Write(Path.Combine(Path.GetDirectoryName(configFile)!,"sync-status.json"),new{Status,At=J.Now,Queue=monitor.Store.QueueInfo()});
-                await Task.Delay(2000,ct);
+                using var response=await client.PostAsJsonAsync("/fleet/v1/enroll",new Enrollment(config.PairingCode,config.InstallationId,config.Name,config.Connection.NetworkType),ct);response.EnsureSuccessStatusCode();
+                var result=await response.Content.ReadFromJsonAsync<EnrollmentResult>(ct)??throw new InvalidDataException();
+                config.HostId=result.HostId;config.Connection.Token=result.Token;config.HubEpoch=result.HubId;config.PairingCode="";FleetFiles.Write(configFile,config);
             }
-            catch(OperationCanceledException) when(ct.IsCancellationRequested){break;}
-            catch(Exception e)
+            catch(OperationCanceledException)when(ct.IsCancellationRequested){return;}
+            catch(Exception e){Status="Pairing unavailable · collecting locally · "+e.GetType().Name;Paths.Log("fleet-pairing",e);try{await Task.Delay(TimeSpan.FromSeconds(Math.Min(60,Math.Pow(2,Math.Min(++failures,6)))),ct);}catch(OperationCanceledException){return;}}
+        }
+        await Task.WhenAll(LiveLoop(ct),HistoryLoop(ct));
+    }
+    async Task LiveLoop(CancellationToken ct)
+    {
+        using var client=FleetFiles.Client(config.Connection);client.Timeout=TimeSpan.FromSeconds(8);
+        while(!ct.IsCancellationRequested)
+        {
+            try
             {
-                failures=Math.Min(failures+1,6);Status="Disconnected · collecting locally · "+e.GetType().Name;Paths.Log("fleet-sync",e);
-                FleetFiles.Write(Path.Combine(Path.GetDirectoryName(configFile)!,"sync-status.json"),new{Status,At=J.Now,Queue=monitor.Store.QueueInfo()});
-                try{await Task.Delay(TimeSpan.FromSeconds(Math.Min(60,Math.Pow(2,failures))+Random.Shared.NextDouble()),ct);}catch(OperationCanceledException){}
+                using var response=await client.PostAsJsonAsync("/fleet/v1/live",monitor.Snapshot() with{Name=config.Name},ct);response.EnsureSuccessStatusCode();
+                Status=monitor.Store.QueueInfo().Count>0?"Connected · history syncing":"Connected · up to date";
             }
+            catch(OperationCanceledException)when(ct.IsCancellationRequested){break;}
+            catch(Exception e){Status="Disconnected · collecting locally · "+e.GetType().Name;Paths.Log("fleet-live",e);}
+            try{FleetFiles.Write(Path.Combine(Path.GetDirectoryName(configFile)!,"sync-status.json"),new{Status,At=J.Now,Count=monitor.Store.QueueInfo().Count,Bytes=monitor.Store.QueueInfo().Bytes});await Task.Delay(2000,ct);}catch(OperationCanceledException){}catch(Exception e){Paths.Log("fleet-status",e);}
         }
     }
+    async Task HistoryLoop(CancellationToken ct)
+    {
+        using var client=FleetFiles.Client(config.Connection);int failures=0;
+        while(!ct.IsCancellationRequested)
+        {
+            try
+            {
+                var events=monitor.Store.Events();
+                if(events.Count==0){await Task.Delay(1000,ct);continue;}
+                using var response=await client.PostAsJsonAsync("/fleet/v1/ingest",new IngestBatch(config.InstallationId,events),ct);response.EnsureSuccessStatusCode();
+                var ack=await response.Content.ReadFromJsonAsync<IngestAck>(ct)??throw new InvalidDataException();
+                if(ack.HubId!=config.HubEpoch)throw new InvalidDataException("Hub identity changed; re-pair required");
+                var offered=events.Select(e=>e.Sequence).ToHashSet();if(ack.Accepted.Any(s=>!offered.Contains(s)))throw new InvalidDataException("Invalid acknowledgement");
+                monitor.Store.Acknowledge(ack.Accepted);failures=0;
+                // Bound historical payload delivery to about 1 MiB/s, independently of live updates.
+                await Task.Delay(Math.Max(100,events.Sum(e=>System.Text.Encoding.UTF8.GetByteCount(e.Payload))/1024),ct);
+            }
+            catch(OperationCanceledException)when(ct.IsCancellationRequested){break;}
+            catch(Exception e){Paths.Log("fleet-history",e);failures=Math.Min(failures+1,6);try{await Task.Delay(TimeSpan.FromSeconds(Math.Min(60,Math.Pow(2,failures))+Random.Shared.NextDouble()),ct);}catch(OperationCanceledException){}}
+        }
+    }
+
 }
 public static class FleetRuntime
 {

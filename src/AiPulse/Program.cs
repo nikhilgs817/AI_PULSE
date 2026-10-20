@@ -14,6 +14,11 @@ public static class Program
         int waitIndex=Array.IndexOf(args,"--wait-for-exit");if(waitIndex>=0&&args.Length>waitIndex+1&&int.TryParse(args[waitIndex+1],out var parentId)){try{System.Diagnostics.Process.GetProcessById(parentId).WaitForExit(20000);}catch(ArgumentException){}}
         try
         {
+            if(args.Contains("--create-agent-config")||args.Contains("--check-fleet"))
+            {
+                int n=Array.IndexOf(args,"--hub-connection");if(n<0||n+1>=args.Length)throw new ArgumentException("Provide a hub connection file");
+                if(args.Contains("--create-agent-config"))FleetSetup.CreateAgent(args[n+1],Paths.Root,args.Contains("--include-user-metadata")).GetAwaiter().GetResult();else FleetSetup.Check(args[n+1]).GetAwaiter().GetResult();return 0;
+            }
             if(args.Contains("--remove-fleet")){int n=Array.IndexOf(args,"--remove-fleet");if(n+1>=args.Length)throw new ArgumentException("Provide hub or agent");FleetInstaller.Remove(args[n+1]);return 0;}
             if(args.Contains("--init-hub")){int n=Array.IndexOf(args,"--hostname");FleetFiles.InitializeHub(Paths.Root,n>=0&&n+1<args.Length?args[n+1]:"localhost");return 0;}
             if(args.Contains("--install-fleet"))

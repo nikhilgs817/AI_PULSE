@@ -32,14 +32,14 @@ public sealed partial class MainWindow
                 hub.Ingest(host,new(host.InstallationId,events));
             }
             fleet=new(connection){SelectedHost=b.HostId};fleet.Start();
-            for(int i=0;i<100&&fleet.SelectedMonitor?.Store.Totals(now-1).Input!=63;i++)await Task.Delay(100);
+            for(int i=0;i<100&&(fleet.SelectedMonitor?.Store.Totals(now-1).Input!=63||fleet.SelectedMonitor?.RemoteSnapshot?.Name!="Ubuntu node · fixture");i++)await Task.Delay(100);
             localService.Settings.Compact=false;page="Overview";layoutPage=null;ApplyWindowLayout();RenderBody();await Task.Delay(200);
             var selector=this.GetVisualDescendants().OfType<ComboBox>().Single(c=>AutomationProperties.GetName(c)=="Select monitored host");
             Check(selector.ItemCount==3&&selector.SelectedIndex==2,"Fleet host dropdown includes All hosts and both paired hosts");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.Contains("Ubuntu node · fixture · Ubuntu · Fixture CPU")==true)&&service.LogicalProcessors==4,"Selected host supplies its own name, OS and CPU capacity instead of the dashboard machine");
             Check(service.Store.Totals(now-1).Input==63&&service.Ollama.Models.Count==1&&service.AgentApps.Single().MemoryMiB==300,"Selected-host model, token and process-resource sections share one host scope");
             using(var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96))){bitmap.Render(this);bitmap.Save(Path.Combine(Paths.Root,"fleet-selected-host.png"));}
-            selector.SelectedIndex=1;for(int i=0;i<100&&fleet.SelectedMonitor?.Store.Totals(now-1).Input!=11;i++)await Task.Delay(100);RenderBody();
+            selector.SelectedIndex=1;for(int i=0;i<100&&(fleet.SelectedMonitor?.Store.Totals(now-1).Input!=11||fleet.SelectedMonitor?.RemoteSnapshot?.Name!="Minisforum · fixture");i++)await Task.Delay(100);RenderBody();
             Check(service.Store.Totals(now-1).Input==11&&service.Value("cpu.load")==31,"Switching hosts replaces the complete data scope without mixing identical record names");
             localService.Settings.Compact=true;localService.Settings.CompactVertical=true;ApplyWindowLayout();RenderBody();await Task.Delay(100);
             Check(Height==284&&header.Bounds.Height==62&&this.GetVisualDescendants().OfType<ComboBox>().Any(c=>AutomationProperties.GetName(c)=="Select monitored host"),"Compact fleet mode retains the host dropdown with a bounded additional row");
