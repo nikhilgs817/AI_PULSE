@@ -1,0 +1,52 @@
+{
+  "started_utc_epoch": 1792519514,
+  "duration_seconds": 20.3,
+  "baseline_loaded_models": [],
+  "results": [
+    {
+      "test": "native non-streaming request",
+      "passed": true,
+      "input": 25,
+      "output": 15,
+      "decode_tok_s": 38.42675731965682
+    },
+    {
+      "test": "native streaming request",
+      "passed": true,
+      "input": 25,
+      "output": 15
+    },
+    {
+      "test": "concurrent generation and embedding",
+      "passed": true
+    },
+    {
+      "test": "multiple model residency",
+      "passed": true,
+      "loaded_models": [
+        "nomic-embed-text:latest",
+        "qwen3:8b"
+      ]
+    },
+    {
+      "test": "upstream error preserved",
+      "passed": true,
+      "http_status": 404
+    },
+    {
+      "test": "exact Qwen token accounting",
+      "passed": true,
+      "requests": 3,
+      "expected_input": 75,
+      "recorded_input": 75,
+      "expected_output": 45,
+      "recorded_output": 45
+    },
+    {
+      "test": "decode rate matches provider duration",
+      "passed": true
+    }
+  ],
+  "all_passed": true,
+  "note": "Actual local Ollama traffic. No large-model load, model download, tuning, or forced unload. Test models expire after five minutes."
+}

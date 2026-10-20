@@ -1,6 +1,6 @@
 # Central dashboard and host-agent architecture
 
-**Decision date:** 2026-10-20. **Architecture direction:** accepted from the owner's request. **Implementation status:** planned; the released 0.2.1 app remains a local collector. The Overview/network/chart work is the first UI increment, not a claim that remote agents already ship.
+**Decision date:** 2026-10-20. **Architecture direction:** accepted from the owner's request. **Implementation status:** planned; the released 0.2.2 app remains a local collector. The Overview/network/chart work is the first UI increment, not a claim that remote agents already ship.
 
 ## User experience
 

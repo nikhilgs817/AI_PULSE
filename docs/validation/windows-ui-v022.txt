@@ -1,0 +1,56 @@
+PASS: Horizontal compact layout includes five hardware readings, daily activity and model toggle
+PASS: Compact mode displays agent activity and calendar-day tokens
+PASS: Loaded-model dropdown opens without expanding the dashboard
+PASS: All fixture models were discovered through Ollama HTTP polling
+PASS: Loaded-model row exists: fixture-model-01:test
+PASS: Loaded-model row exists: fixture-model-02:test
+PASS: Loaded-model row exists: fixture-model-03:test
+PASS: Loaded-model row exists: fixture-model-04:test
+PASS: Loaded-model row exists: fixture-model-05:test
+PASS: Loaded-model row exists: fixture-model-06:test
+PASS: Loaded-model row exists: fixture-model-07:test
+PASS: Loaded-model row exists: fixture-model-08:test
+PASS: Loaded-model row exists: fixture-model-09:test
+PASS: Loaded-model row exists: fixture-model-10:test
+PASS: Loaded-model row exists: fixture-model-11:test
+PASS: Loaded-model row exists: fixture-model-12:test
+PASS: Many models scroll inside a bounded compact dropdown
+PASS: Loaded-model scroll position survives live refresh
+PASS: Closing loaded-model dropdown restores compact height
+PASS: Vertical compact layout fits seven readings in tight 28-pixel rows
+PASS: Expanded dashboard restores full-size branding
+PASS: Window-state changes keep the active header attached until input completes
+PASS: Expanded window maximizes and exposes Restore
+PASS: Restore returns to a normal resizable window
+PASS: Compact mode leaves maximization and remains a small widget
+PASS: Clicking the current navigation tab repeatedly preserves its content
+PASS: Overview metric headings match the other card headings
+PASS: Overview includes hardware, workloads, independent daily token totals, Wi-Fi and collection health
+PASS: Overview trend panels share an explicit 15-minute dated time window
+PASS: Overview time-range selection updates every trend together
+PASS: Overview resource drill-down opens the Agents page
+PASS: Wi-Fi shows actual upload/download rates separately from the negotiated link speed
+PASS: Wi-Fi graph contains separately identified download/upload histories
+PASS: Stale Wi-Fi readings are unavailable rather than presented as current speed
+PASS: Sidebar collapses to named icon buttons
+PASS: Search text and keyboard focus survive live refresh
+PASS: Unmatched hardware search has an explicit empty state
+PASS: Hardware shows live capacity and utilization while deep-sensor controls stay in Sensors
+PASS: Hardware exposes memory capacity, GPU allocation and disk used/available columns
+PASS: Network readings retain link-speed and transfer-rate units
+PASS: Sensors has an independent search field
+PASS: Sensors owns live readings, permission status and process activity
+PASS: Sensor search has an explicit empty state
+PASS: Search survives tab changes
+PASS: Agents exposes searchable retained session metadata
+PASS: Agents displays live app CPU, working-set memory and process counts separately from sessions
+PASS: Agent app totals and expandable child-process detail show the measured values
+PASS: Stale process samples do not masquerade as current resource consumption
+PASS: Sidebar expands back to icon and label navigation
+PASS: Token separates on-prem models from tools and other usage
+PASS: Token displays exact independent totals for both sections
+PASS: Token supports period selection and detailed cache/reasoning columns
+PASS: Compact daily token value updates from stored input/output observations
+PASS: Disabled agent import is shown as unavailable rather than zero active agents
+PASS: Default 90-day history does not offer unavailable year ranges
+PASS: One-year retention enables the 365-day history range

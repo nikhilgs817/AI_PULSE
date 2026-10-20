@@ -45,3 +45,9 @@ Hardware shows OS-visible total RAM, available RAM, GPU local capacity/shared li
 Agent app CPU is the summed process CPU-time delta divided by elapsed wall time and available logical processors. The collector detects named Codex, Claude and Ollama executables and attributes readable child processes to the nearest named app ancestor. Each PID is counted once. Process start times prevent PID reuse from contaminating CPU deltas or parent assignment. First samples and reset counters remain unknown. Protected/inaccessible processes can make totals incomplete.
 
 Memory is a sum of working sets, not a unique-page physical-memory total. Session metadata does not supply a reliable process mapping, so app totals are shared across sessions. Cloud model CPU/RAM and per-process GPU allocations are unavailable. App CPU, summed working set and process count use stable `agent.<app>.*` metric IDs and follow ordinary retention; per-PID rows are live only.
+
+## Wi-Fi and chart conventions (0.2.2)
+
+Per-interface byte-counter deltas produce MiB/s; the Wi-Fi view converts them to Mbps using 8.388608 megabits per MiB. Reported link speed is distinct from observed traffic. Windows filter-driver aliases are excluded from new collection; older aggregate network history is preserved and may include aliases collected by previous versions. Counter decreases, disconnects and first samples reset/warm up the rate baseline.
+
+Overview panels use a common explicit start/end. History query buckets and gap detection share the same aggregation interval: minute means through one day, five-minute means through seven days, then hourly means. Axes show year/month/day, 24-hour time and the display timezone; hover includes the UTC offset. Missing intervals are not interpolated across, including sparse series.

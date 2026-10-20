@@ -1,43 +1,47 @@
-# Validation report — 0.2.1
+# Validation report — 0.2.2
 
-## Final build
+## Released build
 
-Source `92a5965a90db7c30eb7cdaddf9fe84afba03f815` passed [Windows and Ubuntu CI run 39315549733](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39315549733). Both platforms passed **29 data checks and 49 UI checks**. CI also passed Windows installer/uninstaller checks, Ubuntu DEB installation/removal, AppImage extraction/launch, bundled-runtime tests and real Linux CPU/RAM persistence.
+Source `d5ea477392ee6298b2ad188494d10fc7525388d7` passed [Windows and Ubuntu CI run 39369763954](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39369763954). Both platforms passed **36 data checks and 56 UI checks**, along with Windows installer/uninstaller, Ubuntu DEB installation/removal, AppImage extraction/launch, bundled-runtime and Linux CPU/RAM persistence checks.
 
-Results: [Windows data](validation/windows-data-v021.txt), [Windows UI](validation/windows-ui-v021.txt), [Ubuntu data](validation/linux-data-v021.txt), [Ubuntu UI](validation/linux-ui-v021.txt). The Windows data report was repeated successfully using the final installed executable.
+Results: [Windows data](validation/windows-data-v022.txt), [Windows UI](validation/windows-ui-v022.txt), [Ubuntu data](validation/linux-data-v022.txt), [Ubuntu UI](validation/linux-ui-v022.txt). The Windows data checks were repeated successfully using the final installed executable.
 
-## What the checks cover
+## New checks and retained coverage
 
-- Seven compact readings: tight 28-pixel vertical rows, active sessions, local-calendar-day tokens, both orientations and the bounded dropdown containing all 12 synthetic Ollama models.
-- Active-session counting beyond the 100-row list, calendar-day boundaries, exclusion of future records and cache/reasoning subsets counted once.
-- Hardware capacity alongside live utilization, disk used/available columns and correct network rate/link-speed units. Detailed sensor access remains on Sensors.
-- App/process ownership, nearest named ancestor, child processes beyond the top-25 display, duplicate prevention, process-ID reuse, initial CPU warm-up and stale resource values.
-- Search across refresh and tab changes, including delayed text events assigned to the originating tab; existing maximize/restore, navigation, retention, privacy, accounting and backup regressions.
+- Rich Overview sections, shared trend ranges and detail navigation; explicit missing-data and stale-collector states.
+- Wi-Fi adapter identity, filter-driver alias exclusion, byte-counter warm-up/reset and Mbps conversion. UI fixtures distinguish a 600 Mbps link from measured 8.39 Mbps download / 16.78 Mbps upload, and check both history series.
+- Chart date/time labels across midnight and multi-day windows, local timezone conversion, shared time bounds, aggregation intervals and missing-period gaps.
+- Source filtering before request-list limits, so other tools cannot crowd observed Ollama requests out of the Overview.
+- Existing compact layouts, loaded-model dropdown, daily token accounting, hardware capacity/use, process ownership, search, window controls, retention, privacy and backup regressions.
 
-Earlier intermediate runs exposed a delayed-search event bug and a Windows fixture-startup race. The tab binding was fixed, and the harness now waits for the endpoint and discovered models. Only the final successful run supplies the released binaries.
+An intermediate UI run exposed a null text value in the test harness. The harness was corrected before the final successful run. The released binaries come only from the final successful build above.
 
 ## Installed Windows validation
 
-The standard 0.2.1 installer upgraded the existing app. All **1,765 usage records** in the verified pre-upgrade snapshot remained present, SQLite integrity was `ok`, and the 90-day setting was retained. The installed executable reports version `0.2.1+92a5965a90db7c30eb7cdaddf9fe84afba03f815`.
+The standard installer upgraded the existing app to `0.2.2+d5ea477392ee6298b2ad188494d10fc7525388d7`. All **1,868 usage records** in the verified pre-upgrade snapshot remained present. SQLite integrity was `ok`, and the configured 90-day retention was preserved.
 
-Native inspection confirmed RAM used/total/available, GPU local allocation/capacity, shared allocation/limit, CPU/GPU load, storage usage and per-adapter network traffic. Agents displayed live Claude, Codex and Ollama CPU, summed working-set memory and process counts. These values also persisted under stable app metric IDs. Resources are app totals shared across sessions; they are not per-conversation estimates.
+Native inspection confirmed the expanded Overview, dated chart axes, capacity/use cards, paired utilization charts, temperature history, app resources and coverage status. Real Wi-Fi download/upload counters were live, with a separately reported **1,201 Mbps link rate**. That link rate is not an internet speed test. Windows filter aliases were excluded from the new network samples.
 
-After the owner approved the helper, fresh CPU temperature readings resumed (approximately 45–59 °C during validation). No Windows security policy was changed. The app was left running in its smaller vertical compact view with CPU temperature, active sessions and today's tokens visible.
+After the owner approved the deep sensor helper, fresh CPU temperature readings resumed (approximately 42–49 °C during the final screenshots). GPU-core temperature was unavailable and remained a dash; another sensor such as GPU VR SoC is not silently relabelled as core temperature. The app was left running on Overview. No Windows security policy was changed.
 
 ## Real Ollama checks
 
-All seven [installed-app Ollama checks](validation/ollama-windows-v021.json) passed: non-streaming, streaming, concurrent generation/embedding, two resident models, preserved HTTP 404, exact accounting and provider-matched decode rate. Three Qwen requests recorded exactly **75 input and 45 output tokens**. Existing `qwen3:8b` and `nomic-embed-text:latest` models were used; no weights were downloaded, and test residency expires after five minutes.
+All seven [installed-app Ollama checks](validation/ollama-windows-v022.json) passed: non-streaming, streaming, concurrent generation/embedding, two resident models, preserved HTTP 404, exact accounting and provider-matched decode rate. Three Qwen requests recorded exactly **75 input and 45 output tokens**. Existing `qwen3:8b` and `nomic-embed-text:latest` models were used; no weights were downloaded. Test model residency expires after five minutes.
 
-During that test, observed Ollama summed working set rose from about **178 MiB to 6,238 MiB**, its readable process count rose from **3 to 7**, and observed GPU load reached **65%**. These are sampled measurements on this machine, not a throughput benchmark or exact per-model resource allocation.
+These are integration and accounting checks, not a model performance benchmark. Direct requests that bypass the monitoring gateway are outside its request-token coverage.
 
 ## Screenshots and limits
 
-The Hardware and vertical compact screenshots are from the installed Windows app. The Agents detail screenshot uses synthetic process values explicitly identified in the guide. Other fixture screenshots demonstrate model rows and token accounting without claiming model performance.
+The guide includes fresh installed-Windows Overview and Wi-Fi screenshots, an Ubuntu CI desktop screenshot, and an explicitly labelled synthetic Wi-Fi fixture. Older fixture images remain labelled in the guide. Synthetic series demonstrate layout, conversion and independent link/traffic values, not measured hardware performance.
 
-Physical Ubuntu GPU/temperature tests remain unperformed; Linux package and desktop checks run in CI. Protected processes can make app totals incomplete. Memory working sets can share pages. Cloud-host CPU/RAM and per-session/per-process GPU allocations are not exposed. GPU shared/unified memory overlaps system RAM.
+Physical Ubuntu Wi-Fi, GPU and temperature validation remains unperformed; Ubuntu package, desktop and fixture checks passed in CI. Protected processes can make app totals incomplete, and working sets can share pages. Cloud-host CPU/RAM and per-process GPU allocations are not exposed. Shared/unified GPU allocations overlap system RAM.
 
-The installer and portable archive were verified against CI checksums. The portable archive contains the runtime, SQLite and referenced screenshots, with no personal databases, settings or logs. Release files are unsigned preview builds.
+The [central hub / Host Agent architecture](FLEET-ARCHITECTURE.md) is a documented next stage. This release does **not** install boot-time host services, pair remote hosts, synchronize an offline outbox or provide the fleet host dropdown.
 
-See [0.2.0 validation](VALIDATION-0.2.0.md) for the previous baseline.
+## Published artifacts
 
-The [0.2.1 preview release](https://github.com/nikhilgs817/AI_PULSE/releases/tag/v0.2.1) is published with the Windows installer/portable ZIP, Ubuntu DEB/AppImage and two checksum manifests. All six uploaded GitHub digests match the locally verified CI artifacts. Publication used [run 39366354963](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39366354963), which checks the successful build, matching draft source and every asset digest before publishing.
+The [0.2.2 preview release](https://github.com/nikhilgs817/AI_PULSE/releases/tag/v0.2.2) contains the Windows installer/portable ZIP, Ubuntu DEB/AppImage and two checksum manifests. All six GitHub asset digests independently matched the locally verified CI artifacts. [Publication run 39472106536](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39472106536) also verifies the successful build, matching source and uploaded digests before publishing.
+
+The portable archive bundles the runtime and SQLite and was checked for absence of personal databases, settings and logs. Release files remain unsigned preview builds. Repository screenshots and this validation report were updated after the binary build; the source identity above identifies the released executable.
+
+See [0.2.1 validation](VALIDATION-0.2.1.md) for the previous baseline and [monitoring research](MONITORING-RESEARCH.md) for the official documentation informing the Overview and fleet design.

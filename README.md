@@ -10,7 +10,7 @@ AI Pulse is a dark Windows and Ubuntu application for people running local AI. P
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
-![AI Pulse expanded dashboard](docs/images/overview.png)
+![AI Pulse expanded dashboard](docs/images/overview-v022.jpg)
 
 These are screenshots of the running app. See the [illustrated guide](docs/USER-GUIDE.md) for both widget orientations, model dropdown, collapsible sidebar and search.
 
@@ -33,6 +33,8 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 ## What you can do
 
 - **Keep only critical readings visible.** The 560 × 142 horizontal widget and 260 × 256 vertical widget have a loaded-model dropdown. Open it to see every model, host, state, memory and last observed decode rate; large lists scroll within a bounded panel.
+- **See activity at a glance.** Overview combines utilization, capacity, temperatures, model/session activity, daily token splits, app resources and monitoring health, with shared trend ranges.
+- **Watch Wi-Fi traffic.** Select an adapter and see actual download/upload Mbps, link speed and dated traffic graphs.
 - **Watch the machine.** GPU load and memory, CPU load, physical RAM, network transfer, disk capacity, process usage and exposed temperature/power/fan/clock sensors.
 - **Compare capacity with live use.** Hardware shows CPU/GPU utilization, RAM/GPU memory used versus capacity, storage used/available and live network traffic. Sensors provides detailed temperatures, power, clocks, fans and access status.
 - **Measure Ollama requests.** The optional local gateway observes input/output/cache tokens, decode tokens per second, request duration, streaming completion and errors.

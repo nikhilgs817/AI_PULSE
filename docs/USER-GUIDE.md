@@ -36,15 +36,27 @@ Loaded models are different from agent sessions. Agent usage remains available o
 
 ## Overview
 
-![Overview](images/overview.png)
+![Overview](images/overview-v022.jpg)
 
 The Overview is the command centre for the local host: CPU/GPU utilization and exposed temperatures, RAM used/total/available, GPU memory capacity, loaded models and recent active sessions. It shows the collector timestamp and active alerts, independent on-prem/tool token totals since local midnight, app CPU/working sets, model activity, storage pressure and backup/coverage status. Section buttons open the detailed tabs.
 
 Use the shared **15 min / 1 hour / 6 hours / 24 hours** trend selector. CPU/GPU, RAM, temperatures and Wi-Fi traffic share the selected window. Charts display **YYYY-MM-DD and HH:mm** tick labels, units, timezone and legends. Hover shows the nearby observation timestamp with UTC offset and sample mean. Missing periods remain gaps; a single observation is a dot. History uses the same corrected date/time axes.
 
+![Live Windows Wi-Fi traffic and temperature graphs](images/wifi-speed-windows-v022.jpg)
+
+The installed Windows app above shows measured adapter traffic and a separately reported 1,201 Mbps link rate. Missing GPU-core temperature remains unavailable.
+
+![Wi-Fi graph with synthetic test values](images/wifi-speed-fixture.png)
+
+This Wi-Fi screenshot uses explicitly synthetic interface values to verify the two rate series and Mbps conversion. It is not an internet speed benchmark.
+
 The **Wi-Fi speed & traffic** panel selects an adapter or automatically follows an active Wi-Fi adapter. Download/upload are actual interface traffic in **Mbps**; the OS-reported link speed is the connection rate to the router, not a measured internet speed-test result. Counter resets/reconnects establish a fresh baseline. Windows filter-driver aliases are excluded from rates and totals. A missing/disconnected adapter shows unavailable; wired interfaces remain in Hardware. The chart uses minute sample means, so short bursts can exceed its plotted average. No SSID, BSSID, password or automatic internet speed-test traffic is collected.
 
 GPU shared allocation overlaps system RAM. Active-session counts are recent lifecycle/activity evidence; local app resources are shared across sessions. Token sources can overlap when a tool uses the gateway. Monitoring health explains which providers and records are visible.
+
+![Ubuntu Overview from the desktop UI checks](images/overview-ubuntu.png)
+
+This Ubuntu screenshot is from the packaged-app CI desktop checks; it does not establish physical Wi-Fi or GPU sensor coverage on every Ubuntu machine.
 
 ## Hardware
 
