@@ -34,7 +34,7 @@ public sealed partial class Storage
     {
         lock(gate){using var c=Command("SELECT count(*),(SELECT bytes FROM sync_queue_stats WHERE id=1),coalesce(min(created),0) FROM sync_events");using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2));}
     }
-    public List<SyncEvent> Events(long after=0,int limit=100,int byteLimit=750_000)
+    public List<SyncEvent> Events(long after=0,int limit=1000,int byteLimit=750_000)
     {
         lock(gate){using var c=Command("SELECT seq,kind,payload,bytes FROM sync_events WHERE seq>@p0 ORDER BY seq LIMIT @p1",after,Math.Clamp(limit,1,1000));using var r=c.ExecuteReader();var rows=new List<SyncEvent>();long size=0;
             while(r.Read()){long bytes=r.GetInt64(3);if(rows.Count>0&&size+bytes>byteLimit)break;size+=bytes;rows.Add(new(r.GetInt64(0),r.GetString(1),r.GetString(2)));}return rows;}
@@ -99,12 +99,12 @@ public sealed partial class Storage
         {
             if(SyncState("history-seeded")=="yes")return;
             using var tx=db.BeginTransaction();long cutoff=J.Now-RetentionDays*86400L;
-            using(var c=Command("SELECT m.time,s.id,s.name,s.device,s.unit,s.source,m.total,m.count,m.minimum,m.maximum FROM minute_metrics m JOIN sensors s ON s.id=m.id WHERE m.time>=@p0 ORDER BY m.time,s.id",cutoff))
-            using(var r=c.ExecuteReader())while(r.Read())AppendEvent("rollup",new RollupPayload(r.GetInt64(0),new(r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),null,r.GetString(5)),r.GetDouble(6),r.GetInt64(7),r.GetDouble(8),r.GetDouble(9)));
             using(var c=Command("SELECT * FROM usage WHERE time>=@p0 ORDER BY time,id",cutoff))
             using(var r=c.ExecuteReader())while(r.Read())AppendEvent("usage",new Usage(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8),r.GetInt64(9),r.IsDBNull(10)?null:r.GetDouble(10),r.IsDBNull(11)?null:r.GetDouble(11),r.GetString(12)));
             using(var c=Command("SELECT id,source,model,state,last_seen FROM sessions WHERE last_seen>=@p0",cutoff))
             using(var r=c.ExecuteReader())while(r.Read())AppendEvent("session",new SessionPayload(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4)));
+            using(var c=Command("SELECT m.time,s.id,s.name,s.device,s.unit,s.source,m.total,m.count,m.minimum,m.maximum FROM minute_metrics m JOIN sensors s ON s.id=m.id WHERE m.time>=@p0 ORDER BY m.time,s.id",cutoff))
+            using(var r=c.ExecuteReader())while(r.Read())AppendEvent("rollup",new RollupPayload(r.GetInt64(0),new(r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),null,r.GetString(5)),r.GetDouble(6),r.GetInt64(7),r.GetDouble(8),r.GetDouble(9)));
             foreach(var alert in Alerts())AppendEvent("alert",alert);
             SyncState("history-seeded","yes");tx.Commit();
         }
