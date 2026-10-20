@@ -63,6 +63,14 @@ public static class FleetTests
                 }
                 bool plainRejected=false;try{FleetFiles.ValidateConnection(new(){Url="http://host:11440",CertificateSha256=connection.CertificateSha256});}catch(InvalidDataException){plainRejected=true;}Check(plainRejected,"All network profiles reject plaintext transport");
                 var internet=new FleetConnection{Url=connection.Url,NetworkType="Internet",Token=connection.Token};using var publicClient=FleetFiles.Client(internet);bool untrusted=false;try{await publicClient.GetAsync("/fleet/v1/hosts");}catch(HttpRequestException){untrusted=true;}Check(untrusted,"Internet mode requires a publicly trusted certificate");
+                string legacyFile=Path.Combine(root,"legacy.db");
+                using(var legacy=new Storage(legacyFile)){legacy.Sample(now,[new("legacy.cpu","CPU","d","%",42,"fixture")]);legacy.PutUsage(new("legacy-token","Ollama","legacy","s",now,123,4,0,0,0,null,null,"Completed"));}
+                using(var imported=new Storage(legacyFile,replication:true))
+                using(var target=new Storage(Path.Combine(root,"migrated.db")))
+                {
+                    imported.SeedExistingHistory();var count=imported.QueueInfo().Count;imported.SeedExistingHistory();target.ApplyBatch("migration",imported.Events(),false);
+                    Check(imported.QueueInfo().Count==count&&target.Totals(now-1).Input==123&&target.History("legacy.cpu",now/60*60).Single().Average==42,"Standalone migration seeds retained minute history and exact usage once without multiplying records");
+                }
                 string agentRoot=Path.Combine(root,"real-agent");Directory.CreateDirectory(agentRoot);string realCode=hub.Pair().Code;
                 var realConfig=new HostAgentConfig{Name="Live collector test",PairingCode=realCode,Connection=new(){Url=connection.Url,CertificateSha256=connection.CertificateSha256}};
                 string realFile=Path.Combine(agentRoot,"agent.json");FleetFiles.Write(realFile,realConfig);

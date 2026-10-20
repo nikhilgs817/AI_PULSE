@@ -92,4 +92,21 @@ public sealed partial class Storage
         }
     }
     public void RetainJournal(long now){lock(gate)Execute("DELETE FROM sync_events WHERE created<@p0",now-RetentionDays*86400L);}
+    public void SeedExistingHistory()
+    {
+        if(!Replication)throw new InvalidOperationException("History seeding requires an agent outbox");
+        lock(gate)
+        {
+            if(SyncState("history-seeded")=="yes")return;
+            using var tx=db.BeginTransaction();long cutoff=J.Now-RetentionDays*86400L;
+            using(var c=Command("SELECT m.time,s.id,s.name,s.device,s.unit,s.source,m.total,m.count,m.minimum,m.maximum FROM minute_metrics m JOIN sensors s ON s.id=m.id WHERE m.time>=@p0 ORDER BY m.time,s.id",cutoff))
+            using(var r=c.ExecuteReader())while(r.Read())AppendEvent("rollup",new RollupPayload(r.GetInt64(0),new(r.GetString(1),r.GetString(2),r.GetString(3),r.GetString(4),null,r.GetString(5)),r.GetDouble(6),r.GetInt64(7),r.GetDouble(8),r.GetDouble(9)));
+            using(var c=Command("SELECT * FROM usage WHERE time>=@p0 ORDER BY time,id",cutoff))
+            using(var r=c.ExecuteReader())while(r.Read())AppendEvent("usage",new Usage(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8),r.GetInt64(9),r.IsDBNull(10)?null:r.GetDouble(10),r.IsDBNull(11)?null:r.GetDouble(11),r.GetString(12)));
+            using(var c=Command("SELECT id,source,model,state,last_seen FROM sessions WHERE last_seen>=@p0",cutoff))
+            using(var r=c.ExecuteReader())while(r.Read())AppendEvent("session",new SessionPayload(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4)));
+            foreach(var alert in Alerts())AppendEvent("alert",alert);
+            SyncState("history-seeded","yes");tx.Commit();
+        }
+    }
 }

@@ -88,7 +88,10 @@ public static class FleetFiles
         if(OperatingSystem.IsWindows())
         {
             var acl=new FileSecurity();acl.SetAccessRuleProtection(true,false);
-            foreach(var sid in new[]{WindowsIdentity.GetCurrent().User!,new SecurityIdentifier(WellKnownSidType.LocalSystemSid,null),new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null)})acl.AddAccessRule(new FileSystemAccessRule(sid,FileSystemRights.FullControl,AccessControlType.Allow));
+            var administrator=new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid,null);
+            bool elevated=new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+            if(elevated)acl.SetOwner(administrator);else acl.AddAccessRule(new FileSystemAccessRule(WindowsIdentity.GetCurrent().User!,FileSystemRights.FullControl,AccessControlType.Allow));
+            foreach(var sid in new[]{new SecurityIdentifier(WellKnownSidType.LocalSystemSid,null),administrator})acl.AddAccessRule(new FileSystemAccessRule(sid,FileSystemRights.FullControl,AccessControlType.Allow));
             new FileInfo(file).SetAccessControl(acl);
         }
         else File.SetUnixFileMode(file,UnixFileMode.UserRead|UnixFileMode.UserWrite);

@@ -98,6 +98,7 @@ public sealed partial class MainWindow
                 string file=Path.Combine(Paths.Root,"exports","host-agent-pairing-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".json");FleetFiles.Write(file,config);fleetNotice="Pairing file created: "+file+". Transfer it privately to the monitored computer and import it below. It expires in ten minutes and works once.";
             }catch(Exception e){fleetNotice="Pairing failed: "+e.GetType().Name;}RenderBody();
         };s.Children.Add(pair);
+        var history=new CheckBox{Content="Include this computer’s existing retained monitoring history",IsChecked=true};s.Children.Add(history);
         var usage=new CheckBox{Content="Allow this Host Agent to read this user's Codex / Claude Code token metadata",IsChecked=false};s.Children.Add(usage);
         s.Children.Add(Text("Opting in configures only the two supported metadata folders for this user. On Ubuntu, the service account also needs read access to those folders. Protected sensors and other users' metadata may remain unavailable.",11,"#8ba0bd"));
         var install=Btn("Import pairing file & install Host Agent on this computer");install.Click+=async(_,_)=>
@@ -109,7 +110,11 @@ public sealed partial class MainWindow
                 if(config.PairingCode.Length==0||config.Connection.Token.Length>0)throw new InvalidDataException("Use a fresh pairing file");
                 config.InstallationId=Guid.NewGuid().ToString("N");
                 if(usage.IsChecked==true){string home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);config.UsageRoots=[Path.Combine(home,".codex","sessions"),Path.Combine(home,".claude","projects")];}
-                string folder=Path.Combine(Paths.Root,"fleet-setup","agent");FleetFiles.Write(Path.Combine(folder,"agent.json"),config);FleetFiles.Write(Path.Combine(folder,"settings.json"),new AppSettings{ReadAgentUsage=config.UsageRoots.Count>0,UsageRoots=config.UsageRoots});RequestServiceInstall("agent",folder);
+                string folder=Path.Combine(Paths.Root,"fleet-setup","agent");FleetFiles.Write(Path.Combine(folder,"agent.json"),config);FleetFiles.Write(Path.Combine(folder,"settings.json"),new AppSettings{ReadAgentUsage=config.UsageRoots.Count>0,UsageRoots=config.UsageRoots});if(history.IsChecked==true)
+                {
+                    string backup=await Task.Run(()=>localService.Store.Backup(Path.Combine(folder,"migration")));File.Copy(backup,Path.Combine(folder,"history.db"),true);File.Copy(backup+".sha256",Path.Combine(folder,"history.db.sha256"),true);
+                }
+                RequestServiceInstall("agent",folder);
             }catch(Exception e){fleetNotice="Host Agent setup failed: "+e.Message;}RenderBody();
         };s.Children.Add(install);
         s.Children.Add(Text("Private LAN/VPN verify the hub fingerprint. Internet uses publicly trusted HTTPS; configure a reachable hostname and certificate on the hub first. Network selection does not open router ports or install a VPN.",11,"#8ba0bd"));

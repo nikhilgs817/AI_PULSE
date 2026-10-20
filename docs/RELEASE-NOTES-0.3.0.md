@@ -6,6 +6,6 @@
 - Authenticated short-lived pairing, unique per-installation credentials, revocation and verified HTTPS for selectable Private LAN / VPN / Internet profiles.
 - Guided setup/import, local service status and service removal preserving data. The same bundled application supports all roles.
 
-The fleet setup guide documents network requirements, storage limits, user-metadata permissions and remaining recovery/companion/k3s work. Existing standalone history is preserved; central collection starts with the new Host Agent. Public internet use requires a reachable hostname and managed publicly trusted certificate.
+The fleet setup guide documents network requirements, storage limits, user-metadata permissions and remaining recovery/companion/k3s work. Existing standalone history is preserved, and optional verified migration seeds retained minute history and usage into the central store. Public internet use requires a reachable hostname and managed publicly trusted certificate.
 
 [Central monitoring guide](https://github.com/nikhilgs817/AI_PULSE/blob/main/docs/CENTRAL-MONITORING.md)
