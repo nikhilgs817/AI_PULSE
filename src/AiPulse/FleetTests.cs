@@ -29,7 +29,7 @@ public static class FleetTests
                 var retryEnrollment=hub.Enroll(new(ticket.Code,installB,"same-name","VPN"));Check(retryEnrollment==b,"A lost enrollment response can be retried by the same installation without creating a second host");
                 bool codeRejected=false;try{hub.Enroll(new(ticket.Code,Guid.NewGuid().ToString("N"),"intruder","Private LAN"));}catch(UnauthorizedAccessException){codeRejected=true;}Check(codeRejected,"Pairing codes are single-use and bind a unique installation");
                 using var sourceA=new Storage(Path.Combine(root,"source-a.db"),replication:true);using var sourceB=new Storage(Path.Combine(root,"source-b.db"),replication:true);
-                long now=J.Now;sourceA.Sample(now,[new("cpu.load","CPU","same-device","%",25,"fixture")]);sourceB.Sample(now,[new("cpu.load","CPU","same-device","%",75,"fixture")]);
+                long now=J.Now/60*60+10;sourceA.Sample(now,[new("cpu.load","CPU","same-device","%",25,"fixture")]);sourceB.Sample(now,[new("cpu.load","CPU","same-device","%",75,"fixture")]);
                 sourceA.PutUsage(new("same-request","Ollama","same-model","same-session",now,10,3,0,0,0,null,null,"Completed"));sourceB.PutUsage(new("same-request","Ollama","same-model","same-session",now,50,7,0,0,0,null,null,"Completed"));
                 sourceA.Session("same-session","Ollama","same-model","Working",now);sourceB.Session("same-session","Ollama","same-model","Working",now);
                 var ah=hub.AuthenticateHost(a.Token)!;var bh=hub.AuthenticateHost(b.Token)!;
@@ -51,7 +51,7 @@ public static class FleetTests
                 Check(FleetHub.ConnectionState(now,now,now)=="Live"&&FleetHub.ConnectionState(now,now-20,now)=="Stale"&&FleetHub.ConnectionState(now-40,now,now)=="Offline","Collector freshness and host connection status are distinct");
                 var clientConnection=new FleetConnection{Url=connection.Url,CertificateSha256=connection.CertificateSha256,Token=a.Token};using var agent=FleetFiles.Client(clientConnection);
                 using(var denied=await agent.GetAsync("/fleet/v1/hosts"))Check(denied.StatusCode==HttpStatusCode.Unauthorized,"An ingestion credential cannot read hosts or administer the hub");
-                using(var live=await agent.PostAsJsonAsync("/fleet/v1/live",new HostSnapshot{Name="same-name",SampledAt=now,Readings=[new("cpu.load","CPU","d","%",25,"fixture")],QueueCount=200}))Check(live.IsSuccessStatusCode&&hub.Hosts().Single(h=>h.Id==a.HostId).Status=="Live","Live snapshots stay current independently of a history backlog");
+                using(var live=await agent.PostAsJsonAsync("/fleet/v1/live",new HostSnapshot{Name="same-name",SampledAt=J.Now,Readings=[new("cpu.load","CPU","d","%",25,"fixture")],QueueCount=200}))Check(live.IsSuccessStatusCode&&hub.Hosts().Single(h=>h.Id==a.HostId).Status=="Live","Live snapshots stay current independently of a history backlog");
                 var malformed=new IngestBatch(ah.InstallationId,[new(999,"execute",JsonSerializer.Serialize(new{command="must-not-run"}))]);using(var rejected=await agent.PostAsJsonAsync("/fleet/v1/ingest",malformed))Check(rejected.StatusCode==HttpStatusCode.BadRequest,"The protocol rejects arbitrary operations and unsupported telemetry");
                 hub.Revoke(a.HostId);using(var revoked=await agent.PostAsJsonAsync("/fleet/v1/live",new HostSnapshot()))Check(revoked.StatusCode==HttpStatusCode.Unauthorized,"Revocation immediately rejects that host without affecting other hosts");
                 Check(hub.AuthenticateHost(b.Token)!=null,"Revoking one host preserves another host's access");
@@ -63,6 +63,11 @@ public static class FleetTests
                 }
                 bool plainRejected=false;try{FleetFiles.ValidateConnection(new(){Url="http://host:11440",CertificateSha256=connection.CertificateSha256});}catch(InvalidDataException){plainRejected=true;}Check(plainRejected,"All network profiles reject plaintext transport");
                 var internet=new FleetConnection{Url=connection.Url,NetworkType="Internet",Token=connection.Token};using var publicClient=FleetFiles.Client(internet);bool untrusted=false;try{await publicClient.GetAsync("/fleet/v1/hosts");}catch(HttpRequestException){untrusted=true;}Check(untrusted,"Internet mode requires a publicly trusted certificate");
+                if(OperatingSystem.IsWindows())
+                {
+                    bool entered=false,blocked=false;try{new MetadataAccess("S-1-5-21-1-2-3-9999").Read(()=>{entered=true;return 1;});}catch(MetadataUserUnavailableException){blocked=true;}
+                    Check(blocked&&!entered,"Windows metadata reads never execute under the service identity when the configured user is unavailable or mismatched");
+                }
                 string legacyFile=Path.Combine(root,"legacy.db");
                 using(var legacy=new Storage(legacyFile)){legacy.Sample(now,[new("legacy.cpu","CPU","d","%",42,"fixture")]);legacy.PutUsage(new("legacy-token","Ollama","legacy","s",now,123,4,0,0,0,null,null,"Completed"));}
                 using(var imported=new Storage(legacyFile,replication:true))

@@ -58,7 +58,7 @@ AiPulse --remove-fleet hub --data-dir <installation-log-folder>
 AiPulse --remove-fleet agent --data-dir <installation-log-folder>
 ```
 
-Use AiPulse.exe on Windows. On Ubuntu the package command is ai-pulse. Runtime roles --hub and --agent run headlessly; no display server is required for them. Secrets/configuration files receive restricted permissions. The optional Ubuntu user metadata reader runs as the invoking non-root user when installed through sudo/pkexec; encrypted/unmounted homes and unreadable files remain coverage gaps. The Windows service uses configured metadata folders only, rather than assuming the service account's home contains your logs.
+Use AiPulse.exe on Windows. On Ubuntu the package command is ai-pulse. Runtime roles --hub and --agent run headlessly; no display server is required for them. Secrets/configuration files receive restricted permissions. The optional Ubuntu user metadata reader runs as the invoking non-root user when installed through sudo/pkexec; encrypted/unmounted homes and unreadable files remain coverage gaps. The Windows service reads configured metadata folders with the matching signed-in user's access token. It waits when that user is unavailable; hardware collection continues. It does not use its SYSTEM file permissions to read another user's logs. Prompts and replies remain outside the stored schema.
 
 ## Preview boundaries
 

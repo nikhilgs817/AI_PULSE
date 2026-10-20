@@ -15,7 +15,7 @@ public static class FleetSetup
         }
         if(ticket==null)throw new InvalidOperationException("Hub did not become ready");
         string home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var agent=new HostAgentConfig{Name=Environment.MachineName,PairingCode=ticket.Code,Connection=new(){Url=connection.Url,NetworkType=connection.NetworkType,CertificateSha256=connection.CertificateSha256},UsageRoots=includeUserMetadata?[Path.Combine(home,".codex","sessions"),Path.Combine(home,".claude","projects")]:[]};
+        var agent=new HostAgentConfig{Name=Environment.MachineName,WindowsUserSid=includeUserMetadata&&OperatingSystem.IsWindows()?System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value??"":"",PairingCode=ticket.Code,Connection=new(){Url=connection.Url,NetworkType=connection.NetworkType,CertificateSha256=connection.CertificateSha256},UsageRoots=includeUserMetadata?[Path.Combine(home,".codex","sessions"),Path.Combine(home,".claude","projects")]:[]};
         FleetFiles.Write(Path.Combine(destination,"agent.json"),agent);FleetFiles.Write(Path.Combine(destination,"settings.json"),new AppSettings{ReadAgentUsage=includeUserMetadata,UsageRoots=agent.UsageRoots,EnableGateway=includeUserMetadata});
     }
     public static async Task Check(string connectionFile)

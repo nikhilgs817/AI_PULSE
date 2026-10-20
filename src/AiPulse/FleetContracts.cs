@@ -33,6 +33,7 @@ public sealed class HostAgentConfig
     public string PairingCode {get;set;}="";
     public string HubEpoch {get;set;}="";
     public FleetConnection Connection {get;set;}=new();
+    public string WindowsUserSid {get;set;}="";
     public List<string> UsageRoots {get;set;}=[];
 }
 public record Enrollment(string Code,string InstallationId,string Name,string NetworkType);

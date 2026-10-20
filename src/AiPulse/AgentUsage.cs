@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace AiPulse;
 
-public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null)
+public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,MetadataAccess? access=null)
 {
     public string Status {get;private set;}="Discovering local usage records";
     DateTime nextScan=DateTime.MinValue;
@@ -25,31 +25,39 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null)
         public long Segment {get;set;}
         public bool SkippingOversizedLine {get;set;}
     }
+    T ReadUser<T>(Func<T> work)=>access==null?work():access.Read(work);
     public void Poll()
-    {lock(importGate)PollCore();}
+    {lock(importGate)try{PollCore();}catch(MetadataUserUnavailableException e){Status=e.Message;}}
     void PollCore()
     {
         if(DateTime.UtcNow>=nextScan)
         {
             var home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var roots=configuredRoots?.Count>0?configuredRoots.ToArray():new[]{Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(home,".codex"),"sessions"),Path.Combine(home,".claude","projects")};
-            files=[];
-            foreach(var root in roots)try{if(Directory.Exists(root))files.AddRange(Directory.EnumerateFiles(root,"*.jsonl",new EnumerationOptions{RecurseSubdirectories=true,IgnoreInaccessible=true}).Where(f=>File.GetLastWriteTimeUtc(f)>DateTime.UtcNow.AddDays(-db.RetentionDays)));}catch{}
-            files=files.OrderByDescending(File.GetLastWriteTimeUtc).ToList();nextScan=DateTime.UtcNow.AddSeconds(30);
+            files=ReadUser(()=>
+            {
+                var found=new List<string>();
+                foreach(var root in roots)try{if(Directory.Exists(root))found.AddRange(Directory.EnumerateFiles(root,"*.jsonl",new EnumerationOptions{RecurseSubdirectories=true,IgnoreInaccessible=true,AttributesToSkip=FileAttributes.ReparsePoint}).Where(f=>File.GetLastWriteTimeUtc(f)>DateTime.UtcNow.AddDays(-db.RetentionDays)));}catch{}
+                return found.OrderByDescending(File.GetLastWriteTimeUtc).ToList();
+            });nextScan=DateTime.UtcNow.AddSeconds(30);
         }
         // Revisit hottest files each pass and rotate the backlog. Keep work bounded so sampling stays responsive.
         var selected=files.Take(4).Concat(files.Skip(nextFile).Take(4)).Distinct().ToArray();nextFile=files.Count==0?0:(nextFile+4)%files.Count;
-        foreach(var file in selected)try{ReadNew(file);}catch(Exception e){Paths.Log("usage-reader",e);}
+        foreach(var file in selected)try{ReadNew(file);}catch(MetadataUserUnavailableException){throw;}catch(Exception e){Paths.Log("usage-reader",e);}
         Status=files.Count==0?"No supported local session records found":"Local usage records • "+files.Count+" files discovered • "+db.RetentionDays+"-day import";
     }
     void ReadNew(string file)
     {
         var cp=db.Checkpoint(file);var state=JsonSerializer.Deserialize<ParseState>(cp.State)??new();
-        using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
-        long offset=cp.Offset;
-        if(offset>stream.Length){offset=0;state=new();}
-        if(offset==stream.Length)return;
-        stream.Position=offset;int length=(int)Math.Min(4*1024*1024,stream.Length-offset);var bytes=new byte[length];int read=stream.Read(bytes);int last=Array.LastIndexOf(bytes,(byte)'\n',read-1,read);
+        var block=ReadUser(()=>
+        {
+            using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+            long position=cp.Offset>stream.Length?0:cp.Offset;int requested=(int)Math.Min(4*1024*1024,stream.Length-position);
+            stream.Position=position;var buffer=new byte[requested];int count=requested>0?stream.Read(buffer):0;
+            return (Offset:position,Bytes:buffer,Read:count,Length:requested,Reset:cp.Offset>stream.Length);
+        });
+        if(block.Reset)state=new();if(block.Read<=0)return;
+        long offset=block.Offset;var bytes=block.Bytes;int read=block.Read,length=block.Length;int last=Array.LastIndexOf(bytes,(byte)'\n',read-1,read);
         if(last<0){if(length>=4*1024*1024){state.SkippingOversizedLine=true;db.Checkpoint(file,offset+read,JsonSerializer.Serialize(state));}return;}
         bool codex=file.Contains(Path.DirectorySeparatorChar+"sessions"+Path.DirectorySeparatorChar)&&!file.Contains(Path.DirectorySeparatorChar+".claude"+Path.DirectorySeparatorChar);
         int start=state.SkippingOversizedLine?Array.IndexOf(bytes,(byte)'\n',0,read)+1:0;state.SkippingOversizedLine=false;

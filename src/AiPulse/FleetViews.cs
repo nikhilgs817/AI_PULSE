@@ -108,7 +108,7 @@ public sealed partial class MainWindow
                 var files=await StorageProvider.OpenFilePickerAsync(new(){Title="Choose Host Agent pairing file",AllowMultiple=false,FileTypeFilter=[new("JSON pairing file"){Patterns=["*.json"]}]});if(files.Count==0)return;
                 string file=files[0].TryGetLocalPath()??throw new InvalidDataException("Choose a local file");var config=FleetFiles.Read<HostAgentConfig>(file);FleetFiles.ValidateConnection(config.Connection);
                 if(config.PairingCode.Length==0||config.Connection.Token.Length>0)throw new InvalidDataException("Use a fresh pairing file");
-                config.InstallationId=Guid.NewGuid().ToString("N");
+                config.InstallationId=Guid.NewGuid().ToString("N");config.WindowsUserSid=usage.IsChecked==true&&OperatingSystem.IsWindows()?System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value??"":"";
                 if(usage.IsChecked==true){string home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);config.UsageRoots=[Path.Combine(home,".codex","sessions"),Path.Combine(home,".claude","projects")];}
                 string folder=Path.Combine(Paths.Root,"fleet-setup","agent");FleetFiles.Write(Path.Combine(folder,"agent.json"),config);FleetFiles.Write(Path.Combine(folder,"settings.json"),new AppSettings{ReadAgentUsage=config.UsageRoots.Count>0,UsageRoots=config.UsageRoots});if(history.IsChecked==true)
                 {

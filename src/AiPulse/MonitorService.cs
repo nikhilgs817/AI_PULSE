@@ -33,8 +33,8 @@ public sealed class MonitorService : IDisposable
     public int UnreadableProcesses=>RemoteSnapshot?.UnreadableProcesses??Hardware?.UnreadableProcesses??0;
     public string AgentStatus=>RemoteSnapshot?.AgentStatus??Agents.Status;
     public string GatewayStatus=>RemoteSnapshot?.GatewayStatus??Gateway.Status;
-    public MonitorService(AppSettings settings,string? database=null,bool replication=false,bool remote=false)
-    {Settings=settings;IsRemote=remote;Store=new(database??Paths.Database,settings.RetentionDays,replication);Agents=new(Store,settings.UsageRoots);Gateway=new(Store,Ollama,settings);}
+    public MonitorService(AppSettings settings,string? database=null,bool replication=false,bool remote=false,string? metadataUserSid=null)
+    {Settings=settings;IsRemote=remote;Store=new(database??Paths.Database,settings.RetentionDays,replication);Agents=new(Store,settings.UsageRoots,OperatingSystem.IsWindows()&&System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem?new MetadataAccess(metadataUserSid??""):null);Gateway=new(Store,Ollama,settings);}
     public void ApplySnapshot(HostSnapshot snapshot,bool live)
     {
         RemoteLive=live;RemoteSnapshot=snapshot;Readings=live?snapshot.Readings: snapshot.Readings.Select(r=>r with{Value=null}).ToList();LastSample=snapshot.SampledAt;Health=snapshot.Health;

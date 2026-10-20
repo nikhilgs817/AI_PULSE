@@ -83,7 +83,7 @@ public static class FleetRuntime
                 else
                 {
                     string file=Path.Combine(Paths.Root,"agent.json");var config=FleetFiles.Read<HostAgentConfig>(file);var settings=Paths.Load();settings.UsageRoots=config.UsageRoots;settings.ReadAgentUsage=config.UsageRoots.Count>0;
-                    using var monitor=new MonitorService(settings,replication:true);if(File.Exists(Path.Combine(Paths.Root,"seed-history"))){monitor.Store.SeedExistingHistory();File.Delete(Path.Combine(Paths.Root,"seed-history"));}await new FleetAgent(monitor,config,file).Run(stoppingToken);
+                    using var monitor=new MonitorService(settings,replication:true,metadataUserSid:config.WindowsUserSid);if(File.Exists(Path.Combine(Paths.Root,"seed-history"))){monitor.Store.SeedExistingHistory();File.Delete(Path.Combine(Paths.Root,"seed-history"));}await new FleetAgent(monitor,config,file).Run(stoppingToken);
                 }
             }
             catch(OperationCanceledException)when(stoppingToken.IsCancellationRequested){}
