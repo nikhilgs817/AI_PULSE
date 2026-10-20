@@ -39,3 +39,5 @@ Physical Ubuntu GPU/temperature tests remain unperformed; Linux package and desk
 The installer and portable archive were verified against CI checksums. The portable archive contains the runtime, SQLite and referenced screenshots, with no personal databases, settings or logs. Release files are unsigned preview builds.
 
 See [0.2.0 validation](VALIDATION-0.2.0.md) for the previous baseline.
+
+The [0.2.1 preview release](https://github.com/nikhilgs817/AI_PULSE/releases/tag/v0.2.1) is published with the Windows installer/portable ZIP, Ubuntu DEB/AppImage and two checksum manifests. All six uploaded GitHub digests match the locally verified CI artifacts. Publication used [run 39366354963](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39366354963), which checks the successful build, matching draft source and every asset digest before publishing.
