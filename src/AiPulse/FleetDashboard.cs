@@ -14,9 +14,14 @@ public sealed class FleetDashboard : IDisposable
     public string Status {get;private set;}="Connecting to hub";
     public bool CatchingUp {get;private set;}
     public long LastContact {get;private set;}
-    public FleetDashboard(FleetConnection connection)=>this.connection=connection;
+    public FleetDashboard(FleetConnection connection)
+    {
+        this.connection=connection;
+        try{if(File.Exists(HostCacheFile))Hosts=FleetFiles.Read<List<HostSummary>>(HostCacheFile).Select(h=>h with{Status="Unknown · hub unavailable"}).ToList();}catch{}
+    }
+    string HostCacheFile=>Path.Combine(Paths.Root,"fleet-cache",J.Hash(connection.Url)[..16],"hosts.json");
     public MonitorService? SelectedMonitor {get{lock(gate)return monitors.GetValueOrDefault(SelectedHost);}}
-    public void Start()=>task=Task.Run(Run);
+    public void Start(){if(SelectedHost!="")EnsureMonitor(SelectedHost);task=Task.Run(Run);}
     MonitorService EnsureMonitor(string id)
     {
         if(!Guid.TryParseExact(id,"N",out _))throw new InvalidDataException();
@@ -25,6 +30,7 @@ public sealed class FleetDashboard : IDisposable
             if(!monitors.TryGetValue(id,out var monitor))
             {
                 monitor=new(new AppSettings{EnableGateway=false,ReadAgentUsage=false},Path.Combine(Paths.Root,"fleet-cache",J.Hash(connection.Url)[..16],id,"pulse.db"),remote:true);monitors[id]=monitor;
+                string cached=monitor.Store.SyncState("last-snapshot");if(cached!="")try{var snapshot=System.Text.Json.JsonSerializer.Deserialize<HostSnapshot>(cached);if(snapshot!=null)monitor.ApplySnapshot(snapshot,false);}catch{}
             }
             return monitor;
         }
@@ -37,14 +43,14 @@ public sealed class FleetDashboard : IDisposable
         {
             try
             {
-                Hosts=await client.GetFromJsonAsync<List<HostSummary>>("/fleet/v1/hosts",stop.Token)??[];LastContact=J.Now;
+                Hosts=await client.GetFromJsonAsync<List<HostSummary>>("/fleet/v1/hosts",stop.Token)??[];LastContact=J.Now;FleetFiles.Write(HostCacheFile,Hosts);
                 Status=CatchingUp?"Hub connected · history syncing":"Hub connected · history current";
                 string id=SelectedHost;
                 if(id!=""&&Hosts.Any(h=>h.Id==id))
                 {
                     var monitor=EnsureMonitor(id);var view=await client.GetFromJsonAsync<HostView>("/fleet/v1/state/"+id,stop.Token)??throw new InvalidDataException();
                     string previous=monitor.Store.SyncState("hub-id");if(previous!=""&&previous!=view.HubId)throw new InvalidDataException("Hub identity changed. Reconnect with a new profile.");
-                    if(view.Snapshot!=null)monitor.ApplySnapshot(view.Snapshot,view.Host.Status=="Live");
+                    if(view.Snapshot!=null){monitor.Store.SyncState("last-snapshot",System.Text.Json.JsonSerializer.Serialize(view.Snapshot));monitor.ApplySnapshot(view.Snapshot,view.Host.Status=="Live");}
                 }
             }
             catch(OperationCanceledException)when(stop.IsCancellationRequested){break;}

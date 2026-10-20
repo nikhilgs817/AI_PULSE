@@ -118,7 +118,7 @@ public sealed partial class MainWindow : Window
         if(rebuilding)return;rebuilding=true;
         try
         {
-            if(localService.Settings.Compact){body.Content=fleet!=null&&fleet.SelectedHost==""?FleetCompact():fleet!=null&&fleet.SelectedMonitor==null?Message("Waiting for host",SelectedHostLabel()):Compact();Height=CompactHeight();return;}
+            if(localService.Settings.Compact){body.Content=fleet!=null&&fleet.SelectedHost==""?FleetCompact():fleet!=null&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):Compact();Height=CompactHeight();return;}
             var offset=scroller?.Offset??default;
             if(layoutPage!=page)
             {
@@ -142,7 +142,7 @@ public sealed partial class MainWindow : Window
                 }
                 scroller=new ScrollViewer{HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);main.Children.Add(scroller);Grid.SetColumn(main,1);layout.Children.Add(main);body.Content=layout;layoutPage=page;
             }
-            scroller!.Content=fleet!=null&&page!="Settings"&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page!="Settings"&&fleet.SelectedMonitor==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()};scroller.Offset=offset;
+            scroller!.Content=fleet!=null&&page!="Settings"&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page!="Settings"&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()};scroller.Offset=offset;
         }finally{rebuilding=false;}
     }
     static Control NavIcon(string name)

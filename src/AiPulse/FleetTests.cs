@@ -94,6 +94,10 @@ public static class FleetTests
                     }
                     finally{agentStop.Cancel();await workerTask;}
                 }
+                using(var cached=new FleetDashboard(connection){SelectedHost=b.HostId})
+                {
+                    cached.Start();Check(cached.SelectedMonitor?.Store.Totals(now-1).Input==50&&cached.SelectedMonitor.HostName=="same-name"&&!cached.SelectedMonitor.Fresh,"Restarting the dashboard while the hub is offline restores host-scoped cached history without presenting stale readings as live");
+                }
 
             }
             finally{stop.Cancel();try{await running;}catch(OperationCanceledException){}}
