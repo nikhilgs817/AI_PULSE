@@ -26,7 +26,7 @@ public sealed partial class MainWindow
                 var host=hub.AuthenticateHost(pair.Item1.Token)!;
                 var snapshot=new HostSnapshot{Name=host.Name,Platform=pair.Item1==a?"Windows":"Ubuntu",LogicalProcessors=4,SampledAt=now,Cpu="Fixture CPU",Gpu="Fixture GPU",ReadAgentUsage=true,ProcessSampleTime=DateTime.UtcNow,
                     Readings=[new("cpu.load","CPU","Fixture CPU","%",pair.Item2,"UI fixture"),new("ram.used","RAM","RAM","GiB",8,"UI fixture"),new("ram.total","Total","RAM","GiB",32,"UI fixture")],
-                    ActiveRequests=new(){["fixture-model"]=2},Models=[new(host.Name,"fixture-model","Loaded",4,4,"Q4",4096,"")],ModelStatus=new(){[host.Name]="Connected"},
+                    ActiveRequests=new(){["fixture-model"]=2},Models=[new("This PC","fixture-model","Loaded",4,4,"Q4",4096,"")],ModelStatus=new(){[host.Name]="Connected"},
                     AgentApps=[new("Codex",[new(123,0,"codex",1,12,300)])]};hub.Live(host,snapshot);
                 var events=new List<SyncEvent>{new(1,"sample",JsonSerializer.Serialize(new SamplePayload(now,snapshot.Readings))),new(2,"usage",JsonSerializer.Serialize(new Usage("identical-request","Ollama","fixture-model","identical-session",now,pair.Item3,2,0,0,0,null,null,"Completed"))),new(3,"session",JsonSerializer.Serialize(new SessionPayload("identical-session","Ollama","fixture-model","Working",now)))};
                 hub.Ingest(host,new(host.InstallationId,events));
@@ -37,7 +37,7 @@ public sealed partial class MainWindow
             var selector=this.GetVisualDescendants().OfType<ComboBox>().Single(c=>AutomationProperties.GetName(c)=="Select monitored host");
             Check(selector.ItemCount==3&&selector.SelectedIndex==2,"Fleet host dropdown includes All hosts and both paired hosts");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.Contains("Ubuntu node · fixture · Ubuntu · Fixture CPU")==true)&&service.LogicalProcessors==4,"Selected host supplies its own name, OS and CPU capacity instead of the dashboard machine");
-            Check(service.Store.Totals(now-1).Input==63&&service.Ollama.Active.Values.Sum()==2&&service.Ollama.Models.Count==1&&service.AgentApps.Single().MemoryMiB==300,"Selected-host model, token and process-resource sections share one host scope");
+            Check(service.Store.Totals(now-1).Input==63&&service.Ollama.Active.Values.Sum()==2&&ModelHost(service.Ollama.Models.Single())=="Ubuntu node · fixture"&&service.Ollama.Models.Count==1&&service.AgentApps.Single().MemoryMiB==300,"Selected-host model, token and process-resource sections share one host scope");
             using(var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96))){bitmap.Render(this);bitmap.Save(Path.Combine(Paths.Root,"fleet-selected-host.png"));}
             selector.SelectedIndex=1;for(int i=0;i<100&&(fleet.SelectedMonitor?.Store.Totals(now-1).Input!=11||fleet.SelectedMonitor?.RemoteSnapshot?.Name!="Minisforum · fixture");i++)await Task.Delay(100);RenderBody();
             Check(service.Store.Totals(now-1).Input==11&&service.Value("cpu.load")==31,"Switching hosts replaces the complete data scope without mixing identical record names");

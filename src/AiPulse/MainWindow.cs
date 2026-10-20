@@ -197,7 +197,7 @@ public sealed partial class MainWindow : Window
             foreach(var m in service.Ollama.Models.OrderBy(m=>m.Host).ThenBy(m=>m.Name))
             {
                 var row=new StackPanel{Spacing=4,Margin=new Thickness(8,7)};row.Children.Add(Text(m.Name,12,null,true));
-                row.Children.Add(Text(m.Host+" · "+m.State+" · "+J.Size(m.MemoryGiB),10,"#a7bad4"));
+                row.Children.Add(Text(ModelHost(m)+" · "+m.State+" · "+J.Size(m.MemoryGiB),10,"#a7bad4"));
                 row.Children.Add(Text(m.Host=="This PC"&&rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} tok/s · last observed request":"Decode rate unavailable",10,"#55cee5"));
                 list.Children.Add(new Border{Child=row,Background=Panel,CornerRadius=new CornerRadius(5)});
             }
@@ -205,6 +205,7 @@ public sealed partial class MainWindow : Window
         }
         return grid;
     }
+    string ModelHost(ModelInfo model)=>service.IsRemote&&model.Host=="This PC"?service.HostName:model.Host;
     string Format(string id)
     {
         if(service.IsRemote&&!service.Fresh)return "—";
@@ -287,9 +288,9 @@ public sealed partial class MainWindow : Window
     {
         var stack=new StackPanel{Spacing=12};stack.Children.Add(Text("Loaded models · "+service.Ollama.Models.Count,16,null,true));
         foreach(var status in service.Ollama.Status)stack.Children.Add(Text(status.Key+"  ·  "+status.Value,11,status.Value=="Connected"?"#59dfae":"#e8b65f"));
-        if(service.Ollama.Models.Count>0)stack.Children.Add(Table(["Model / host","State","Model memory","GPU-reported","Context"],service.Ollama.Models.Select(m=>new[]{m.Name+"\n"+m.Host,m.State,J.Size(m.MemoryGiB),J.Size(m.GpuGiB),m.Context>0?J.Count(m.Context):"—"}),"2.2*,*,*,*,*"));
+        if(service.Ollama.Models.Count>0)stack.Children.Add(Table(["Model / host","State","Model memory","GPU-reported","Context"],service.Ollama.Models.Select(m=>new[]{m.Name+"\n"+ModelHost(m),m.State,J.Size(m.MemoryGiB),J.Size(m.GpuGiB),m.Context>0?J.Count(m.Context):"—"}),"2.2*,*,*,*,*"));
         else stack.Children.Add(Text("No models are loaded. Start an Ollama request to see residency here.",13,"#8da1bd"));
-        if(inventory){stack.Children.Add(Text("Installed inventory",15,null,true));stack.Children.Add(Table(["Model","Host","Quantization","Disk size"],service.Ollama.Installed.Select(m=>new[]{m.Name,m.Host,m.Quantization,J.Size(m.MemoryGiB)}),"2*,*,*,*"));}
+        if(inventory){stack.Children.Add(Text("Installed inventory",15,null,true));stack.Children.Add(Table(["Model","Host","Quantization","Disk size"],service.Ollama.Installed.Select(m=>new[]{m.Name,ModelHost(m),m.Quantization,J.Size(m.MemoryGiB)}),"2*,*,*,*"));}
         return Card(stack);
     }
     Control AgentsPage()

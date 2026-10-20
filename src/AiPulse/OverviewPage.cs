@@ -106,7 +106,7 @@ public sealed partial class MainWindow
     {
         var s=new StackPanel{Spacing=10};s.Children.Add(Text("Model activity",16,null,true));
         foreach(var status in service.Ollama.Status)s.Children.Add(Text(status.Key+" · "+status.Value,11,status.Value=="Connected"?"#59dfae":"#e8b65f"));
-        if(service.Ollama.Models.Count>0)s.Children.Add(Table(["Model / runtime host","State","Memory"],service.Ollama.Models.Take(5).Select(m=>new[]{m.Name+"\n"+m.Host,m.State,J.Size(m.MemoryGiB)}),"2*,*,*"));
+        if(service.Ollama.Models.Count>0)s.Children.Add(Table(["Model / runtime host","State","Memory"],service.Ollama.Models.Take(5).Select(m=>new[]{m.Name+"\n"+ModelHost(m),m.State,J.Size(m.MemoryGiB)}),"2*,*,*"));
         else s.Children.Add(Text("No models are currently reported loaded.",12,"#8ba0bd"));s.Children.Add(OpenPage("All models ("+service.Ollama.Models.Count+")","Models"));return Card(s);
     }
     Control OverviewApps()
