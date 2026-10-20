@@ -4,15 +4,16 @@ using System.Security.Cryptography;
 
 namespace AiPulse;
 
-public sealed class Storage : IDisposable
+public sealed partial class Storage : IDisposable
 {
     readonly object gate=new();
     readonly SqliteConnection db;
     int retentionDays=90;
     public int RetentionDays {get=>Volatile.Read(ref retentionDays);set=>Volatile.Write(ref retentionDays,Math.Clamp(value,7,365));}
-    public Storage(string path,int retentionDays=90)
+    public Storage(string path,int retentionDays=90,bool replication=false)
     {
         RetentionDays=retentionDays;
+        Replication=replication;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false}.ToString());db.Open();
         Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;");
@@ -31,6 +32,7 @@ public sealed class Storage : IDisposable
         CREATE TABLE IF NOT EXISTS alerts(key TEXT PRIMARY KEY,title TEXT,detail TEXT,time INTEGER,active INTEGER);
         PRAGMA user_version=1;
         """);
+        InitializeReplication();
     }
     SqliteCommand Command(string sql,params object?[] values)
     {
@@ -42,28 +44,35 @@ public sealed class Storage : IDisposable
     object? Scalar(string sql,params object?[] values) {using var c=Command(sql,values);return c.ExecuteScalar();}
     public void Sample(long time,IEnumerable<Reading> readings)
     {
-        lock(gate){ using var tx=db.BeginTransaction();
+        var rows=readings.ToList();
+        lock(gate){using var tx=db.BeginTransaction();SampleCore(time,rows);AppendEvent("sample",new SamplePayload(time,rows));tx.Commit();}
+    }
+    void SampleCore(long time,List<Reading> readings)
+    {
         foreach(var r in readings)
         {
             Execute("INSERT INTO sensors VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(id) DO UPDATE SET name=excluded.name,device=excluded.device,unit=excluded.unit,source=excluded.source",r.Id,r.Name,r.Device,r.Unit,r.Source);
-            if(r.Value is not double v||!double.IsFinite(v)) continue;
+            if(r.Value is not double v||!double.IsFinite(v))continue;
             using var c=Command("INSERT OR IGNORE INTO metrics VALUES(@p0,@p1,@p2)",time,r.Id,v);
             if(c.ExecuteNonQuery()==0)continue;
             Execute("INSERT INTO minute_metrics VALUES(@p0,@p1,@p2,1,@p2,@p2) ON CONFLICT(time,id) DO UPDATE SET total=total+excluded.total,count=count+1,minimum=min(minimum,excluded.minimum),maximum=max(maximum,excluded.maximum)",time/60*60,r.Id,v);
-        }tx.Commit();}
+        }
     }
     public void PutUsage(Usage u)
     {
         if(u.Time<J.Now-RetentionDays*86400L||u.Time>J.Now+300)return;
-        lock(gate) Execute("""
+        lock(gate){using var tx=db.BeginTransaction();UsageCore(u);AppendEvent("usage",u);tx.Commit();}
+    }
+    void UsageCore(Usage u)=>Execute("""
         INSERT INTO usage VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10,@p11,@p12)
         ON CONFLICT(id) DO UPDATE SET input=max(input,excluded.input),output=max(output,excluded.output),cached=max(cached,excluded.cached),cache_write=max(cache_write,excluded.cache_write),reasoning=max(reasoning,excluded.reasoning),duration=coalesce(excluded.duration,duration),rate=coalesce(excluded.rate,rate),status=excluded.status
         """,u.Id,u.Source,u.Model,u.Session,u.Time,Math.Max(0,u.Input),Math.Max(0,u.Output),Math.Max(0,u.Cached),Math.Max(0,u.CacheWrite),Math.Max(0,u.Reasoning),u.DurationMs,u.DecodeRate,u.Status);
-    }
     public void Session(string id,string source,string model,string state,long time)
     {
-        lock(gate) Execute("INSERT INTO sessions VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(id) DO UPDATE SET model=CASE WHEN excluded.model='' THEN model ELSE excluded.model END,state=excluded.state,last_seen=excluded.last_seen WHERE excluded.last_seen>=last_seen",id,source,model,state,time);
+        var payload=new SessionPayload(id,source,model,state,time);
+        lock(gate){using var tx=db.BeginTransaction();SessionCore(payload);AppendEvent("session",payload);tx.Commit();}
     }
+    void SessionCore(SessionPayload s)=>Execute("INSERT INTO sessions VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(id) DO UPDATE SET model=CASE WHEN excluded.model='' THEN model ELSE excluded.model END,state=excluded.state,last_seen=excluded.last_seen WHERE excluded.last_seen>=last_seen",s.Id,s.Source,s.Model,s.State,s.Time);
     public List<SessionInfo> Sessions(int days=1,string search="")
     {
         lock(gate){using var c=Command("SELECT s.id,s.source,s.model,s.state,s.last_seen,coalesce(sum(u.input),0),coalesce(sum(u.output),0),coalesce(sum(u.cached),0) FROM sessions s LEFT JOIN usage u ON u.session=s.id AND u.time>=@p0 WHERE s.last_seen>=@p0 AND (@p1='' OR instr(lower(s.id||' '||s.source||' '||s.model||' '||s.state),lower(@p1))>0) GROUP BY s.id ORDER BY s.last_seen DESC LIMIT 100",J.Now-days*86400L,search.Trim());
@@ -133,7 +142,15 @@ public sealed class Storage : IDisposable
     {lock(gate)Execute("INSERT INTO checkpoints VALUES(@p0,@p1,@p2) ON CONFLICT(path) DO UPDATE SET offset=excluded.offset,state=excluded.state",path,offset,state);}
     public void ResetImportCheckpoints(){lock(gate)Execute("DELETE FROM checkpoints");}
     public void Alert(string key,string title,string detail,bool active)
-    {lock(gate)Execute("INSERT INTO alerts VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(key) DO UPDATE SET title=excluded.title,detail=excluded.detail,time=CASE WHEN active<>excluded.active THEN excluded.time ELSE time END,active=excluded.active",key,title,detail,J.Now,active?1:0);}
+    {
+        lock(gate)
+        {
+            using var tx=db.BeginTransaction();
+            bool changed=Convert.ToInt64(Scalar("SELECT count(*) FROM alerts WHERE key=@p0 AND title=@p1 AND detail=@p2 AND active=@p3",key,title,detail,active?1:0))==0;
+            var alert=new AlertInfo(key,title,detail,J.Now,active);AlertCore(alert);if(changed)AppendEvent("alert",alert);tx.Commit();
+        }
+    }
+    void AlertCore(AlertInfo a)=>Execute("INSERT INTO alerts VALUES(@p0,@p1,@p2,@p3,@p4) ON CONFLICT(key) DO UPDATE SET title=excluded.title,detail=excluded.detail,time=CASE WHEN active<>excluded.active THEN excluded.time ELSE time END,active=excluded.active",a.Key,a.Title,a.Detail,a.Time,a.Active?1:0);
     public List<AlertInfo> Alerts()
     {
         lock(gate){using var c=Command("SELECT * FROM alerts ORDER BY active DESC,time DESC LIMIT 100");using var r=c.ExecuteReader();var a=new List<AlertInfo>();while(r.Read())a.Add(new(r.GetString(0),r.GetString(1),r.GetString(2),r.GetInt64(3),r.GetInt64(4)==1));return a;}

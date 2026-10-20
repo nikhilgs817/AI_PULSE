@@ -20,6 +20,10 @@ public record TokenBreakdown(string Source,string Model,long Input,long Output,l
 
 public sealed class AppSettings
 {
+    public List<string> UsageRoots {get;set;}=[];
+    public string? FleetConnectionFile {get;set;}
+    public string SelectedHostId {get;set;}="";
+    public bool FleetDashboard {get;set;}
     public bool Compact { get; set; } = true;
     public bool Pinned { get; set; } = true;
     public bool CompactVertical { get; set; }
@@ -69,7 +73,11 @@ public static class Paths
         lock(settingsGate){
         var temp=Settings+".tmp";
         File.WriteAllText(temp,JsonSerializer.Serialize(settings,new JsonSerializerOptions{WriteIndented=true}));
-        File.Move(temp,Settings,true);
+        for(int attempt=0;;attempt++)
+        {
+            try{File.Move(temp,Settings,true);break;}
+            catch(Exception e)when(attempt<5&&OperatingSystem.IsWindows()&&e is IOException or UnauthorizedAccessException){Thread.Sleep(50*(attempt+1));}
+        }
         }
     }
     public static void Log(string component, Exception e)

@@ -44,9 +44,9 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 - **Protect the data.** Verified SQLite snapshots, seven daily restore points plus weekly snapshots covering the configured retention period (13 weeks by default; 53 for a year), and an in-app restore flow that preserves the previous database.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).
 
-## Central monitoring architecture (planned)
+## Central monitoring (0.3.0 preview in validation)
 
-The next architecture uses a hub service and autonomous Windows/Ubuntu Host Agents with offline buffering, a host dropdown and selectable Private LAN / VPN / Internet profiles. This is not included in the current local-only release. See the [fleet architecture](docs/FLEET-ARCHITECTURE.md), [decision record](docs/adr/0001-central-hub-and-host-agents.md) and [official-documentation research](docs/MONITORING-RESEARCH.md).
+The new fleet implementation adds a hub service, boot-time Windows/Ubuntu Host Agents, durable offline uploads, authenticated HTTPS pairing and a host dropdown in both dashboard modes. Private LAN, VPN and Internet profiles are selectable. See [central setup and limits](docs/CENTRAL-MONITORING.md), [fleet architecture](docs/FLEET-ARCHITECTURE.md) and [monitoring research](docs/MONITORING-RESEARCH.md). Version 0.2.2 downloads remain local-only until the verified 0.3.0 package is published.
 
 ## First five minutes
 

@@ -14,6 +14,17 @@ public static class Program
         int waitIndex=Array.IndexOf(args,"--wait-for-exit");if(waitIndex>=0&&args.Length>waitIndex+1&&int.TryParse(args[waitIndex+1],out var parentId)){try{System.Diagnostics.Process.GetProcessById(parentId).WaitForExit(20000);}catch(ArgumentException){}}
         try
         {
+            if(args.Contains("--remove-fleet")){int n=Array.IndexOf(args,"--remove-fleet");if(n+1>=args.Length)throw new ArgumentException("Provide hub or agent");FleetInstaller.Remove(args[n+1]);return 0;}
+            if(args.Contains("--init-hub")){int n=Array.IndexOf(args,"--hostname");FleetFiles.InitializeHub(Paths.Root,n>=0&&n+1<args.Length?args[n+1]:"localhost");return 0;}
+            if(args.Contains("--install-fleet"))
+            {
+                int i=Array.IndexOf(args,"--install-fleet"),source=Array.IndexOf(args,"--source-config");
+                if(i+1>=args.Length||source<0||source+1>=args.Length)throw new ArgumentException("Provide a role and configuration folder");
+                FleetInstaller.Install(args[i+1],args[source+1]);return 0;
+            }
+            if(args.Contains("--fleet-test"))return FleetTests.Run().GetAwaiter().GetResult();
+            if(args.Contains("--hub"))return FleetRuntime.Run("hub");
+            if(args.Contains("--agent"))return FleetRuntime.Run("agent");
             if(args.Contains("--ui-test")&&!args.Contains("--data-dir"))throw new ArgumentException("UI checks require an isolated --data-dir.");
             bool exclusiveMode=!args.Contains("--diagnose")&&!args.Contains("--self-test");
             FileStream? acquired=null;

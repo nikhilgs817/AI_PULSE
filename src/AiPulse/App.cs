@@ -23,7 +23,7 @@ public sealed class App : Application
         {
             life.ShutdownMode=ShutdownMode.OnExplicitShutdown;
             var settings=Paths.Load();if(Program.Arguments.Contains("--expanded"))settings.Compact=false;
-            Monitor=new(settings);var window=new MainWindow(Monitor);life.MainWindow=window;
+            Monitor=new(settings,remote:settings.FleetDashboard);var window=new MainWindow(Monitor);life.MainWindow=window;
             var activation=new InstanceActivation(()=>{window.Show();window.WindowState=WindowState.Normal;window.Activate();});
             var menu=new NativeMenu();var show=new NativeMenuItem("Open AI Pulse");show.Click+=(_,_)=>{window.Show();window.Activate();};menu.Items.Add(show);
             var compact=new NativeMenuItem("Compact / expanded");compact.Click+=(_,_)=>{window.Show();window.ToggleMode();};menu.Items.Add(compact);

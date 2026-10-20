@@ -1,6 +1,6 @@
 # Central dashboard and host-agent architecture
 
-**Decision date:** 2026-10-20. **Architecture direction:** accepted from the owner's request. **Implementation status:** planned; the released 0.2.2 app remains a local collector. The Overview/network/chart work is the first UI increment, not a claim that remote agents already ship.
+**Decision date:** 2026-10-20. **Architecture direction:** accepted from the owner's request. **Implementation:** 0.3.0 introduces working headless hub/agent roles, durable upload queues, authenticated pairing, HTTPS profiles, host-scoped dashboard selection and Windows/systemd service installation. See the [operating guide and explicit preview boundaries](CENTRAL-MONITORING.md). The service-aware deep broker, per-user companion IPC and automatic restore reconciliation below remain target architecture, not completed features.
 
 ## User experience
 

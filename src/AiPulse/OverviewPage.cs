@@ -21,31 +21,31 @@ public sealed partial class MainWindow
     }
     Control Overview()
     {
-        long now=J.Now,start=now-overviewSeconds;bool fresh=service.LastSample>0&&now-service.LastSample<=8;
+        long now=J.Now,start=now-overviewSeconds;bool fresh=service.Fresh;
         string Live(string id)=>fresh?Format(id):"—";
         var activity=service.Store.CompactActivity(J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local),now);
         var alerts=service.Store.Alerts().Where(a=>a.Active).ToList();
         var stack=new StackPanel{Spacing=14};
-        stack.Children.Add(Heading("Overview",Environment.MachineName+" · "+(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux")+" · "+(service.Hardware?.CpuName??"Discovering CPU")));
+        stack.Children.Add(Heading("Overview",service.HostName+" · "+service.HostPlatform+" · "+(service.CpuName??"Discovering CPU")));
         var status=new StackPanel{Orientation=Orientation.Horizontal,Spacing=16};
         status.Children.Add(Text(fresh?"LIVE":"WAITING / STALE",12,fresh?"#59dfae":"#e8b65f",true));
         status.Children.Add(Text(service.LastSample>0?"Sampled "+DateTimeOffset.FromUnixTimeSeconds(service.LastSample).ToLocalTime().ToString("MMM d HH:mm:ss zzz"):"Starting collectors…",11,"#8ba0bd"));
         status.Children.Add(Text($"{alerts.Count} active alerts · {service.Settings.RetentionDays}-day history",11,alerts.Count>0?"#e8b65f":"#8ba0bd"));stack.Children.Add(status);
         foreach(var alert in alerts.Take(2))stack.Children.Add(Message(alert.Title,alert.Detail));
 
-        var tiles=new UniformGrid{Columns=Bounds.Width-(service.Settings.SidebarCollapsed?60:174)-52>=900?4:2};
+        var tiles=new UniformGrid{Columns=Bounds.Width-(localService.Settings.SidebarCollapsed?60:174)-52>=900?4:2};
         void Tile(string label,string value,string caption)
         {
             var card=Metric(label,value,caption);card.Margin=new Thickness(0,0,10,10);card.MinHeight=125;card.Padding=new Thickness(15);tiles.Children.Add(card);
         }
-        Tile("CPU UTILIZATION",Live("cpu.load"),$"{Environment.ProcessorCount} logical processors · whole host");
-        Tile("GPU UTILIZATION",Live("gpu.load"),service.Hardware?.GpuName??"Graphics / compute adapter");
+        Tile("CPU UTILIZATION",Live("cpu.load"),$"{service.LogicalProcessors} logical processors · whole host");
+        Tile("GPU UTILIZATION",Live("gpu.load"),service.GpuName??"Graphics / compute adapter");
         Tile("SYSTEM MEMORY",Live("ram.used"),"of "+Live("ram.total")+" · "+Live("ram.available")+" available");
         Tile("GPU LOCAL MEMORY",Live("gpu.local"),"of "+Live("gpu.local.total")+" reported capacity");
         Tile("CPU TEMPERATURE",Live("cpu.temperature"),service.SensorBridge.Connected?"Deep sensor helper connected":"Exposed CPU sensor · see Sensors for coverage");
         Tile("GPU TEMPERATURE",Live("gpu.temperature"),"GPU core sensor · unavailable shows —");
-        Tile("LOADED MODELS",service.Ollama.Models.Count.ToString(),$"{Math.Max(0,service.Ollama.Active.Values.Sum())} observed gateway requests active");
-        Tile("ACTIVE AGENTS",service.Settings.ReadAgentUsage?activity.ActiveAgents.ToString("N0"):"—","Sessions active within 5 min · process use below");stack.Children.Add(tiles);
+        Tile("LOADED MODELS",service.IsRemote&&!fresh?"—":service.Ollama.Models.Count.ToString(),$"{Math.Max(0,service.Ollama.Active.Values.Sum())} observed gateway requests active");
+        Tile("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||fresh)?activity.ActiveAgents.ToString("N0"):"—","Sessions active within 5 min · process use below");stack.Children.Add(tiles);
 
         var range=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=6,LineSpacing=6};range.Children.Add(Text("TREND WINDOW",12,"#8ba0bd",true));
         foreach(var item in new[]{(900,"15 min"),(3600,"1 hour"),(21600,"6 hours"),(86400,"24 hours")})
@@ -80,7 +80,7 @@ public sealed partial class MainWindow
         var legend=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=16};foreach(var item in series)legend.Children.Add(Text("● "+item.Name,11,item.Color));s.Children.Add(legend);
         var chart=new TrendChart{Height=185,Series=series.ToList(),WindowStart=start,WindowEnd=end,Unit=unit,MaxValue=maximum};
         AutomationProperties.SetName(chart,title+" · dated time axis · "+unit+" · "+TimeZoneInfo.Local.Id);s.Children.Add(chart);
-        s.Children.Add(Text("Source: local collector · minute sample means · gaps indicate missing observations",10,"#8ba0bd"));return Card(s);
+        s.Children.Add(Text("Source: "+(service.IsRemote?service.HostName+" Host Agent":"local collector")+" · minute sample means · gaps indicate missing observations",10,"#8ba0bd"));return Card(s);
     }
     record WifiChoice(string Id,string Name){public override string ToString()=>Name;}
     Control WifiPanel(List<NetworkSample> networks,long start,long end,bool fresh)
@@ -90,7 +90,7 @@ public sealed partial class MainWindow
         var choices=new List<WifiChoice>{new("","Automatic · active Wi-Fi")};choices.AddRange(wifi.Select(n=>new WifiChoice(n.Id,n.Name+(n.Connected?" · connected":" · disconnected"))));
         if(!string.IsNullOrEmpty(service.Settings.WifiInterfaceId)&&choices.All(c=>c.Id!=service.Settings.WifiInterfaceId))choices.Add(new(service.Settings.WifiInterfaceId,"Selected adapter · unavailable"));
         var select=new ComboBox{ItemsSource=choices,SelectedItem=choices.First(c=>c.Id==service.Settings.WifiInterfaceId),HorizontalAlignment=HorizontalAlignment.Stretch,MinWidth=170};AutomationProperties.SetName(select,"Wi-Fi adapter");
-        select.SelectionChanged+=(_,_)=>{if(select.SelectedItem is WifiChoice choice&&service.Settings.WifiInterfaceId!=choice.Id){service.Settings.WifiInterfaceId=choice.Id;Paths.Save(service.Settings);RenderBody();}};panel.Children.Add(select);
+        select.SelectionChanged+=(_,_)=>{if(select.SelectedItem is WifiChoice choice&&service.Settings.WifiInterfaceId!=choice.Id){service.Settings.WifiInterfaceId=choice.Id;Paths.Save(localService.Settings);RenderBody();}};panel.Children.Add(select);
         if(selected==null)
         {
             panel.Children.Add(Text("No readable Wi-Fi adapter is available. Wired and other adapter traffic remains in Hardware.",12,"#8ba0bd"));return Card(panel);
@@ -112,7 +112,7 @@ public sealed partial class MainWindow
     Control OverviewApps()
     {
         var s=new StackPanel{Spacing=10};s.Children.Add(Text("Agent resource consumption",16,null,true));
-        var apps=service.Hardware?.AgentApps??[];bool fresh=service.Hardware!=null&&(DateTime.UtcNow-service.Hardware.ProcessSampleTime).TotalSeconds<=15;
+        var apps=service.AgentApps;bool fresh=(service.Hardware!=null||service.IsRemote)&&(DateTime.UtcNow-service.ProcessSampleTime).TotalSeconds<=15;
         if(apps.Count>0)s.Children.Add(Table(["App","CPU host %","Working set","Processes"],apps.Select(a=>new[]{a.App,fresh?a.Cpu?.ToString("0.0")??"Warming up":"—",fresh?$"{a.MemoryMiB:N0} MiB":"—",a.Processes.Count.ToString()}),"1.2*,*,1.3*,*"));
         else s.Children.Add(Text("Collecting readable Codex, Claude and Ollama processes…",12,"#8ba0bd"));
         s.Children.Add(Text("Local app totals shared across sessions. Working sets may share pages; protected processes may be missing.",11,"#8ba0bd"));s.Children.Add(OpenPage("Process details","Agents"));return Card(s);
@@ -130,8 +130,8 @@ public sealed partial class MainWindow
     Control OverviewHealth()
     {
         var s=new StackPanel{Spacing=10};s.Children.Add(Text("Monitoring health",16,null,true));
-        s.Children.Add(Pair("Hardware",service.Health));s.Children.Add(Pair("Ollama gateway",service.Gateway.Status));
-        s.Children.Add(Text(service.Settings.ReadAgentUsage?service.Agents.Status:"Local token metadata import disabled",12,"#8ba0bd"));
+        s.Children.Add(Pair("Hardware",service.Health));s.Children.Add(Pair("Ollama gateway",service.GatewayStatus));
+        s.Children.Add(Text(service.Settings.ReadAgentUsage?service.AgentStatus:"Local token metadata import disabled",12,"#8ba0bd"));
         s.Children.Add(Text(service.Settings.LastBackupError??(DateTimeOffset.TryParse(service.Settings.LastBackup,out var backup)?"Last verified backup · "+backup.ToLocalTime().ToString("MMM d HH:mm zzz"):"Backup pending"),12,service.Settings.LastBackupError!=null?"#e8b65f":"#8ba0bd"));
         s.Children.Add(Text("Request tokens cover gateway traffic. Local tool metadata coverage depends on supported source records.",11,"#8ba0bd"));return Card(s);
     }

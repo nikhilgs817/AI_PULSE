@@ -93,6 +93,7 @@ public sealed partial class MainWindow
             service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
             await Shot("history-year");
             await Click("Settings");await Shot("settings");
+            await RunFleetUiChecks(results);
             File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);
         }
         catch(Exception e){results.Add("FAIL: "+e);File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);Environment.ExitCode=1;}

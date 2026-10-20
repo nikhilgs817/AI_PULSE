@@ -15,13 +15,14 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings) : IAs
     public string Status{get;private set;}="Disabled";
     public async Task Start(CancellationToken ct)
     {
-        if(!settings.EnableGateway)return;
+        if(!settings.EnableGateway||Status.StartsWith("Listening"))return;
+        if(app!=null){await app.DisposeAsync();app=null;}
         try
         {
             var builder=WebApplication.CreateSlimBuilder();builder.Logging.ClearProviders();builder.WebHost.UseKestrel(o=>{o.Listen(IPAddress.Loopback,settings.GatewayPort);o.Limits.MaxRequestBodySize=16*1024*1024;});
             app=builder.Build();app.MapGet("/health",()=>Results.Json(new{service="AI Pulse observation gateway",version=typeof(Gateway).Assembly.GetName().Version?.ToString(3)}));
             app.Run(Forward);await app.StartAsync(ct);Status="Listening on 127.0.0.1:"+settings.GatewayPort;
-        }catch(Exception e){Paths.Log("gateway-start",e);Status="Port unavailable; direct Ollama remains usable";}
+        }catch(Exception e){if(app!=null){await app.DisposeAsync();app=null;}Paths.Log("gateway-start",e);Status="Port unavailable; direct Ollama remains usable";}
     }
     async Task Forward(HttpContext context)
     {

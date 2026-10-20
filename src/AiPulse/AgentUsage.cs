@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace AiPulse;
 
-public sealed class AgentUsage(Storage db)
+public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null)
 {
     public string Status {get;private set;}="Discovering local usage records";
     DateTime nextScan=DateTime.MinValue;
@@ -32,7 +32,7 @@ public sealed class AgentUsage(Storage db)
         if(DateTime.UtcNow>=nextScan)
         {
             var home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var roots=new[]{Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(home,".codex"),"sessions"),Path.Combine(home,".claude","projects")};
+            var roots=configuredRoots?.Count>0?configuredRoots.ToArray():new[]{Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(home,".codex"),"sessions"),Path.Combine(home,".claude","projects")};
             files=[];
             foreach(var root in roots)try{if(Directory.Exists(root))files.AddRange(Directory.EnumerateFiles(root,"*.jsonl",new EnumerationOptions{RecurseSubdirectories=true,IgnoreInaccessible=true}).Where(f=>File.GetLastWriteTimeUtc(f)>DateTime.UtcNow.AddDays(-db.RetentionDays)));}catch{}
             files=files.OrderByDescending(File.GetLastWriteTimeUtc).ToList();nextScan=DateTime.UtcNow.AddSeconds(30);

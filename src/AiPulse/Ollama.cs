@@ -37,5 +37,6 @@ public sealed class Ollama : IDisposable
         if(!Uri.TryCreate(url,UriKind.Absolute,out var uri)||uri.Scheme is not ("http" or "https")||uri.UserInfo!=""||uri.Query!=""||uri.Fragment!="")throw new InvalidOperationException("Use an HTTP(S) endpoint without credentials, query or fragment.");
         return url.TrimEnd('/');
     }
+    public void ApplySnapshot(List<ModelInfo> models,List<ModelInfo> installed,Dictionary<string,string> status){Models=models;Installed=installed;Status=status;}
     public void Dispose()=>client.Dispose();
 }
