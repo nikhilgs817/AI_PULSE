@@ -38,7 +38,13 @@ Loaded models are different from agent sessions. Agent usage remains available o
 
 ![Overview](images/overview.png)
 
-The headline cards show GPU load, GPU core temperature availability, system memory and observed tokens in the last 24 hours. Their headings use the same 15-point semibold style as the other cards. The GPU chart plots minute-average samples. Unified-memory figures remain separate because they overlap. The connection panel explains token coverage.
+The Overview is the command centre for the local host: CPU/GPU utilization and exposed temperatures, RAM used/total/available, GPU memory capacity, loaded models and recent active sessions. It shows the collector timestamp and active alerts, independent on-prem/tool token totals since local midnight, app CPU/working sets, model activity, storage pressure and backup/coverage status. Section buttons open the detailed tabs.
+
+Use the shared **15 min / 1 hour / 6 hours / 24 hours** trend selector. CPU/GPU, RAM, temperatures and Wi-Fi traffic share the selected window. Charts display **YYYY-MM-DD and HH:mm** tick labels, units, timezone and legends. Hover shows the nearby observation timestamp with UTC offset and sample mean. Missing periods remain gaps; a single observation is a dot. History uses the same corrected date/time axes.
+
+The **Wi-Fi speed & traffic** panel selects an adapter or automatically follows an active Wi-Fi adapter. Download/upload are actual interface traffic in **Mbps**; the OS-reported link speed is the connection rate to the router, not a measured internet speed-test result. Counter resets/reconnects establish a fresh baseline. Windows filter-driver aliases are excluded from rates and totals. A missing/disconnected adapter shows unavailable; wired interfaces remain in Hardware. The chart uses minute sample means, so short bursts can exceed its plotted average. No SSID, BSSID, password or automatic internet speed-test traffic is collected.
+
+GPU shared allocation overlaps system RAM. Active-session counts are recent lifecycle/activity evidence; local app resources are shared across sessions. Token sources can overlap when a tool uses the gateway. Monitoring health explains which providers and records are visible.
 
 ## Hardware
 

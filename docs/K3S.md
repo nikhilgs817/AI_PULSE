@@ -22,3 +22,7 @@ This feature does **not** install k3s, deploy Kubernetes collectors, query pods,
 - Cluster-side history so collection continues while the desktop is asleep/off; reconnect queries/backfill with clock-skew handling.
 
 Metrics Server alone does not provide three-month history, model tokens or GPU temperatures. Live deployment and acceptance need the actual cluster topology, runtime, GPU vendor and access method. The present release's remote Ollama provider is the first integration point; full k3s observability is not advertised as complete.
+
+## Central hub integration path
+
+The proposed [Host Agent architecture](FLEET-ARCHITECTURE.md) provides durable outbound telemetry and host-scoped identity before adding node/pod/runtime adapters. Selectable LAN/VPN/Internet profiles belong to the transport setup; cluster authorization and hardware sensor permissions remain separate.

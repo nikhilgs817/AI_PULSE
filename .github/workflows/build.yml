@@ -67,7 +67,7 @@ jobs:
           if(!(Test-Path $iscc)){throw 'Inno Setup compiler missing on runner'}
           & $iscc installer/windows.iss
           if($LASTEXITCODE -ne 0){throw 'Installer build failed'}
-          Compress-Archive build/win-x64/* build/releases/AI-Pulse-0.2.1-win-x64-portable.zip
+          Compress-Archive build/win-x64/* build/releases/AI-Pulse-0.2.2-win-x64-portable.zip
           Get-ChildItem build/releases -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content build/releases/SHA256SUMS-windows.txt
       - name: Install and uninstall the Windows package
         shell: pwsh
@@ -75,7 +75,7 @@ jobs:
           $installDir=Join-Path $PWD 'build/installed-app'
           $dataDir=Join-Path $PWD 'build/installed-data'
           $args='/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="'+$installDir+'" /DATA_DIR="'+$dataDir+'"'
-          $p=Start-Process ./build/releases/AI-Pulse-Setup-0.2.1-x64.exe -ArgumentList $args -WindowStyle Hidden -Wait -PassThru
+          $p=Start-Process ./build/releases/AI-Pulse-Setup-0.2.2-x64.exe -ArgumentList $args -WindowStyle Hidden -Wait -PassThru
           if($p.ExitCode -ne 0){throw 'Installer failed'}
           $p=Start-Process (Join-Path $installDir 'AiPulse.exe') -ArgumentList ('--self-test --data-dir "'+$dataDir+'"') -WindowStyle Hidden -Wait -PassThru
           if($p.ExitCode -ne 0){throw 'Installed executable failed tests'}
@@ -130,7 +130,7 @@ jobs:
       - name: Package DEB and validate installation
         run: |
           python3 scripts/package_linux.py
-          sudo apt-get install -y ./build/releases/ai-pulse_0.2.1_amd64.deb
+          sudo apt-get install -y ./build/releases/ai-pulse_0.2.2_amd64.deb
           ai-pulse --self-test --data-dir build/installed-test
           xvfb-run -a ai-pulse --data-dir build/installed-gui --capture --exit-after 1
           test -s build/installed-gui/compact-live.png
@@ -142,8 +142,8 @@ jobs:
           chmod +x tools/appimagetool.AppImage
           cd tools && ./appimagetool.AppImage --appimage-extract && cd ..
           APPIMAGETOOL="$PWD/tools/squashfs-root/AppRun" bash scripts/package-appimage.sh
-          chmod +x build/releases/AI-Pulse-0.2.1-x86_64.AppImage
-          build/releases/AI-Pulse-0.2.1-x86_64.AppImage --appimage-extract-and-run --self-test --data-dir build/appimage-test
+          chmod +x build/releases/AI-Pulse-0.2.2-x86_64.AppImage
+          build/releases/AI-Pulse-0.2.2-x86_64.AppImage --appimage-extract-and-run --self-test --data-dir build/appimage-test
           (cd build/releases && sha256sum *.deb *.AppImage > SHA256SUMS-linux.txt)
       - uses: actions/upload-artifact@v4
         with:

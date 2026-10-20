@@ -59,17 +59,19 @@ public sealed class Hardware : IDisposable
         double dt=(DateTime.UtcNow-lastNetwork).TotalSeconds;double rx=0,tx=0;bool has=false;
         foreach(var nic in NetworkInterface.GetAllNetworkInterfaces())
         {
-            if(nic.NetworkInterfaceType==NetworkInterfaceType.Loopback)continue;
+            if(nic.NetworkInterfaceType==NetworkInterfaceType.Loopback||OperatingSystem.IsWindows()&&NetworkMetrics.IsFilterAdapter(nic.Name,nic.Description))continue;
             try
             {
                 var id="nic."+nic.Id;bool up=nic.OperationalStatus==OperationalStatus.Up;
                 Add(id+".up","Link connected",nic.Name,"",up?1:0);
+                bool wireless=nic.NetworkInterfaceType==NetworkInterfaceType.Wireless80211||OperatingSystem.IsLinux()&&Directory.Exists("/sys/class/net/"+nic.Name+"/wireless");
+                Add(id+".wireless","Wi-Fi interface",nic.Name,"",wireless?1:0);
                 Add(id+".speed","Link capacity",nic.Name,"Mbps",nic.Speed>0?nic.Speed/1e6:null);
                 double? down=null,outgoing=null;
                 if(up)
                 {
                     var s=nic.GetIPStatistics();
-                    if(network.TryGetValue(nic.Id,out var p)&&dt>0&&s.BytesReceived>=p.In&&s.BytesSent>=p.Out){down=(s.BytesReceived-p.In)/dt/1048576;outgoing=(s.BytesSent-p.Out)/dt/1048576;rx+=down.Value*1048576;tx+=outgoing.Value*1048576;has=true;}
+                    if(network.TryGetValue(nic.Id,out var p)){down=NetworkMetrics.Rate(s.BytesReceived,p.In,dt);outgoing=NetworkMetrics.Rate(s.BytesSent,p.Out,dt);if(down.HasValue&&outgoing.HasValue){rx+=down.Value*1048576;tx+=outgoing.Value*1048576;has=true;}}
                     network[nic.Id]=(s.BytesReceived,s.BytesSent);
                 }
                 else network.Remove(nic.Id);

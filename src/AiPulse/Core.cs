@@ -31,6 +31,7 @@ public sealed class AppSettings
     public bool EnableGateway { get; set; } = true;
     public int GatewayPort { get; set; } = 11435;
     public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
+    public string WifiInterfaceId { get; set; } = "";
     public List<Endpoint> RemoteEndpoints { get; set; } = [];
     public double? X { get; set; }
     public double? Y { get; set; }

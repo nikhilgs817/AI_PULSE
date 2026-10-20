@@ -21,7 +21,10 @@ public static class HardwareInventory
             try{if(IsStorageVolume(disk))rows.Add(new("Storage volume",disk.Name,$"{disk.TotalSize/1073741824.0:0.0} GiB capacity · {disk.DriveFormat}"));}catch{}
         }
         foreach(var nic in NetworkInterface.GetAllNetworkInterfaces().Where(n=>n.NetworkInterfaceType!=NetworkInterfaceType.Loopback))
+        {
+            if(OperatingSystem.IsWindows()&&NetworkMetrics.IsFilterAdapter(nic.Name,nic.Description))continue;
             rows.Add(new("Network adapter",nic.Name,nic.Description+" · "+nic.NetworkInterfaceType));
+        }
         return rows;
     }
 }

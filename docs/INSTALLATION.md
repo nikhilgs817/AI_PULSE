@@ -33,10 +33,10 @@ Open a newer installer to upgrade. Close AI Pulse with **Ctrl+Q** or its tray **
 
 Target platforms are Ubuntu Desktop x64 24.04 and 26.04; check the [validation report](VALIDATION.md) for which environments have actually run tests.
 
-Download `ai-pulse_0.2.1_amd64.deb`. If your desktop has a graphical installer for local DEB packages, open it and select Install. Some Ubuntu installations do not associate DEB files with a graphical installer. In that case:
+Download `ai-pulse_0.2.2_amd64.deb`. If your desktop has a graphical installer for local DEB packages, open it and select Install. Some Ubuntu installations do not associate DEB files with a graphical installer. In that case:
 
 ```bash
-sudo apt install ./ai-pulse_0.2.1_amd64.deb
+sudo apt install ./ai-pulse_0.2.2_amd64.deb
 ai-pulse
 ```
 

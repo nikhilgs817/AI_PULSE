@@ -66,3 +66,7 @@ The GitHub workflow builds packages and runs Linux tests; virtual graphics do no
 Both platform CI jobs run the checks. They also cover both compact orientations, restored full-size header, Maximize/Restore, returning from maximized to compact, preserving the active header during input, sidebar collapse/expand, search focus across refresh, independent tab searches, empty results and the one-year history selector. Native pointer dragging and blank-header double-click are separately checked on Windows. Real Ollama inference uses the separate smoke test. Start with a fresh test settings file; the UI checks intentionally finish with 365-day retention.
 
 Agent resource checks cover process-tree ownership, descendants beyond the top-25 table, shared working sets, first-sample CPU, PID reuse and stale UI data. Windows tests wait for the synthetic Ollama endpoint to be ready; the UI harness also waits for model discovery rather than assuming a fixed startup time.
+
+## Central monitoring evolution
+
+The accepted [hub and Host Agent architecture](FLEET-ARCHITECTURE.md) and [ADR-0001](adr/0001-central-hub-and-host-agents.md) describe the next service-based design. The released desktop collector remains local-only until those service, sync and pairing gates pass. [Monitoring research](MONITORING-RESEARCH.md) explains the Overview/chart/metric choices.

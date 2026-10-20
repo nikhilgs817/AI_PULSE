@@ -6,7 +6,7 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
-> **0.2.1 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
+> **0.2.2 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
@@ -20,9 +20,9 @@ Screenshots with `fixture-model-*` names use synthetic Ollama responses to demon
 
 Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose your platform:
 
-- **Windows 11 x64:** `AI-Pulse-Setup-0.2.1-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
-- **Ubuntu Desktop x64:** `ai-pulse_0.2.1_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
-- **Linux portable:** `AI-Pulse-0.2.1-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
+- **Windows 11 x64:** `AI-Pulse-Setup-0.2.2-x64.exe`. Open the installer, install, then launch AI Pulse. A portable ZIP is also available.
+- **Ubuntu Desktop x64:** `ai-pulse_0.2.2_amd64.deb`. Open using your desktop's package installer. If it has no local-package handler, see the [Ubuntu instructions](docs/INSTALLATION.md#ubuntu).
+- **Linux portable:** `AI-Pulse-0.2.2-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
 
 The app bundles its .NET runtime, interface and SQLite database engine. **You do not install Python, Docker, .NET or a database server to use it.** Ubuntu still relies on standard OS libraries, resolved by the package manager. The database is created automatically on first launch.
 
@@ -41,6 +41,10 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 - **Review history.** Seven days of detailed readings and configurable 7–365-day summaries, usage records and CSV exports. The shipping default remains 90 days.
 - **Protect the data.** Verified SQLite snapshots, seven daily restore points plus weekly snapshots covering the configured retention period (13 weeks by default; 53 for a year), and an in-app restore flow that preserves the previous database.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).
+
+## Central monitoring architecture (planned)
+
+The next architecture uses a hub service and autonomous Windows/Ubuntu Host Agents with offline buffering, a host dropdown and selectable Private LAN / VPN / Internet profiles. This is not included in the current local-only release. See the [fleet architecture](docs/FLEET-ARCHITECTURE.md), [decision record](docs/adr/0001-central-hub-and-host-agents.md) and [official-documentation research](docs/MONITORING-RESEARCH.md).
 
 ## First five minutes
 
@@ -75,6 +79,8 @@ See the [user guide](docs/USER-GUIDE.md) and [metric definitions](docs/METRICS.m
 - [Validation results and known limitations](docs/VALIDATION.md)
 - [k3s expansion plan](docs/K3S.md)
 - [Architecture and development](docs/DEVELOPMENT.md)
+- [Central dashboard / Host Agent architecture](docs/FLEET-ARCHITECTURE.md)
+- [Monitoring research and Overview design](docs/MONITORING-RESEARCH.md)
 - [Third-party notices](THIRD-PARTY-NOTICES.md)
 - [ECG logo and brand assets](docs/BRANDING.md)
 

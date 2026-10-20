@@ -2,7 +2,7 @@
 Uses only Python's standard library; can run on Windows or Linux.
 """
 import io, pathlib, tarfile, time, argparse, os, hashlib, shutil, subprocess, tempfile
-p=argparse.ArgumentParser();p.add_argument('--source',default='build/linux-x64');p.add_argument('--output',default='build/releases');p.add_argument('--version',default='0.2.1');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--source',default='build/linux-x64');p.add_argument('--output',default='build/releases');p.add_argument('--version',default='0.2.2');a=p.parse_args()
 source=pathlib.Path(a.source);out=pathlib.Path(a.output);out.mkdir(parents=True,exist_ok=True)
 assert (source/'AiPulse').is_file(),'Publish linux-x64 first'
 

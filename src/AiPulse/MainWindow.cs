@@ -104,6 +104,7 @@ public sealed partial class MainWindow : Window
         var alerts=service.Store.Alerts().Count(a=>a.Active);string fresh=service.LastSample==0?"Starting":J.Now-service.LastSample>8?"STALE readings":"Live · 2s";
         footer.Text=$"{fresh}   ·   {alerts} alerts   ·   {service.Settings.RetentionDays}-day history   ·   "+(service.Settings.LastBackupError!=null?"Backup needs attention":service.Settings.LastBackup!=null?"Backup verified":"Backup pending");
         if(settingsSensorStatus!=null)settingsSensorStatus.Text=SensorDescription();
+        if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;
         if(page!="Settings"||service.Settings.Compact)RenderBody();
     }
     string Query=>searches.GetValueOrDefault(page,"");
@@ -126,7 +127,7 @@ public sealed partial class MainWindow : Window
                     var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand)};
                     ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{if(page==item)return;page=item;scroller=null;layoutPage=null;RenderBody();};nav.Children.Add(b);
                 }
-                if(!collapsed){var host=Text("This PC\n"+(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux")+" · v0.2.1",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
+                if(!collapsed){var host=Text("This PC\n"+(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux")+" · v0.2.2",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
                 layout.Children.Add(new Border{Child=new ScrollViewer{Content=nav},BorderBrush=Line,BorderThickness=new Thickness(0,0,1,0)});
                 var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=new Thickness(26,20)};
                 if(page is "Hardware" or "Sensors" or "Agents")
@@ -205,19 +206,6 @@ public sealed partial class MainWindow : Window
         double? v=service.Value(id);if(id=="gpu.load"&&!v.HasValue)v=service.Value("gpu.engine");
         if(!v.HasValue)return "—";var unit=service.Readings.FirstOrDefault(r=>r.Id==id)?.Unit??"";
         return unit=="°C"||id.Contains("temperature")?$"{v:0}°C":unit=="%"||id.Contains("load")?$"{v:0}%":$"{v:0.0} {unit}".TrimEnd();
-    }
-    Control Overview()
-    {
-        var stack=new StackPanel{Spacing=18};stack.Children.Add(Heading("Overview",(service.Hardware?.GpuName??"Discovering GPU")+" · "+(service.Hardware?.CpuName??"Discovering CPU")));
-        var stats=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*,*,*")};
-        var total=service.Store.Totals(J.Now-86400);
-        var cards=new[]{Metric("GPU UTILIZATION",Format("gpu.load"),"Device / busiest observed engine"),Metric("GPU TEMPERATURE",Format("gpu.temperature"),"Unavailable sensors show —"),Metric("SYSTEM MEMORY",Format("ram.used"),"of "+Format("ram.total")),Metric("OBSERVED TOKENS · 24H",J.Count(total.Input+total.Output),J.Count(total.Cached)+" cached input · included")};
-        for(int i=0;i<cards.Length;i++){Grid.SetColumn(cards[i],i);cards[i].Margin=new Thickness(i==0?0:10,0,0,0);stats.Children.Add(cards[i]);}stack.Children.Add(stats);
-        var mid=new Grid{ColumnDefinitions=new ColumnDefinitions("2*,*")};var trend=new StackPanel{Spacing=12};trend.Children.Add(Text("GPU utilization",15,null,true));var chart=new TrendChart{Height=205,Points=service.Store.History(service.Value("gpu.load").HasValue?"gpu.load":"gpu.engine",J.Now-900)};trend.Children.Add(chart);trend.Children.Add(Text("Last 15 min · minute means · local collector",10,"#7b90ad"));mid.Children.Add(Card(trend));
-        var memory=new StackPanel{Spacing=18};memory.Children.Add(Text("Unified memory",15,null,true));memory.Children.Add(Pair("GPU local",Format("gpu.local")));memory.Children.Add(Pair("GPU shared",Format("gpu.shared")));memory.Children.Add(Pair("System available",Format("ram.available")));memory.Children.Add(Text("GPU shared allocations overlap system RAM.\nThese figures must not be added together.",11,"#8a9eba"));var memCard=Card(memory);memCard.Margin=new Thickness(12,0,0,0);Grid.SetColumn(memCard,1);mid.Children.Add(memCard);stack.Children.Add(mid);
-        stack.Children.Add(ModelsList(false));
-        stack.Children.Add(Message("Usage coverage",service.Agents.Status+"\nOllama request tokens: gateway traffic only. Desktop Chat/Cowork may not expose usage."));
-        return stack;
     }
     string SensorDescription()
     {
@@ -359,7 +347,7 @@ public sealed partial class MainWindow : Window
             }catch(Exception e){notice="Restore was not started: "+e.Message;RenderBody();}
         };stack.Children.Add(restore);
         var quit=Btn("Quit AI Pulse · Ctrl+Q");quit.Click+=(_,_)=>Quit();stack.Children.Add(quit);
-        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse 0.2.1 · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
+        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse 0.2.2 · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
     }
     public void Capture()
     {

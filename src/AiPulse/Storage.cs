@@ -69,9 +69,9 @@ public sealed class Storage : IDisposable
         lock(gate){using var c=Command("SELECT s.id,s.source,s.model,s.state,s.last_seen,coalesce(sum(u.input),0),coalesce(sum(u.output),0),coalesce(sum(u.cached),0) FROM sessions s LEFT JOIN usage u ON u.session=s.id AND u.time>=@p0 WHERE s.last_seen>=@p0 AND (@p1='' OR instr(lower(s.id||' '||s.source||' '||s.model||' '||s.state),lower(@p1))>0) GROUP BY s.id ORDER BY s.last_seen DESC LIMIT 100",J.Now-days*86400L,search.Trim());
         using var r=c.ExecuteReader();var rows=new List<SessionInfo>();while(r.Read())rows.Add(new(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7)));return rows;}
     }
-    public List<Usage> UsageSince(long since)
+    public List<Usage> UsageSince(long since,string? source=null,int limit=20000)
     {
-        lock(gate){using var c=Command("SELECT * FROM usage WHERE time>=@p0 ORDER BY time DESC LIMIT 20000",since);using var r=c.ExecuteReader();var rows=new List<Usage>();
+        lock(gate){using var c=Command("SELECT * FROM usage WHERE time>=@p0 AND (@p1 IS NULL OR source=@p1) ORDER BY time DESC LIMIT @p2",since,source,Math.Clamp(limit,1,20000));using var r=c.ExecuteReader();var rows=new List<Usage>();
         while(r.Read())rows.Add(new(r.GetString(0),r.GetString(1),r.GetString(2),r.GetString(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8),r.GetInt64(9),r.IsDBNull(10)?null:r.GetDouble(10),r.IsDBNull(11)?null:r.GetDouble(11),r.GetString(12)));return rows;}
     }
     public (long Input,long Output,long Cached,long Requests) Totals(long since)
