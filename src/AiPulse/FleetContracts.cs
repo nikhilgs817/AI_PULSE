@@ -69,7 +69,7 @@ public sealed record HostSnapshot
     public long QueueCount {get;init;}
     public long QueueBytes {get;init;}
 }
-public record HostView(string HubId,HostSummary Host,HostSnapshot? Snapshot,List<SyncEvent> Events);
+public record HostView(string HubId,HostSummary Host,HostSnapshot? Snapshot,List<SyncEvent> Events,long FirstSequence=0,long LatestSequence=0);
 
 public static class FleetFiles
 {

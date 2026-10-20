@@ -56,7 +56,7 @@ public sealed partial class Storage
                 if(e.Sequence<=applied)continue;
                 using(var observation=JsonDocument.Parse(e.Payload))
                 {
-                    if(observation.RootElement.TryGetProperty("Time",out var time)&&time.GetInt64()<J.Now-RetentionDays*86400L){applied=e.Sequence;continue;}
+                    if(observation.RootElement.TryGetProperty("Time",out var time)&&time.GetInt64()<J.Now-RetentionDays*86400L&&!(e.Kind=="alert"&&observation.RootElement.GetProperty("Active").GetBoolean())){applied=e.Sequence;continue;}
                 }
                 switch(e.Kind)
                 {
@@ -91,7 +91,7 @@ public sealed partial class Storage
             default:throw new InvalidDataException("Unsupported telemetry kind");
         }
     }
-    public void RetainJournal(long now){lock(gate)Execute("DELETE FROM sync_events WHERE created<@p0",now-RetentionDays*86400L);}
+    public void RetainJournal(long now){lock(gate)Execute("DELETE FROM sync_events WHERE created<@p0",now-4*3600L);}
     public void SeedExistingHistory()
     {
         if(!Replication)throw new InvalidOperationException("History seeding requires an agent outbox");

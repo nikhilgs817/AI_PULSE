@@ -73,9 +73,32 @@ public sealed class FleetDashboard : IDisposable
                 if(id!=""&&Hosts.Any(h=>h.Id==id))
                 {
                     var monitor=EnsureMonitor(id);long.TryParse(monitor.Store.SyncState("dashboard-cursor"),out long after);
+                    string baseline=monitor.Store.SyncState("baseline-ticket");
+                    if(baseline!="")
+                    {
+                        var ticket=System.Text.Json.JsonSerializer.Deserialize<BaselineTicket>(baseline)!;
+                        var cursor=System.Text.Json.JsonSerializer.Deserialize<BaselineCursor>(monitor.Store.SyncState("baseline-cursor"))??new();
+                        using var response=await client.PostAsJsonAsync($"/fleet/v1/baseline/{id}/{ticket.Id}/page",cursor,stop.Token);
+                        if(!response.IsSuccessStatusCode){monitor.Store.SyncState("baseline-ticket","");monitor.Store.SyncState("baseline-complete","");response.EnsureSuccessStatusCode();}
+                        var data=await response.Content.ReadFromJsonAsync<BaselinePage>(stop.Token)??throw new InvalidDataException();
+                        monitor.Store.ApplyBatch("baseline:"+ticket.Id,data.Events,false);monitor.Store.SyncState("baseline-cursor",System.Text.Json.JsonSerializer.Serialize(data.Next));CatchingUp=true;
+                        if(data.Complete)
+                        {
+                            monitor.Store.SyncState("dashboard-cursor",ticket.JournalSequence.ToString());monitor.Store.SyncState("baseline-complete","yes");monitor.Store.SyncState("baseline-ticket","");
+                            try{using var released=await client.PostAsJsonAsync($"/fleet/v1/baseline/{id}/{ticket.Id}/release",new{},stop.Token);}catch(HttpRequestException){}
+                        }
+                        await Task.Delay(100,stop.Token);continue;
+                    }
                     var view=await client.GetFromJsonAsync<HostView>($"/fleet/v1/hosts/{id}?after={after}",stop.Token)??throw new InvalidDataException();
                     string previous=monitor.Store.SyncState("hub-id");if(previous!=""&&previous!=view.HubId)throw new InvalidDataException("Hub identity changed. Reconnect with a new profile.");
-                    if(view.Snapshot!=null)monitor.Store.RetentionDays=view.Snapshot.RetentionDays;monitor.Store.SyncState("hub-id",view.HubId);monitor.Store.ApplyBatch("dashboard",view.Events,false);
+                    if(view.Snapshot!=null)monitor.Store.RetentionDays=view.Snapshot.RetentionDays;
+                    if(monitor.Store.SyncState("baseline-complete")!="yes"||after+1<view.FirstSequence||after>view.LatestSequence)
+                    {
+                        using var response=await client.PostAsJsonAsync("/fleet/v1/baseline/"+id,new{},stop.Token);response.EnsureSuccessStatusCode();var ticket=await response.Content.ReadFromJsonAsync<BaselineTicket>(stop.Token)??throw new InvalidDataException();
+                        monitor.Store.ResetReplica();monitor.Store.RetentionDays=ticket.RetentionDays;monitor.Store.SyncState("hub-id",view.HubId);monitor.Store.SyncState("baseline-ticket",System.Text.Json.JsonSerializer.Serialize(ticket));monitor.Store.SyncState("baseline-cursor",System.Text.Json.JsonSerializer.Serialize(new BaselineCursor()));CatchingUp=true;
+                        continue;
+                    }
+                    monitor.Store.SyncState("hub-id",view.HubId);monitor.Store.ApplyBatch("dashboard",view.Events,false);
                     if(view.Events.Count>0)monitor.Store.SyncState("dashboard-cursor",view.Events.Max(e=>e.Sequence).ToString());
                     CatchingUp=view.Events.Count>0;monitor.Store.Retain(J.Now);
                     if(CatchingUp){await Task.Delay(100,stop.Token);continue;}

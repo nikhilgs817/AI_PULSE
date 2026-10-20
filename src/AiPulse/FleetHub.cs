@@ -35,6 +35,7 @@ public sealed class FleetHub : IDisposable
     readonly HubState state;
     readonly object gate=new();
     readonly Dictionary<string,Storage> stores=[];
+    readonly Dictionary<string,(string Host,string File,long Created,Storage Reader)> baselines=[];
     readonly Dictionary<string,(long Start,int Count)> enrollmentRates=[];
     public FleetHub(string root)
     {
@@ -42,6 +43,8 @@ public sealed class FleetHub : IDisposable
         state=File.Exists(Path.Combine(root,"hosts.json"))?FleetFiles.Read<HubState>(Path.Combine(root,"hosts.json")):new();
         // Heartbeats from a prior process are never trusted as a current connection.
         foreach(var host in state.Hosts)host.ReceivedAt=0;
+        string transfers=Path.Combine(root,"baseline-transfers");if(Directory.Exists(transfers))foreach(var file in Directory.EnumerateFiles(transfers))
+            if(Path.GetExtension(file) is ".db" or ".db-wal" or ".db-shm"&&Guid.TryParseExact(Path.GetFileNameWithoutExtension(file),"N",out _))File.Delete(file);
     }
     void Save()=>FleetFiles.Write(Path.Combine(root,"hosts.json"),state);
     Storage Store(RegisteredHost host)
@@ -97,11 +100,41 @@ public sealed class FleetHub : IDisposable
     }
     public HostView? View(string id,long after,bool liveOnly=false)
     {
-        lock(gate){var h=state.Hosts.FirstOrDefault(h=>h.Id==id);if(h==null)return null;return new(config.HubId,Summary(h),h.Snapshot is {} s?s with{RetentionDays=config.RetentionDays}:null,liveOnly?[]:Store(h).Events(after));}
+        lock(gate){var h=state.Hosts.FirstOrDefault(h=>h.Id==id);if(h==null)return null;var store=Store(h);var range=store.JournalRange();return new(config.HubId,Summary(h),h.Snapshot is {} s?s with{RetentionDays=config.RetentionDays}:null,liveOnly?[]:store.Events(after),range.First,range.Latest);}
+    }
+    public BaselineTicket BeginBaseline(string hostId)
+    {
+        lock(gate)
+        {
+            var host=state.Hosts.FirstOrDefault(h=>h.Id==hostId)??throw new InvalidDataException("Unknown host");
+            foreach(var expiredId in baselines.Where(p=>p.Value.Created<J.Now-86400).Select(p=>p.Key).ToArray())ReleaseBaseline(baselines[expiredId].Host,expiredId);
+            if(baselines.Values.Count(p=>p.Host==hostId)>=2)throw new InvalidOperationException("Two history transfers already active for this host");
+            string id=Guid.NewGuid().ToString("N"),file=Path.Combine(root,"baseline-transfers",id+".db");long sequence=Store(host).ReplicaSnapshot(file);baselines[id]=(hostId,file,J.Now,new Storage(file,config.RetentionDays));return new(id,sequence,config.RetentionDays);
+        }
+    }
+    public BaselinePage ReadBaseline(string hostId,string id,BaselineCursor cursor)
+    {
+        lock(gate)
+        {
+            if(!baselines.TryGetValue(id,out var source)||source.Host!=hostId||source.Created<J.Now-86400)throw new InvalidDataException("History transfer expired");
+            return source.Reader.Baseline(cursor);
+        }
+    }
+    public void ReleaseBaseline(string hostId,string id)
+    {
+        lock(gate)
+        {
+            if(!baselines.TryGetValue(id,out var source)||source.Host!=hostId)return;
+            source.Reader.Dispose();foreach(var file in new[]{source.File,source.File+"-wal",source.File+"-shm"})File.Delete(file);baselines.Remove(id);
+        }
     }
     public void Maintain()
     {
-        lock(gate)foreach(var h in state.Hosts){var store=Store(h);store.Retain(J.Now);store.RetainJournal(J.Now);store.Backup(Path.Combine(root,"hosts",h.Id,"backups"));}
+        lock(gate)
+        {
+            foreach(var id in baselines.Where(p=>p.Value.Created<J.Now-86400).Select(p=>p.Key).ToArray())ReleaseBaseline(baselines[id].Host,id);
+            foreach(var h in state.Hosts){var store=Store(h);store.Retain(J.Now);store.RetainJournal(J.Now);store.Backup(Path.Combine(root,"hosts",h.Id,"backups"));}
+        }
     }
     public async Task Run(CancellationToken ct)
     {
@@ -133,6 +166,9 @@ public sealed class FleetHub : IDisposable
             {if(!context.Response.HasStarted){context.Response.StatusCode=e is UnauthorizedAccessException?401:400;await context.Response.WriteAsJsonAsync(new{error="Request rejected. Check identity, schema, size and clock."},ct);}}
             finally{slots.Release();}
         });
+        app.MapPost("/fleet/v1/baseline/{id}",(string id)=>BeginBaseline(id));
+        app.MapPost("/fleet/v1/baseline/{host}/{ticket}/page",(string host,string ticket,BaselineCursor cursor)=>ReadBaseline(host,ticket,cursor));
+        app.MapPost("/fleet/v1/baseline/{host}/{ticket}/release",(string host,string ticket)=>{ReleaseBaseline(host,ticket);return Results.Ok();});
         app.MapPost("/fleet/v1/pair",()=>Pair());
         app.MapPost("/fleet/v1/enroll",(Enrollment r)=>Enroll(r));
         app.MapGet("/fleet/v1/hosts",()=>Hosts());
@@ -144,5 +180,5 @@ public sealed class FleetHub : IDisposable
         var maintenance=Task.Run(async()=>{while(!ct.IsCancellationRequested){try{await Task.Delay(TimeSpan.FromHours(1),ct);Maintain();}catch(OperationCanceledException){}catch(Exception e){Paths.Log("hub-maintenance",e);}}},ct);
         try{await app.RunAsync(ct);}finally{await app.DisposeAsync();}
     }
-    public void Dispose(){lock(gate)foreach(var s in stores.Values)s.Dispose();}
+    public void Dispose(){lock(gate){foreach(var s in stores.Values)s.Dispose();foreach(var source in baselines.Values)source.Reader.Dispose();}}
 }

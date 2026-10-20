@@ -71,6 +71,40 @@ public static class FleetTests
                     imported.SeedExistingHistory();var count=imported.QueueInfo().Count;imported.SeedExistingHistory();target.ApplyBatch("migration",imported.Events(),false);
                     Check(imported.QueueInfo().Count==count&&target.Totals(now-1).Input==123&&target.History("legacy.cpu",now/60*60).Single().Average==42,"Standalone migration seeds retained minute history and exact usage once without multiplying records");
                 }
+                var baselineHost=hub.Enroll(new(hub.Pair().Code,Guid.NewGuid().ToString("N"),"baseline-host","Private LAN"));var baselineIdentity=hub.AuthenticateHost(baselineHost.Token)!;
+                hub.Ingest(baselineIdentity,new(baselineIdentity.InstallationId,[new(1,"sample",JsonSerializer.Serialize(new SamplePayload(now,[new("baseline.cpu","CPU","d","%",40,"fixture")]))),new(2,"usage",JsonSerializer.Serialize(new Usage("base-one","Ollama","m","s",now,15,1,0,0,0,null,null,"Completed")))]));
+                var baselineTicket=hub.BeginBaseline(baselineHost.HostId);
+                hub.Ingest(baselineIdentity,new(baselineIdentity.InstallationId,[new(3,"usage",JsonSerializer.Serialize(new Usage("base-two","Ollama","m","s",now,5,1,0,0,0,null,null,"Completed"))),new(4,"sample",JsonSerializer.Serialize(new SamplePayload(now+1,[new("baseline.cpu","CPU","d","%",50,"fixture")])))]));
+                var paged=Enumerable.Range(0,2222).Select(i=>new SyncEvent(i+5,"usage",JsonSerializer.Serialize(new Usage("paged-"+i.ToString("D4"),"Ollama","m","s",now,0,0,0,0,0,null,null,"Completed")))).ToList();
+                foreach(var chunk in paged.Chunk(1000))hub.Ingest(baselineIdentity,new(baselineIdentity.InstallationId,chunk.ToList()));
+                using(var baselineTarget=new Storage(Path.Combine(root,"baseline-mirror.db")))
+                {
+                    BaselineCursor cursor=new();bool complete=false;while(!complete){var page=hub.ReadBaseline(baselineHost.HostId,baselineTicket.Id,cursor);baselineTarget.ApplyBatch("baseline",page.Events,false);cursor=page.Next;complete=page.Complete;}
+                    Check(baselineTarget.Totals(now-1).Input==15,"History snapshot stays consistent while newer observations arrive at the hub");
+                    baselineTarget.ApplyBatch("live-after-snapshot",hub.View(baselineHost.HostId,baselineTicket.JournalSequence)!.Events,false);
+                    Check(baselineTarget.Totals(now-1).Input==20&&baselineTarget.History("baseline.cpu",now/60*60,now+1).Single().Average==45,"Replay after a snapshot preserves exact token totals and sensor means without overlapping counts");
+                }
+                hub.ReleaseBaseline(baselineHost.HostId,baselineTicket.Id);
+                using(var warmDashboard=new FleetDashboard(connection){SelectedHost=baselineHost.HostId})
+                {
+                    warmDashboard.Start();for(int i=0;i<150&&(warmDashboard.SelectedMonitor?.Store.Totals(now-1).Requests!=2224||warmDashboard.SelectedMonitor?.Store.SyncState("baseline-complete")!="yes");i++)await Task.Delay(100);
+                    Check(warmDashboard.SelectedMonitor?.Store.Totals(now-1).Requests==2224,"Paged snapshots resume by stable keys across more than 2,000 identical-timestamp records");
+                }
+                hub.Ingest(baselineIdentity,new(baselineIdentity.InstallationId,[new(2227,"usage",JsonSerializer.Serialize(new Usage("missed-offline","Ollama","m","s",now,7,0,0,0,0,null,null,"Completed")))]));
+                using(var expireJournal=new Storage(Path.Combine(hubRoot,"hosts",baselineHost.HostId,"pulse.db")))expireJournal.RetainJournal(J.Now+5*3600);
+                var boundedView=hub.View(baselineHost.HostId,0)!;Check(boundedView.Events.Count==0&&boundedView.FirstSequence==boundedView.LatestSequence+1,"The four-hour delivery journal expires while its stable high-water mark survives");
+                hub.Ingest(baselineIdentity,new(baselineIdentity.InstallationId,[new(2228,"usage",JsonSerializer.Serialize(new Usage("new-current","Ollama","m","s",now,4,0,0,0,0,null,null,"Completed")))]));
+                using(var resumed=new FleetDashboard(connection){SelectedHost=baselineHost.HostId})
+                {
+                    resumed.Start();for(int i=0;i<150&&(resumed.SelectedMonitor?.Store.Totals(now-1).Input!=31||resumed.SelectedMonitor?.Store.Totals(now-1).Requests!=2226);i++)await Task.Delay(100);
+                    Check(resumed.SelectedMonitor?.Store.Totals(now-1).Input==31&&resumed.SelectedMonitor.Store.Totals(now-1).Requests==2226,"An existing dashboard detects an expired replay cursor and recovers missed records from retained history");
+                }
+                var coldConnection=new FleetConnection{Url=connection.Url.Replace("localhost","127.0.0.1"),CertificateSha256=connection.CertificateSha256,Token=connection.Token};
+                using(var coldDashboard=new FleetDashboard(coldConnection){SelectedHost=baselineHost.HostId})
+                {
+                    coldDashboard.Start();for(int i=0;i<150&&(coldDashboard.SelectedMonitor?.Store.Totals(now-1).Requests!=2226||coldDashboard.SelectedMonitor?.Store.SyncState("baseline-complete")!="yes");i++)await Task.Delay(100);
+                    Check(coldDashboard.SelectedMonitor?.Store.Totals(now-1).Input==31&&coldDashboard.SelectedMonitor.Store.History("baseline.cpu",now/60*60,now+1).Single().Average==45,"A new dashboard obtains retained history after the old delivery journal has expired");
+                }
                 string agentRoot=Path.Combine(root,"real-agent");Directory.CreateDirectory(agentRoot);string realCode=hub.Pair().Code;
                 var realConfig=new HostAgentConfig{Name="Live collector test",PairingCode=realCode,Connection=new(){Url=connection.Url,CertificateSha256=connection.CertificateSha256}};
                 string realFile=Path.Combine(agentRoot,"agent.json");FleetFiles.Write(realFile,realConfig);

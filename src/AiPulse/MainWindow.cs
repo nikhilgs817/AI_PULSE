@@ -54,7 +54,7 @@ public sealed partial class MainWindow : Window
         Opened+=async(_,_)=>
         {
             if(firstPosition){firstPosition=false;var screen=Screens.Primary??Screens.All.FirstOrDefault();if(screen!=null){var area=screen.WorkingArea;Position=new PixelPoint((int)(localService.Settings.X??(area.Right-Width*screen.Scaling-20)),(int)(localService.Settings.Y??(area.Bottom-Height*screen.Scaling-48)));KeepOnScreen();}}
-            if(Program.Arguments.Contains("--enable-sensors")||service.Settings.RequestSensorsAtLaunch)service.SensorBridge.Enable();
+            if(!localService.Settings.FleetDashboard&&(Program.Arguments.Contains("--enable-sensors")||service.Settings.RequestSensorsAtLaunch))service.SensorBridge.Enable();
             if(Program.Arguments.Contains("--ui-test")){await Task.Delay(5000);await RunUiChecks();return;}
             if(Program.Arguments.Contains("--capture")){await Task.Delay(12000);Capture();}
             int exitIndex=Array.IndexOf(Program.Arguments,"--exit-after");if(exitIndex>=0&&Program.Arguments.Length>exitIndex+1&&int.TryParse(Program.Arguments[exitIndex+1],out int seconds)){await Task.Delay(Math.Clamp(seconds,1,3600)*1000);Quit();}
