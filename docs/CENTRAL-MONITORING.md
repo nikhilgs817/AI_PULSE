@@ -2,6 +2,14 @@
 
 A single installer/runtime supports three roles: desktop dashboard, Hub service and Host Agent service. The dashboard selects **All hosts** or an individual host in both expanded and compact modes. A selected host scopes Overview, Hardware, Sensors, Models, Agents, Token, History and exports; Settings manages this desktop and fleet connection.
 
+![Central dashboard with two test hosts](images/fleet-all-hosts-fixture.png)
+
+![One selected host](images/fleet-selected-host-fixture.png)
+
+![Compact host selector](images/fleet-compact-fixture.png)
+
+These screenshots use explicitly named synthetic Windows/Ubuntu hosts to verify identity isolation and the interface. They do not claim that a second physical computer has already been paired.
+
 ## Main computer
 
 1. Install AIPULSE and open Settings → Central dashboard & Host Agents.

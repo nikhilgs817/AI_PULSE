@@ -1,5 +1,9 @@
 # Using AI Pulse
 
+## Central dashboard and Host Agents
+
+AIPULSE 0.3.0 adds hub/agent service roles and host selection in both window modes. Follow the [illustrated central-monitoring setup](CENTRAL-MONITORING.md) to configure the main computer, pair other systems and choose a network profile. Standalone mode remains available.
+
 ## Compact mode
 
 ![Compact dashboard](images/compact.png)
