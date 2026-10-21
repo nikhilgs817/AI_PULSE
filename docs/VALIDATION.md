@@ -8,6 +8,12 @@ Windows passed **36 data checks, 33 fleet checks and 63 UI checks**. Ubuntu pass
 
 Reports: [Windows data](validation/windows-data-v030.txt), [Windows fleet](validation/windows-fleet-v030.txt), [Windows UI](validation/windows-ui-v030.txt), [Ubuntu data](validation/linux-data-v030.txt), [Ubuntu fleet](validation/linux-fleet-v030.txt), [Ubuntu UI](validation/linux-ui-v030.txt).
 
+## Published packages
+
+The [0.3.0 unsigned preview](https://github.com/nikhilgs817/AI_PULSE/releases/tag/v0.3.0) was published on 2026-10-21 by [verified publication run 39684824835](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39684824835). It contains the Windows installer/portable ZIP, Ubuntu DEB/AppImage and two SHA-256 manifests. All six published asset digests independently matched the locally verified CI downloads. The publication workflow also checks the successful build, exact source and uploaded digests before exposing the release.
+
+The packages use the successful source/build identified above. A later documentation-only [rebuild 39684216570](https://github.com/nikhilgs817/AI_PULSE/actions/runs/39684216570) passed both platforms' data, fleet, service and UI checks, and Ubuntu packaging checks, but GitHub Actions storage quota prevented saving its artifacts and stopped Windows before packaging. It is not the release build. No failed or incomplete build artifacts were substituted. Bundled documentation predates the later unsigned-distribution notice; the online guides and release notes contain the current installation boundary. No signing service or paid storage subscription was configured.
+
 ## Services and delivery
 
 Both CI platforms installed a real hub and Host Agent through the bundled application's service installer. The checks confirmed automatic startup registration, running services, service restart, live hardware arrival over HTTPS and service removal. Windows uses the Service Control Manager; Ubuntu uses systemd. Registration and restart were exercised; a full physical-machine reboot was not.
