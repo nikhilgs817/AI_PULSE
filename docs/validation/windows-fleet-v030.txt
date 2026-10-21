@@ -1,0 +1,33 @@
+PASS: Pinned HTTPS hub starts independently of the desktop
+PASS: Unauthenticated clients cannot query hosts or history
+PASS: A mismatched hub certificate is rejected
+PASS: A lost enrollment response can be retried by the same installation without creating a second host
+PASS: Pairing codes are single-use and bind a unique installation
+PASS: Identical host/device/model/session/request names remain isolated
+PASS: Lost acknowledgements and upload replay do not double-count tokens or metrics
+PASS: Only committed, explicitly acknowledged events leave the durable queue
+PASS: Disconnected collection keeps both hardware and token observations on disk
+PASS: Agent restart preserves unacknowledged data and identity-independent record IDs
+PASS: Reconnect backfills original timestamps and exact token counts
+PASS: Queue exhaustion rolls back the local observation instead of silently losing replication
+PASS: Collector freshness and host connection status are distinct
+PASS: An ingestion credential cannot read hosts or administer the hub
+PASS: Live snapshots stay current independently of a history backlog
+PASS: The protocol rejects arbitrary operations and unsupported telemetry
+PASS: Revocation immediately rejects that host without affecting other hosts
+PASS: Revoking one host preserves another host's access
+PASS: The dashboard queries and caches only the selected host's readings and token history
+PASS: All network profiles reject plaintext transport
+PASS: Internet mode requires a publicly trusted certificate
+PASS: Windows metadata reads never execute under the service identity when the configured user is unavailable or mismatched
+PASS: Standalone migration seeds retained minute history and exact usage once without multiplying records
+PASS: History snapshot stays consistent while newer observations arrive at the hub
+PASS: Replay after a snapshot preserves exact token totals and sensor means without overlapping counts
+PASS: Paged snapshots resume by stable keys across more than 2,000 identical-timestamp records
+PASS: The four-hour delivery journal expires while its stable high-water mark survives
+PASS: An existing dashboard detects an expired replay cursor and recovers missed records from retained history
+PASS: A new dashboard obtains retained history after the old delivery journal has expired
+PASS: A real background Host Agent enrolls and sends this OS's hardware samples over HTTPS
+PASS: The actual Host Agent keeps collecting after the hub stops
+PASS: The actual Host Agent reconnects after hub restart and delivers its offline backlog
+PASS: Restarting the dashboard while the hub is offline restores host-scoped cached history without presenting stale readings as live

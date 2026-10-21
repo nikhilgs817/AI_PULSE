@@ -7,9 +7,9 @@
 3. Launch **AI Pulse**. The first launch creates your data folders and starts hardware/model discovery.
 4. Open **Settings** to enable sign-in startup, connect model endpoints or change the temperature warning threshold.
 
-The preview installer is not publisher-signed. Windows may identify an unknown publisher. Obtain it only from the intended repository/release and compare the published checksum; do not disable Windows security protections. A trusted signing identity is needed for a polished public distribution.
+The preview installer and application are unsigned. Windows may identify an unknown publisher. Obtain them only from the intended repository/release and compare the published checksum; a matching checksum verifies the download, not publisher trust or policy approval. This project currently distributes unsigned previews and does not require you to purchase a signing subscription.
 
-Devices with Application Control policies may block the unsigned app entirely. If that happens, use a build approved by the device administrator or wait for an appropriately signed release; the installer cannot override that policy.
+Devices with Application Control policies may block the unsigned app entirely, including after a successful installation. This occurred with 0.3.0 on the development PC; 0.2.2 was restored. The portable ZIP does not avoid that policy. If blocked, use a build approved by the device administrator; the installer cannot override the policy. Do not disable Windows security protections to run this preview. See the [validation report](VALIDATION.md).
 
 The default install is per-user. Ordinary monitoring does not require administrator privileges. The portable ZIP can be extracted into a writable folder and launched by opening `AiPulse.exe`.
 

@@ -6,7 +6,7 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
-> **0.3.0 preview:** Windows has been exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S machine with real Ollama requests. Linux packages use the same app and bundled runtime; consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
+> **0.3.0 unsigned preview:** The central hub, Host Agent services and dashboard passed Windows and Ubuntu CI. Windows Application Control blocked this version on the development PC, which retains 0.2.2; the new local fleet installation is not complete. Earlier standalone versions were exercised on its AMD Ryzen AI Max+ 395 / Radeon 8060S with real Ollama requests. Consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
@@ -25,6 +25,8 @@ Open **[Releases](https://github.com/nikhilgs817/AI_PULSE/releases)** and choose
 - **Linux portable:** `AI-Pulse-0.3.0-x86_64.AppImage`. It may require “Allow executing file as program” and a compatible desktop environment.
 
 The app bundles its .NET runtime, interface and SQLite database engine. **You do not install Python, Docker, .NET or a database server to use it.** Ubuntu still relies on standard OS libraries, resolved by the package manager. The database is created automatically on first launch.
+
+Windows packages are unsigned. Devices with Application Control can reject the application even after its installer succeeds; the portable ZIP is subject to the same policy. Use a build approved by the device administrator if blocked. Do not disable security protections to install this preview. Ubuntu packages do not require Windows code signing.
 
 If this repository is private, release downloads require repository access. You can also share a downloaded installer directly; it contains no personal usage data.
 

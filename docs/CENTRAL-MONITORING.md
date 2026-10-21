@@ -2,6 +2,8 @@
 
 A single installer/runtime supports three roles: desktop dashboard, Hub service and Host Agent service. The dashboard selects **All hosts** or an individual host in both expanded and compact modes. A selected host scopes Overview, Hardware, Sensors, Models, Agents, Token, History and exports; Settings manages this desktop and fleet connection.
 
+This is an unsigned preview. Windows Application Control can block the application and services; installation succeeded but application startup was blocked on the development PC, which retains standalone 0.2.2. The steps below apply where execution is permitted. Do not change security policy to make this preview run. Both Windows and Ubuntu service lifecycles passed CI; a second physical computer has not yet been paired. See [validation](VALIDATION.md).
+
 ![Central dashboard with two test hosts](images/fleet-all-hosts-fixture.png)
 
 ![One selected host](images/fleet-selected-host-fixture.png)
@@ -41,6 +43,8 @@ Live, stale and offline states are separate from pending history. More than ten 
 - **Private LAN:** use a reachable LAN DNS name/IP and the hub's SHA-256 certificate fingerprint. No trust-store or Windows security-policy changes are needed.
 - **VPN:** use the existing VPN address/DNS and the verified fingerprint. AIPULSE does not install a VPN; permit the hub port on that network as appropriate.
 - **Internet:** use a reachable HTTPS hostname with a publicly trusted certificate. Replace the generated local certificate with the managed certificate before installing the hub, and configure DNS, routing/NAT and the required firewall rules. The client always verifies public trust and hostname in this mode; selecting Internet cannot make a private machine reachable by itself. The port is configurable in hub.json. A reverse proxy may terminate publicly trusted HTTPS in front of a secured hub connection; never expose a plaintext agent endpoint.
+
+These HTTPS certificates secure the connection between agents and the hub. They are separate from Windows code signing: distributing an unsigned application does not remove the requirement for verified HTTPS.
 
 The agent opens outbound HTTPS connections; it exposes no network control listener. Its optional Ollama observation gateway remains loopback-only. Upload credentials cannot query other hosts or administer the hub. Pairing and telemetry APIs do not carry remote commands, prompts, replies or arbitrary files. The dashboard access token grants fleet administration and must be kept private.
 

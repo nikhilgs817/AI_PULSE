@@ -98,6 +98,7 @@ jobs:
             build/ui-checks/*.png
             build/ui-checks/*results.txt
             build/ui-checks/startup-error.txt
+            build/self-test/self-test-results.txt
             build/fleet-tests/fleet-test-results.txt
       - name: Create installer and portable archive
         shell: pwsh

@@ -5,11 +5,9 @@ on:
       build_run_id:
         description: Successful Build and validate run to publish
         required: true
-        default: '39315549733'
       tag:
         description: Existing draft release tag
         required: true
-        default: v0.2.1
 permissions:
   contents: read
 jobs:
