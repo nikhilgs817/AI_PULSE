@@ -3,6 +3,8 @@
     <OutputType>WinExe</OutputType><TargetFramework>net10.0</TargetFramework><AssemblyName>AiPulse</AssemblyName>
     <RootNamespace>AiPulse</RootNamespace><Version>0.3.0</Version><ApplicationManifest>app.manifest</ApplicationManifest><ApplicationIcon>Assets/pulse.ico</ApplicationIcon>
     <BuiltInComInteropSupport>true</BuiltInComInteropSupport><PublishTrimmed>false</PublishTrimmed>
+    <Product>AIPULSE</Product><Company>AI Pulse contributors</Company>
+    <Copyright>Copyright (c) 2026 AI Pulse contributors</Copyright>
   </PropertyGroup>
   <ItemGroup>
     <AvaloniaResource Include="Assets/**"/>

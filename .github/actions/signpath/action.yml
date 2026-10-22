@@ -1,0 +1,57 @@
+name: Sign and verify AIPULSE files
+description: Submit an exact allowlist to SignPath, then verify trust, identity and unchanged executable payload.
+inputs:
+  role:
+    required: true
+    description: app, uninstaller or installer
+  api-token:
+    required: true
+    description: Submitter-only SignPath API token
+  organization-id:
+    required: true
+    description: Approved organization ID
+  project-slug:
+    required: true
+    description: Approved AIPULSE project
+  policy-slug:
+    required: true
+    description: Manual-approval production signing policy
+  configuration-slug:
+    required: true
+    description: Approved artifact configuration for this role
+runs:
+  using: composite
+  steps:
+    - name: Validate signing role
+      shell: pwsh
+      env:
+        SIGNING_ROLE: ${{ inputs.role }}
+      run: |
+        if($env:SIGNING_ROLE -notin @('app','uninstaller','installer')){throw 'Unsupported signing role'}
+    - name: Upload only the allowlisted signing input
+      id: input
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: signpath-${{ inputs.role }}-input
+        path: build/signpath/${{ inputs.role }}-input/*
+        if-no-files-found: error
+        retention-days: 3
+    - name: Request signing and wait for the maintainer's approval
+      uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3
+      with:
+        api-token: ${{ inputs.api-token }}
+        organization-id: ${{ inputs.organization-id }}
+        project-slug: ${{ inputs.project-slug }}
+        signing-policy-slug: ${{ inputs.policy-slug }}
+        artifact-configuration-slug: ${{ inputs.configuration-slug }}
+        github-artifact-id: ${{ steps.input.outputs.artifact-id }}
+        wait-for-completion: true
+        wait-for-completion-timeout-in-seconds: 3600
+        output-artifact-directory: build/signpath/${{ inputs.role }}-signed
+        parameters: |
+          version: "${{ env.AIPULSE_VERSION }}"
+    - name: Verify before replacing unsigned files
+      shell: pwsh
+      env:
+        SIGNING_ROLE: ${{ inputs.role }}
+      run: ./scripts/accept-signed-artifact.ps1 -Role $env:SIGNING_ROLE

@@ -32,6 +32,10 @@ If this repository is private, release downloads require repository access. You 
 
 Read the [step-by-step installation guide](docs/INSTALLATION.md), including sensor permissions and upgrade/uninstall behavior.
 
+## Code signing policy
+
+We are preparing SignPath Foundation onboarding; acceptance and signed downloads are **not yet available**. Existing 0.3.0 files remain unsigned. See the [code signing policy](CODE_SIGNING_POLICY.md), [SignPath setup](docs/SIGNPATH.md) and [privacy policy](PRIVACY.md). This integration does not itself remove a Windows Application Control block.
+
 ## What you can do
 
 - **Keep only critical readings visible.** The standalone 560 × 142 horizontal and 260 × 256 vertical widgets have a loaded-model dropdown; fleet mode adds a 28-pixel host-selector row. Open it to see every model, host, state, memory and last observed decode rate; large lists scroll within a bounded panel.
@@ -86,6 +90,8 @@ See the [user guide](docs/USER-GUIDE.md) and [metric definitions](docs/METRICS.m
 - [Central dashboard / Host Agent architecture](docs/FLEET-ARCHITECTURE.md)
 - [Monitoring research and Overview design](docs/MONITORING-RESEARCH.md)
 - [Third-party notices](THIRD-PARTY-NOTICES.md)
+- [Privacy policy](PRIVACY.md)
+- [Code signing policy and current status](CODE_SIGNING_POLICY.md)
 - [ECG logo and brand assets](docs/BRANDING.md)
 
 ## Build from source

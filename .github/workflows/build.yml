@@ -5,19 +5,51 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      sign_windows:
+        description: Request SignPath production signatures (requires approved setup)
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   windows:
     runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    environment: ${{ inputs.sign_windows && 'signpath-signing' || 'unsigned-build' }}
+    env:
+      SIGNPATH_CERTIFICATE_THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate explicit signing request
+        shell: pwsh
+        env:
+          SIGN_REQUESTED: ${{ inputs.sign_windows }}
+          SIGNPATH_ENABLED: ${{ vars.SIGNPATH_ENABLED }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+        run: |
+          [xml]$project=Get-Content src/AiPulse/AiPulse.csproj
+          $version=($project.Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1)
+          if($version -notmatch '^\d+\.\d+\.\d+$'){throw 'Invalid release version'}
+          "AIPULSE_VERSION=$version" >> $env:GITHUB_ENV
+          if($env:SIGN_REQUESTED -eq 'true'){
+            if($env:GITHUB_REF -ne 'refs/heads/main' -or $env:SIGNPATH_ENABLED -ne 'true'){throw 'Production signing requires main and an approved enabled SignPath setup'}
+            foreach($value in @($env:SIGNPATH_ORGANIZATION_ID,$env:SIGNPATH_PROJECT_SLUG,$env:SIGNPATH_POLICY_SLUG,$env:SIGNPATH_API_TOKEN)){
+              if([string]::IsNullOrWhiteSpace($value)){throw 'Missing SignPath configuration; no unsigned fallback is permitted'}
+            }
+            if($env:SIGNPATH_CERTIFICATE_THUMBPRINT -notmatch '^[a-fA-F0-9]{40}$'){throw 'Missing approved signing certificate thumbprint'}
+          }
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
       - name: Publish self-contained Windows app
         shell: pwsh
-        run: ./scripts/build.ps1 -Runtime win-x64
+        run: ./scripts/build.ps1 -Runtime win-x64 -ForSigning:($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -and '${{ inputs.sign_windows }}' -eq 'true')
       - name: Verify data, privacy, retention and backup logic
         shell: pwsh
         run: |
@@ -94,20 +126,76 @@ jobs:
         if: always()
         with:
           name: windows-validation
+          retention-days: 7
           path: |
             build/ui-checks/*.png
             build/ui-checks/*results.txt
             build/ui-checks/startup-error.txt
             build/self-test/self-test-results.txt
             build/fleet-tests/fleet-test-results.txt
-      - name: Create installer and portable archive
+      - name: Stage owned application binaries
+        if: inputs.sign_windows
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path build/signpath/app-input -Force | Out-Null
+          Copy-Item build/win-x64/AiPulse.exe,build/win-x64/AiPulse.dll build/signpath/app-input/
+      - name: Sign owned application binaries
+        if: inputs.sign_windows
+        uses: ./.github/actions/signpath
+        with:
+          role: app
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          configuration-slug: app
+      - name: Prepare generated uninstaller
+        if: inputs.sign_windows
+        shell: pwsh
+        run: ./scripts/prepare-uninstaller.ps1
+      - name: Sign generated uninstaller
+        if: inputs.sign_windows
+        uses: ./.github/actions/signpath
+        with:
+          role: uninstaller
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          configuration-slug: uninstaller
+      - name: Compile installer with verified signed contents
+        if: inputs.sign_windows
+        shell: pwsh
+        run: ./scripts/prepare-uninstaller.ps1 -Complete
+      - name: Sign final installer
+        if: inputs.sign_windows
+        uses: ./.github/actions/signpath
+        with:
+          role: installer
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG }}
+          configuration-slug: installer
+      - name: Create unsigned preview installer
+        if: ${{ !inputs.sign_windows }}
         shell: pwsh
         run: |
           $iscc='C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if(!(Test-Path $iscc)){throw 'Inno Setup compiler missing on runner'}
           & $iscc installer/windows.iss
           if($LASTEXITCODE -ne 0){throw 'Installer build failed'}
+      - name: Create portable archive and checksums after any signing
+        shell: pwsh
+        run: |
           Compress-Archive build/win-x64/* build/releases/AI-Pulse-0.3.0-win-x64-portable.zip
+      - name: Record verified signing identity and package hashes
+        if: inputs.sign_windows
+        shell: pwsh
+        run: ./scripts/write-signing-receipt.ps1
+      - name: Hash completed Windows release files
+        shell: pwsh
+        run: |
           Get-ChildItem build/releases -File | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" } | Set-Content build/releases/SHA256SUMS-windows.txt
       - name: Install and uninstall the Windows package
         shell: pwsh
@@ -125,6 +213,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
+          retention-days: 7
           path: build/releases/*
   linux:
     runs-on: ubuntu-24.04
@@ -137,6 +226,7 @@ jobs:
         run: |
           dotnet publish src/AiPulse/AiPulse.csproj -c Release -r linux-x64 --self-contained true -o build/linux-x64
           cp README.md LICENSE THIRD-PARTY-NOTICES.md build/linux-x64/
+          cp CODE_SIGNING_POLICY.md PRIVACY.md SECURITY.md build/linux-x64/
           cp -r docs build/linux-x64/
           chmod +x build/linux-x64/AiPulse
       - name: Verify data, privacy, retention and backup logic
@@ -207,11 +297,13 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release
+          retention-days: 7
           path: build/releases/*
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: linux-validation
+          retention-days: 7
           path: |
             build/gui-test/compact-live.png
             build/gui-test/startup-error.txt

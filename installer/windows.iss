@@ -26,6 +26,15 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion=0.3.0.0
+VersionInfoProductName=AIPULSE
+VersionInfoProductVersion={#AppVersion}
+#ifdef SignPathUninstallerDir
+SignedUninstaller=yes
+SignedUninstallerDir={#SignPathUninstallerDir}
+  #ifdef SignPathCapture
+SignTool=aipulse-capture
+  #endif
+#endif
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked

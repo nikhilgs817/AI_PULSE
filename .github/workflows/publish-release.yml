@@ -8,6 +8,10 @@ on:
       tag:
         description: Existing draft release tag
         required: true
+      require_signed_windows:
+        description: Require verified SignPath signatures (disable only for an explicitly unsigned preview)
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -20,6 +24,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
       RELEASE_TAG: ${{ inputs.tag }}
+      REQUIRE_SIGNED_WINDOWS: ${{ inputs.require_signed_windows }}
+      SIGNPATH_CERTIFICATE_THUMBPRINT: ${{ vars.SIGNPATH_CERTIFICATE_THUMBPRINT }}
     steps:
       - uses: actions/checkout@v4
       - name: Check successful trusted build and draft release
@@ -30,5 +36,5 @@ jobs:
           run-id: ${{ inputs.build_run_id }}
           pattern: '*-release'
           path: build/release-upload
-      - name: Verify, upload and publish the six release files
+      - name: Verify signatures receipt, upload and publish release files
         run: python3 scripts/publish_verified_release.py publish

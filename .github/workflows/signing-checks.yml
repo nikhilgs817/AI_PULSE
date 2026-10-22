@@ -1,0 +1,50 @@
+name: Signing pipeline checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check executable payload preservation and adversarial changes
+        run: python -m unittest discover -s tests -p test_signing*.py -v
+      - name: Capture generated Inno uninstaller without running app code
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path build/win-x64 -Force | Out-Null
+          'Fixture payload; not application code' | Set-Content build/win-x64/fixture.txt
+          ./scripts/prepare-uninstaller.ps1
+          $metadata=(Get-Item build/signpath/uninstaller-input/uninstaller.exe).VersionInfo
+          if($metadata.ProductName.Trim() -ne 'AIPULSE' -or $metadata.ProductVersion.Trim() -ne '0.3.0'){throw 'Incorrect Inno identity'}
+      - name: Reject unsigned files and unexpected response files
+        shell: pwsh
+        run: |
+          $env:AIPULSE_VERSION='0.3.0'
+          $env:SIGNPATH_CERTIFICATE_THUMBPRINT='0000000000000000000000000000000000000000'
+          New-Item -ItemType Directory -Path build/reject-signature -Force | Out-Null
+          'not-an-executable' | Set-Content build/reject-signature/uninstaller.exe
+          $rejected=$false
+          try { ./scripts/verify-signatures.ps1 -Directory build/reject-signature -ExpectedFiles @('uninstaller.exe') } catch { $rejected=$true }
+          if(!$rejected){throw 'Unsigned result was accepted'}
+          'extra' | Set-Content build/reject-signature/extra.dll
+          $rejected=$false
+          try { ./scripts/verify-signatures.ps1 -Directory build/reject-signature -ExpectedFiles @('uninstaller.exe') } catch { $rejected=$true }
+          if(!$rejected){throw 'Unexpected response file was accepted'}
+      - name: Parse every PowerShell script
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $errors=$null;$tokens=$null
+            [Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
+            if($errors.Count){throw ($errors | Out-String)}
+          }
