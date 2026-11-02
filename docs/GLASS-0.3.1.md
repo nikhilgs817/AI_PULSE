@@ -22,4 +22,8 @@ The UI checks verify native-blur requests, a transparent compact window backgrou
 
 Windows local validation passed 36 data checks and 51 UI interaction checks, including fleet host selection. The desktop reported `Transparent` for the final clear-glass material; a native preview was also inspected. The earlier acrylic prototype was replaced after visual feedback. The [UI results](validation/glass-windows-ui.txt) record this boundary. Linux CI and local installation are verified separately. Data and backup folders are kept outside the application installation and are preserved during upgrades.
 
+The local 0.3.1 installer completed successfully using application source `c8c36256d616ec4d838fc75255aec395c530ea24`. Its installed DLL hash matched the packaged build, and all 36 installed data checks passed. The existing database passed SQLite integrity validation with no decrease in retained usage, hardware samples, summaries or sessions. Live readings, including CPU temperature after the user approved the sensor helper, resumed. A verified pre-upgrade database and application backup were kept outside Git.
+
+The [cross-platform build](https://github.com/nikhilgs817/AI_PULSE/actions/runs/41390620366) validates the same source on Windows and Ubuntu. Native Liquid Glass-style rendering was inspected on Windows; the Linux checks exercise the compositor fallback in a virtual desktop, rather than claiming validation of every Ubuntu compositor.
+
 Implementation follows [Avalonia's window transparency guidance](https://docs.avaloniaui.net/docs/how-to/window-how-to#window-transparency).
