@@ -38,7 +38,7 @@ public sealed partial class MainWindow : Window
         int pi=Array.IndexOf(Program.Arguments,"--page");if(pi>=0&&Program.Arguments.Length>pi+1)page=Program.Arguments[pi+1];
         Topmost=localService.Settings.Pinned;ExtendClientAreaToDecorationsHint=true;WindowDecorations=WindowDecorations.BorderOnly;ExtendClientAreaTitleBarHeightHint=0;
         try{Icon=new WindowIcon(AssetLoader.Open(new Uri("avares://AiPulse/Assets/pulse.ico")));}catch{}
-        shell.Children.Add(header);Grid.SetRow(body,1);shell.Children.Add(body);Grid.SetRow(footer,2);footer.Margin=new Thickness(18,7);shell.Children.Add(footer);Content=shell;
+        shell.Children.Add(header);Grid.SetRow(body,1);shell.Children.Add(body);Grid.SetRow(footer,2);footer.Margin=new Thickness(18,7);shell.Children.Add(footer);InitializeGlassChrome();
         // Handle the entire non-interactive surface; routed button/input events retain their normal behavior.
         AddHandler(PointerPressedEvent,(_,e)=>
         {
@@ -72,6 +72,7 @@ public sealed partial class MainWindow : Window
     void ApplyWindowLayout()
     {
         bool compact=localService.Settings.Compact,vertical=localService.Settings.CompactVertical;
+        ApplyGlassChrome(compact);
         if(compact&&WindowState==WindowState.Maximized)WindowState=WindowState.Normal;
         MinWidth=compact?(vertical?240:560):850;MinHeight=compact?100:520;CanResize=!compact;CanMaximize=!compact;
         shell.RowDefinitions=new RowDefinitions(compact?(fleet!=null?"62,*,0":"34,*,0"):"64,*,34");footer.IsVisible=!compact;
@@ -88,7 +89,7 @@ public sealed partial class MainWindow : Window
         var brand=new Border{Width=compact?(localService.Settings.CompactVertical?88:124):240,Height=compact?22:42,HorizontalAlignment=HorizontalAlignment.Left,ClipToBounds=true,Child=new Image{Source=new Bitmap(AssetLoader.Open(new Uri("avares://AiPulse/Assets/wordmark.png"))),Stretch=Stretch.UniformToFill}};
         Avalonia.Automation.AutomationProperties.SetName(brand,"AIPULSE · drag to move");title.Children.Add(brand);
         var controls=new StackPanel{Orientation=Orientation.Horizontal,Spacing=compact?3:6,VerticalAlignment=VerticalAlignment.Center};
-        Button Action(string label,string help,Action action){var b=Btn(label);b.FontSize=compact?11:13;b.Padding=compact?new Thickness(5,2):new Thickness(10,7);b.MinHeight=compact?24:34;ToolTip.SetTip(b,help);Avalonia.Automation.AutomationProperties.SetName(b,help);b.Click+=(_,_)=>action();controls.Children.Add(b);return b;}
+        Button Action(string label,string help,Action action){var b=Btn(label);b.FontSize=compact?11:13;b.Padding=compact?new Thickness(5,2):new Thickness(10,7);b.MinHeight=compact?24:34;if(compact)StyleGlassButton(b);ToolTip.SetTip(b,help);Avalonia.Automation.AutomationProperties.SetName(b,help);b.Click+=(_,_)=>action();controls.Children.Add(b);return b;}
         Action(Topmost?"●":"○",Topmost?"Unpin window":"Pin window on top",()=>{Topmost=!Topmost;localService.Settings.Pinned=Topmost;Paths.Save(localService.Settings);BuildHeader();});
         if(compact)Action(localService.Settings.CompactVertical?"↔":"↕","Switch compact orientation",()=>{localService.Settings.CompactVertical=!localService.Settings.CompactVertical;Paths.Save(localService.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();});
         Action(compact?"↗":"Compact ↙",compact?"Expand dashboard":"Show compact dashboard",ToggleMode);
@@ -97,7 +98,7 @@ public sealed partial class MainWindow : Window
         Action("×",OperatingSystem.IsWindows()?"Close to tray":"Close window",Close);
         Grid.SetColumn(controls,1);title.Children.Add(controls);
         AddFleetHeader(title,compact);
-        header.Content=new Border{Child=title,Padding=compact?new Thickness(8,3):new Thickness(18,10),BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1)};
+        header.Content=new Border{Child=title,Padding=compact?new Thickness(8,3):new Thickness(18,10),Background=compact?Brush.Parse("#0dffffff"):Brushes.Transparent,BorderBrush=compact?Brush.Parse("#22d4eaff"):Line,BorderThickness=new Thickness(0,0,0,1)};
     }
     void ToggleMaximize(){if(!localService.Settings.Compact)WindowState=WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized;}
     public void ToggleMode(){SavePosition();localService.Settings.Compact=!localService.Settings.Compact;Paths.Save(localService.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();}
@@ -131,7 +132,7 @@ public sealed partial class MainWindow : Window
                     var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand)};
                     ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{if(page==item)return;page=item;scroller=null;layoutPage=null;RenderBody();};nav.Children.Add(b);
                 }
-                if(!collapsed){var host=Text((fleet!=null?SelectedHostLabel():"This PC")+"\n"+(fleet!=null?"Central dashboard":service.HostPlatform)+" · v0.3.0",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
+                if(!collapsed){var host=Text((fleet!=null?SelectedHostLabel():"This PC")+"\n"+(fleet!=null?"Central dashboard":service.HostPlatform)+" · v0.3.1",11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
                 layout.Children.Add(new Border{Child=new ScrollViewer{Content=nav},BorderBrush=Line,BorderThickness=new Thickness(0,0,1,0)});
                 var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=new Thickness(26,20)};
                 if(page is "Hardware" or "Sensors" or "Agents")
@@ -187,7 +188,7 @@ public sealed partial class MainWindow : Window
         var tokens=ActivityCell("TOKENS TODAY",J.Count(activity.Tokens),$"{activity.Tokens:N0} observed input + output tokens since local midnight ({now:MMM d}). Cache is already included.\nOn-prem: {activity.OnPrem:N0} · tools: {activity.Tools:N0}. These sources can overlap when a tool uses the monitored Ollama gateway. Open Token for details.");
         if(vertical){Grid.SetRow(agents,5);metrics.Children.Add(agents);Grid.SetRow(tokens,6);metrics.Children.Add(tokens);}
         else{var activityRow=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*")};activityRow.Children.Add(agents);Grid.SetColumn(tokens,1);activityRow.Children.Add(tokens);Grid.SetRow(activityRow,1);grid.Children.Add(activityRow);}
-        var toggle=Btn((modelsExpanded?"▴":"▾")+"  Loaded models · "+service.Ollama.Models.Count+(service.LastSample>0&&J.Now-service.LastSample>8?" · STALE":""));toggle.Padding=new Thickness(6,2);toggle.MinHeight=24;toggle.FontSize=11;toggle.HorizontalAlignment=HorizontalAlignment.Stretch;toggle.HorizontalContentAlignment=HorizontalAlignment.Left;toggle.Background=Brushes.Transparent;
+        var toggle=Btn((modelsExpanded?"▴":"▾")+"  Loaded models · "+service.Ollama.Models.Count+(service.LastSample>0&&J.Now-service.LastSample>8?" · STALE":""));toggle.Padding=new Thickness(6,2);toggle.MinHeight=24;toggle.FontSize=11;toggle.HorizontalAlignment=HorizontalAlignment.Stretch;toggle.HorizontalContentAlignment=HorizontalAlignment.Left;toggle.Background=Brush.Parse("#0cffffff");toggle.CornerRadius=new CornerRadius(12);
         Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,vertical?1:2);grid.Children.Add(toggle);
         if(modelsExpanded)
         {
@@ -199,7 +200,7 @@ public sealed partial class MainWindow : Window
                 var row=new StackPanel{Spacing=4,Margin=new Thickness(8,7)};row.Children.Add(Text(m.Name,12,null,true));
                 row.Children.Add(Text(ModelHost(m)+" · "+m.State+" · "+J.Size(m.MemoryGiB),10,"#a7bad4"));
                 row.Children.Add(Text(m.Host=="This PC"&&rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} tok/s · last observed request":"Decode rate unavailable",10,"#55cee5"));
-                list.Children.Add(new Border{Child=row,Background=Panel,CornerRadius=new CornerRadius(5)});
+                list.Children.Add(new Border{Child=row,Background=Brush.Parse("#16ffffff"),BorderBrush=Brush.Parse("#38e1edff"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(14)});
             }
             var scroll=new ScrollViewer{Content=list,Height=CompactHeight()-CompactBaseHeight,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Offset=compactOffset};scroll.ScrollChanged+=(_,_)=>compactOffset=scroll.Offset;Grid.SetRow(scroll,vertical?2:3);grid.Children.Add(scroll);
         }
@@ -355,7 +356,7 @@ public sealed partial class MainWindow : Window
             }catch(Exception e){notice="Restore was not started: "+e.Message;RenderBody();}
         };stack.Children.Add(restore);
         var quit=Btn("Quit AI Pulse · Ctrl+Q");quit.Click+=(_,_)=>Quit();stack.Children.Add(quit);
-        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse 0.3.0 · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
+        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse 0.3.1 · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
     }
     public void Capture()
     {

@@ -15,7 +15,7 @@ public sealed partial class MainWindow
         var results=new List<string>();timer.Stop();
         void Check(bool condition,string name){if(!condition)throw new InvalidOperationException(name);results.Add("PASS: "+name);}
         Button ButtonNamed(string name)=>this.GetVisualDescendants().OfType<Button>().First(b=>AutomationProperties.GetName(b)==name);
-        async Task Click(string name){ButtonNamed(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Task.Delay(200);}
+        async Task Click(string name){ButtonNamed(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Task.Delay(200);for(int i=0;i<20&&localService.Settings.Compact&&Math.Abs(Height-CompactHeight())>0.1;i++)await Task.Delay(50);}
         async Task Shot(string name){await Task.Delay(250);using var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96));bitmap.Render(this);bitmap.Save(Path.Combine(Paths.Root,name+".png"));}
         try
         {
@@ -24,6 +24,9 @@ public sealed partial class MainWindow
             while(DateTime.UtcNow<readyDeadline&&(service.Hardware?.Inventory.Count is null or 0||expectedIndex>=0&&service.Ollama.Models.Count!=int.Parse(Program.Arguments[expectedIndex+1])))await Task.Delay(250);
             service.Settings.Compact=true;service.Settings.CompactVertical=false;modelsExpanded=false;ApplyWindowLayout();RenderBody();await Shot("compact-horizontal");
             Check(Width==560&&Height==142&&header.Bounds.Height==34,"Horizontal compact layout includes five hardware readings, daily activity and model toggle");
+            Check(Background==Avalonia.Media.Brushes.Transparent&&TransparencyLevelHint.Contains(WindowTransparencyLevel.AcrylicBlur)&&WindowDecorations==WindowDecorations.None,"Compact mode requests native desktop blur with a transparent window background");
+            Check(new[]{glassTint,glassSheen,glassEdge,glassInnerEdge}.All(layer=>layer.IsVisible&&!layer.IsHitTestVisible)&&TransparencyBackgroundFallback==Canvas,"Glass tint, reflections and edges preserve input routing and provide a dark compositor fallback");
+            results.Add("INFO: Native compact backdrop on this desktop: "+ActualTransparencyLevel);
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="ACTIVE AGENTS")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="TOKENS TODAY"),"Compact mode displays agent activity and calendar-day tokens");
             await Click("Toggle loaded models");Check(modelsExpanded&&Height>142,"Loaded-model dropdown opens without expanding the dashboard");await Shot("compact-models");
             if(expectedIndex>=0)
@@ -36,6 +39,7 @@ public sealed partial class MainWindow
             await Click("Toggle loaded models");Check(!modelsExpanded&&Height==142,"Closing loaded-model dropdown restores compact height");
             await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==260&&Height==256,"Vertical compact layout fits seven readings in tight 28-pixel rows");await Shot("compact-vertical");
             await Click("Expand dashboard");Check(!service.Settings.Compact&&header.Bounds.Height==64,"Expanded dashboard restores full-size branding");
+            Check(Background==Canvas&&TransparencyLevelHint.SequenceEqual(new[]{WindowTransparencyLevel.None})&&!glassTint.IsVisible&&!glassEdge.IsVisible&&WindowDecorations==WindowDecorations.BorderOnly,"Expanding restores the opaque dashboard and normal window border");
             var pressedHeader=header.Content;ButtonNamed("Maximize window").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(ReferenceEquals(pressedHeader,header.Content),"Window-state changes keep the active header attached until input completes");
             await Task.Delay(200);Check(WindowState==WindowState.Maximized&&ButtonNamed("Restore window")!=null,"Expanded window maximizes and exposes Restore");
@@ -96,7 +100,7 @@ public sealed partial class MainWindow
             await RunFleetUiChecks(results);
             File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);
         }
-        catch(Exception e){results.Add("FAIL: "+e);File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);Environment.ExitCode=1;}
+        catch(Exception e){results.Add("FAIL: "+e);results.Add($"Layout: compact={localService.Settings.Compact}, vertical={localService.Settings.CompactVertical}, modelsExpanded={modelsExpanded}, width={Width}, height={Height}, bounds={Bounds}, transparency={ActualTransparencyLevel}");await Shot("ui-failure");File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);Environment.ExitCode=1;}
         finally{if(Application.Current is App app){app.Quitting=true;(app.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown(Environment.ExitCode);}}
     }
 }

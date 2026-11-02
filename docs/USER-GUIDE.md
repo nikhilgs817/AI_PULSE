@@ -6,6 +6,8 @@ AIPULSE 0.3.0 adds hub/agent service roles and host selection in both window mod
 
 ## Compact mode
 
+The 0.3.1 compact widget has a Liquid Glass inspired surface with a translucent smoke tint, curved highlights and pill-shaped controls in both orientations. It uses desktop blur when supported, clear transparency otherwise, and a dark fallback where neither is available. Expanded mode returns to its opaque dark surface. Transparency never reduces the opacity of the text itself or changes the widget's dimensions. See the [glass update and validation notes](GLASS-0.3.1.md).
+
 ![Compact dashboard](images/compact.png)
 
 The fixed top strip shows GPU temperature when exposed (otherwise an explicitly labeled GPU VR SoC sensor when available), GPU utilization, local GPU allocation, physical memory used and CPU temperature. A dash means no reliable reading.

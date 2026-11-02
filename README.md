@@ -6,6 +6,8 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
+**0.3.1 source update:** Compact mode now has a Liquid Glass inspired surface: desktop blur, a transparent smoke tint, curved reflective edges and pill-shaped controls in both orientations, with a dark fallback where native blur is unavailable. Expanded mode retains its solid dark theme. See [screenshots and validation](docs/GLASS-0.3.1.md). Existing published downloads below are still the 0.3.0 preview.
+
 > **0.3.0 unsigned preview:** The central hub, Host Agent services and dashboard passed Windows and Ubuntu CI. Windows Application Control blocked this version on the development PC, which retains 0.2.2; the new local fleet installation is not complete. Earlier standalone versions were exercised on its AMD Ryzen AI Max+ 395 / Radeon 8060S with real Ollama requests. Consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
