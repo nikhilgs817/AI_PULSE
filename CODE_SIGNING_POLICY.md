@@ -2,7 +2,7 @@
 
 ## Current status
 
-AIPULSE is preparing an application to SignPath Foundation. Acceptance, a production certificate and a completed signed release have **not** been granted or verified. Existing 0.3.0 downloads remain unsigned. Adding this policy or a signing workflow does not change their trust status.
+AIPULSE has submitted its application to SignPath Foundation; the form confirmed receipt. Acceptance, a production certificate and a completed signed release have **not** been granted or verified. Existing 0.3.0 downloads remain unsigned. Adding this policy or a signing workflow does not change their trust status.
 
 After acceptance, the intended attribution is: **Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org).** This describes the proposed sponsorship and is not a claim that SignPath currently signs or endorses AIPULSE.
 

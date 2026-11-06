@@ -10,6 +10,21 @@ namespace AiPulse;
 public sealed partial class MainWindow
 {
     int overviewSeconds=900;
+    async void ShowMeasuredExplanation()
+    {
+        var now=DateTimeOffset.Now;
+        var activity=service.Store.CompactActivity(J.DayStart(now,TimeZoneInfo.Local),now.ToUnixTimeSeconds());
+        var fresh=service.Fresh;
+        var cpu=fresh?Format("cpu.temperature"):"—";
+        var temperature=cpu=="—"
+            ?(!fresh?"CPU temperature is unavailable while readings are stale or starting.":!service.IsRemote&&OperatingSystem.IsWindows()&&!service.SensorBridge.Connected?"CPU temperature is unavailable. Check deep-sensor access in Sensors.":"CPU temperature is unavailable from the current sensor sources.")
+            :"CPU temperature: "+cpu+".";
+        var summary=(fresh?$"Current readings: CPU {Format("cpu.load")}, GPU {Format("gpu.load")}, RAM used {Format("ram.used")}.":"Current resource readings are unavailable.")+
+            $"\n\n{temperature}\n\nRecorded today: {activity.OnPrem:N0} local tokens and {activity.Tools:N0} agent tokens. Sources may overlap.";
+        var close=Btn("Close");var dialog=new Window{Title="Explain this · "+service.HostName,Width=440,SizeToContent=SizeToContent.Height,CanResize=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,
+            Content=new StackPanel{Margin=new Thickness(20),Spacing=12,Children={new TextBlock{Text=summary,TextWrapping=TextWrapping.Wrap},close}}};
+        close.Click+=(_,_)=>dialog.Close();await dialog.ShowDialog(this);
+    }
     void Navigate(string target){page=target;scroller=null;layoutPage=null;RenderBody();}
     Button OpenPage(string label,string target)
     {
@@ -31,6 +46,9 @@ public sealed partial class MainWindow
         status.Children.Add(Text(fresh?"LIVE":"WAITING / STALE",12,fresh?"#59dfae":"#e8b65f",true));
         status.Children.Add(Text(service.LastSample>0?"Sampled "+DateTimeOffset.FromUnixTimeSeconds(service.LastSample).ToLocalTime().ToString("MMM d HH:mm:ss zzz"):"Starting collectors…",11,"#8ba0bd"));
         status.Children.Add(Text($"{alerts.Count} active alerts · {service.Settings.RetentionDays}-day history",11,alerts.Count>0?"#e8b65f":"#8ba0bd"));stack.Children.Add(status);
+        var explain=Btn("Explain this");AutomationProperties.SetName(explain,"Explain this host");
+        explain.Click+=(_,_)=>ShowMeasuredExplanation();
+        stack.Children.Add(explain);
         foreach(var alert in alerts.Take(2))stack.Children.Add(Message(alert.Title,alert.Detail));
 
         var tiles=new UniformGrid{Columns=Bounds.Width-(localService.Settings.SidebarCollapsed?60:174)-52>=900?4:2};

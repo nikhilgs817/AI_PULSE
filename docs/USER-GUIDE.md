@@ -6,6 +6,8 @@ AIPULSE 0.3.0 adds hub/agent service roles and host selection in both window mod
 
 ## Compact mode
 
+The next compact layout (in development) shows GPU load, local GPU allocation versus its reported local capacity, available RAM, the hottest exposed CPU/GPU core sensor, and the last observed Ollama decode speed. Hover over GPU memory for the local/shared breakdown; neither pool predicts whether another model will fit. A GPU VR SoC fallback keeps its own label. The model dropdown includes observed active gateway requests, loaded models and freshness. Local and agent token totals are displayed separately because observations can overlap.
+
 The 0.3.1 compact widget has a Liquid Glass inspired surface with a translucent smoke tint, curved highlights and pill-shaped controls in both orientations. It uses desktop blur when supported, clear transparency otherwise, and a dark fallback where neither is available. Expanded mode returns to its opaque dark surface. Transparency never reduces the opacity of the text itself or changes the widget's dimensions. See the [glass update and validation notes](GLASS-0.3.1.md).
 
 ![Compact dashboard](images/compact.png)
@@ -112,16 +114,20 @@ Supported local Codex and Claude Code session records supply model identity, tok
 
 ## Token
 
-![Separate on-prem and tool token usage](images/token-split.png)
+![Separate on-prem and tool token usage in the 0.3.2 preview](images/token-split-032.png)
 
 This screenshot uses explicitly synthetic token records for layout verification; it is not an inference benchmark or bill.
 
-Choose the last 24 hours or 7/30/90/180/365 days, limited by your retention setting. The page shows two independent sections:
+Choose **Today** (since local midnight), the **Last 24 hours**, or a longer range limited by your retention setting. **All retained** includes the full configured history. The exact start and end date, time and UTC offset appear above the totals. The page shows two independent sections:
 
 - **On-prem models:** Ollama token usage observed through the AIPULSE gateway, grouped by model. Direct requests to port 11434 and remote endpoints used only for discovery are outside this coverage.
 - **Tools & other usage:** Codex and Claude Code metadata from supported local session files, grouped by source and model. A source identifies the tool, not the model's hosting location. Claude Desktop Chat/Cowork usage may not be available.
 
 Each section shows exact input/output totals and a model table containing input, output, cache reads, cache writes, reasoning and total tokens. The input summary also shows uncached input. Cache reads and writes are **subsets of input**; reasoning is a **subset of output**. Total is input plus output. Zero means no recorded tokens in that field, which may reflect a provider that does not expose it. Incomplete/failed observations are counted and explicitly flagged; any reported partial counts remain included.
+
+An empty window shows **— / No observations in this window**, rather than implying measured zero consumption. **Collection & recorded history** shows metadata-import and gateway status, each source's last-recorded timestamp, and its retained token count. If records exist outside the selected window, use **Show older recorded usage**. This does not mix older tokens into today's totals. A loaded model alone does not provide token usage; Ollama calls must pass through the gateway, and supported tools must write readable usage metadata.
+
+![An empty recent window with a direct link to older synthetic usage](images/token-empty-window-032.png)
 
 Usage records are events, not necessarily individual requests. A tool routed through the Ollama gateway may produce both tool and on-prem observations, so the page does not add the two sections into a combined consumption total. It does not infer cloud invoices, subscription allowances or dollar costs.
 

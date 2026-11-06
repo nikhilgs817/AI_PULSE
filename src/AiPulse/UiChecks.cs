@@ -23,11 +23,12 @@ public sealed partial class MainWindow
             var readyDeadline=DateTime.UtcNow.AddSeconds(30);
             while(DateTime.UtcNow<readyDeadline&&(service.Hardware?.Inventory.Count is null or 0||expectedIndex>=0&&service.Ollama.Models.Count!=int.Parse(Program.Arguments[expectedIndex+1])))await Task.Delay(250);
             service.Settings.Compact=true;service.Settings.CompactVertical=false;modelsExpanded=false;ApplyWindowLayout();RenderBody();await Shot("compact-horizontal");
-            Check(Width==560&&Height==142&&header.Bounds.Height==34,"Horizontal compact layout includes five hardware readings, daily activity and model toggle");
+            Check(Width==560&&Height==142&&header.Bounds.Height==34,"Horizontal compact layout retains its footprint with workload and headroom fields");
+            Check(new[]{"GPU LOAD","GPU LOCAL GiB","RAM FREE","LAST DECODE"}.All(label=>this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text==label))&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("HOTTEST")==true||t.Text=="GPU VR SOC"),"Compact shows resource headroom, temperature and explicitly historical decode speed");
             Check(Background==Avalonia.Media.Brushes.Transparent&&TransparencyLevelHint.Contains(WindowTransparencyLevel.AcrylicBlur)&&WindowDecorations==WindowDecorations.None,"Compact mode requests native desktop blur with a transparent window background");
             Check(new[]{glassTint,glassSheen,glassEdge,glassInnerEdge}.All(layer=>layer.IsVisible&&!layer.IsHitTestVisible)&&TransparencyBackgroundFallback==Canvas,"Glass tint, reflections and edges preserve input routing and provide a dark compositor fallback");
             results.Add("INFO: Native compact backdrop on this desktop: "+ActualTransparencyLevel);
-            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="ACTIVE AGENTS")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="TOKENS TODAY"),"Compact mode displays agent activity and calendar-day tokens");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="ACTIVE AGENTS")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="LOCAL TOKENS TODAY"),"Compact mode displays agent activity and calendar-day tokens");
             await Click("Toggle loaded models");Check(modelsExpanded&&Height>142,"Loaded-model dropdown opens without expanding the dashboard");await Shot("compact-models");
             if(expectedIndex>=0)
             {
@@ -37,7 +38,7 @@ public sealed partial class MainWindow
                 scroll.Offset=new Vector(0,scroll.Extent.Height);await Task.Delay(150);Refresh();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<ScrollViewer>().Single().Offset.Y>0,"Loaded-model scroll position survives live refresh");
             }
             await Click("Toggle loaded models");Check(!modelsExpanded&&Height==142,"Closing loaded-model dropdown restores compact height");
-            await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==260&&Height==256,"Vertical compact layout fits seven readings in tight 28-pixel rows");await Shot("compact-vertical");
+            await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==260&&Height==256,"Vertical compact layout retains its footprint with separate token sources");await Shot("compact-vertical");
             await Click("Expand dashboard");Check(!service.Settings.Compact&&header.Bounds.Height==64,"Expanded dashboard restores full-size branding");
             Check(Background==Canvas&&TransparencyLevelHint.SequenceEqual(new[]{WindowTransparencyLevel.None})&&!glassTint.IsVisible&&!glassEdge.IsVisible&&WindowDecorations==WindowDecorations.BorderOnly,"Expanding restores the opaque dashboard and normal window border");
             var pressedHeader=header.Content;ButtonNamed("Maximize window").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -84,13 +85,21 @@ public sealed partial class MainWindow
             Check(!this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="5.0%"||t.Text=="150 MiB"),"Stale process samples do not masquerade as current resource consumption");
             expandedAgentApps.Clear();Refresh();await Task.Delay(150);
             await Click("Expand menu");Check(!service.Settings.SidebarCollapsed,"Sidebar expands back to icon and label navigation");
+            service.Store.PutUsage(new("fixture-tokens-old","Codex","fixture-older-model","",J.Now-3*86400,7,3,0,0,0,null,null,"Reported"));
+            await Click("Token");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Count(t=>t.Text=="No observations in this window")==2&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.Contains("Older records are available")==true),"Empty token windows explain missing observations and retained history instead of reporting measured zero");await Shot("token-empty-window");
+            await Click("Show older recorded usage");Check(tokenDays==service.Settings.RetentionDays&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="fixture-older-model"||t.Text?.Contains("fixture-older-model")==true),"Older token observations can be opened directly from an empty recent window");
+            await Click("Token range: Today");Check(tokenDays==0&&TokenWindowStart(J.Now)==J.DayStart(DateTimeOffset.UtcNow,TimeZoneInfo.Local)&&this.GetVisualDescendants().OfType<TextBlock>().Count(t=>t.Text=="No observations in this window")==2,"Today uses local midnight and excludes older usage");
+            await Click("Token range: 1");
             service.Store.PutUsage(new("fixture-tokens-ollama","Ollama","fixture-local-model","",J.Now,1200,300,200,0,0,null,null,"Completed"));
             service.Store.PutUsage(new("fixture-tokens-codex","Codex","fixture-code-model","fixture-session",J.Now,900,200,600,0,80,null,null,"Reported"));
             service.Store.PutUsage(new("fixture-tokens-claude","Claude Code","fixture-claude-model","fixture-session-2",J.Now,700,150,300,100,25,null,null,"Reported"));
+            RenderBody();
             await Click("Token");await Click("Token");Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="On-prem models")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Tools & other usage"),"Token separates on-prem models from tools and other usage");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="1,500")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="1,950"),"Token displays exact independent totals for both sections");await Shot("token-split");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("Codex · last recorded")==true)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.Contains("Import disabled")==true),"Token page exposes last-recorded times and collection status separately from saved totals");
             tokenDays=7;RenderBody();await Task.Delay(150);Check(tokenDays==7&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Cache write¹"),"Token supports period selection and detailed cache/reasoning columns");
-            await Click("Show compact dashboard");Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="TOKENS TODAY: "+J.Count(3450)),"Compact daily token value updates from stored input/output observations");
+            await Click("Show compact dashboard");Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="LOCAL TOKENS TODAY: "+J.Count(1500)),"Compact daily token value updates from stored input/output observations");
             Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="ACTIVE AGENTS: —"),"Disabled agent import is shown as unavailable rather than zero active agents");
             await Shot("compact-activity");await Click("Expand dashboard");
             await Click("History");Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"Default 90-day history does not offer unavailable year ranges");

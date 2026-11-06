@@ -39,8 +39,9 @@ public sealed class HostAgentConfig
 public record Enrollment(string Code,string InstallationId,string Name,string NetworkType);
 public record EnrollmentResult(string HostId,string Token,string HubId);
 public record PairingTicket(string Code,long ExpiresAt);
-public record IngestBatch(string InstallationId,List<SyncEvent> Events);
-public record IngestAck(string HubId,List<long> Accepted);
+public record IngestBatch(string InstallationId,List<SyncEvent> Events,bool SupportsRejection=false);
+public record IngestAck(string HubId,List<long> Accepted,List<RejectedEvent>? Rejected=null);
+public record RejectedEvent(long Sequence,string Reason);
 public record HostSummary(string Id,string Name,string Platform,string NetworkType,long ReceivedAt,long SampledAt,string Status,long QueueCount,long QueueBytes);
 public sealed record HostSnapshot
 {
@@ -50,6 +51,7 @@ public sealed record HostSnapshot
     public string Gpu {get;init;}="GPU";
     public int LogicalProcessors {get;init;}=Environment.ProcessorCount;
     public long SampledAt {get;init;}
+    public long? AgentSentAt {get;init;}
     public string Health {get;init;}="Starting";
     public string AgentStatus {get;init;}="User token coverage unavailable";
     public string GatewayStatus {get;init;}="Not enabled";

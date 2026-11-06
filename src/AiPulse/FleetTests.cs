@@ -53,6 +53,13 @@ public static class FleetTests
                 using(var denied=await agent.GetAsync("/fleet/v1/hosts"))Check(denied.StatusCode==HttpStatusCode.Unauthorized,"An ingestion credential cannot read hosts or administer the hub");
                 using(var live=await agent.PostAsJsonAsync("/fleet/v1/live",new HostSnapshot{Name="same-name",SampledAt=J.Now,Readings=[new("cpu.load","CPU","d","%",25,"fixture")],QueueCount=200}))Check(live.IsSuccessStatusCode&&hub.Hosts().Single(h=>h.Id==a.HostId).Status=="Live","Live snapshots stay current independently of a history backlog");
                 var malformed=new IngestBatch(ah.InstallationId,[new(999,"execute",JsonSerializer.Serialize(new{command="must-not-run"}))]);using(var rejected=await agent.PostAsJsonAsync("/fleet/v1/ingest",malformed))Check(rejected.StatusCode==HttpStatusCode.BadRequest,"The protocol rejects arbitrary operations and unsupported telemetry");
+                var registry=File.ReadAllBytes(Path.Combine(hubRoot,"hosts.json"));
+                hub.Live(ah,new HostSnapshot{SampledAt=J.Now+600,AgentSentAt=J.Now+601});
+                Check(hub.Hosts().Single(h=>h.Id==a.HostId).Status=="Live"&&registry.SequenceEqual(File.ReadAllBytes(Path.Combine(hubRoot,"hosts.json"))),"Skewed live heartbeats remain fresh without rewriting the registry");
+                var mixed=hub.Ingest(ah,new IngestBatch(ah.InstallationId,[new(999,"sample","{}"),new(1000,"session",JsonSerializer.Serialize(new SessionPayload("after-invalid","Ollama","fixture","Working",J.Now)))],true));
+                Check(mixed.Accepted.SequenceEqual(new long[]{1000})&&mixed.Rejected?.Single().Sequence==999,"Invalid records can be quarantined without blocking later observations");
+                var replay=hub.Ingest(ah,new IngestBatch(ah.InstallationId,[new(999,"session",JsonSerializer.Serialize(new SessionPayload("replacement","Ollama","fixture","Working",J.Now)))],true));
+                Check(replay.Accepted.Count==0&&replay.Rejected?.Single().Sequence==999,"A lost acknowledgement cannot change the outcome of a rejected event");
                 hub.Revoke(a.HostId);using(var revoked=await agent.PostAsJsonAsync("/fleet/v1/live",new HostSnapshot()))Check(revoked.StatusCode==HttpStatusCode.Unauthorized,"Revocation immediately rejects that host without affecting other hosts");
                 Check(hub.AuthenticateHost(b.Token)!=null,"Revoking one host preserves another host's access");
                 hub.Live(bh,new HostSnapshot{Name="same-name",SampledAt=J.Now,Readings=[new("cpu.load","CPU","d","%",75,"fixture")]});

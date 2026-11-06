@@ -12,14 +12,16 @@ public record SessionInfo(string Id, string Source, string Model, string State, 
 public record MetricPoint(long Time, double Average, double Minimum, double Maximum);
 public record AlertInfo(string Key, string Title, string Detail, long Time, bool Active);
 public record Endpoint(string Name, string Url);
+public record UsageCoverage(string Source,long Records,long Tokens,long LastSeen);
 public record TokenBreakdown(string Source,string Model,long Input,long Output,long Cached,long CacheWrite,long Reasoning,long Uncached,long Records,long Incomplete)
 {
-    public bool OnPrem=>Source=="Ollama";
+    public bool OnPrem=>Source is "Ollama" or "AIPULSE Assistant";
     public long Total=>Input+Output;
 }
 
 public sealed class AppSettings
 {
+    public AssistantSettings Assistant {get;set;}=new();
     public List<string> UsageRoots {get;set;}=[];
     public string? FleetConnectionFile {get;set;}
     public string SelectedHostId {get;set;}="";
@@ -33,6 +35,7 @@ public sealed class AppSettings
     public bool StartAtLogin { get; set; }
     public bool ReadAgentUsage { get; set; } = true;
     public bool EnableGateway { get; set; } = true;
+    public int MetricsPilotPort {get;set;}
     public int GatewayPort { get; set; } = 11435;
     public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
     public string WifiInterfaceId { get; set; } = "";

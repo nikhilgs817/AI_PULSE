@@ -26,6 +26,16 @@ public static class SelfTests
             Check(AgentResources.Group([new(1,0,"claude",10,null,20)]).Single().Cpu==null,"Unknown CPU samples remain unavailable instead of reporting false idle");
             Check(AgentResources.Parents().GetValueOrDefault(Environment.ProcessId)>0,"Native process discovery finds this process's parent on the current OS");
             Check(J.SensorValue(-316368.19,"%")==null&&J.SensorValue(101,"%")==null&&J.SensorValue(double.NaN,"°C")==null&&J.SensorValue(32,"°C")==32&&J.SensorValue(0,"%")==0,"Impossible sensor values are unavailable; valid idle and temperature readings survive");
+            using(var assistantMonitor=new MonitorService(new(){EnableGateway=false,ReadAgentUsage=true},Path.Combine(root,"assistant-summary.db"),remote:true))
+            using(var localAssistant=new LocalAssistant())
+            {
+                long now=J.Now;assistantMonitor.Store.PutUsage(new("local","Ollama","m","",now,10,2,0,0,0,null,null,"Completed"));assistantMonitor.Store.PutUsage(new("tool","Codex","m","s",now,20,3,0,0,0,null,null,"Reported"));
+                var facts=LocalAssistant.Capture(assistantMonitor);var reply=localAssistant.Ask(new(){Enabled=false},facts,"Summarize",CancellationToken.None).GetAwaiter().GetResult();
+                Check(reply.Model==""&&reply.Input==0&&reply.Output==0&&facts.LocalTokensToday==12&&facts.ToolTokensToday==23&&facts.ActiveAgents==null&&reply.Facts.Contains("do not add them"),"AI-off summary makes no inference and keeps overlapping token sources and unavailable agent counts explicit");
+            }
+            Check(LocalAssistant.Profiles.All(p=>p.Developer is "Google" or "Microsoft")&&!new AssistantSettings().Enabled,"Optional assistant defaults off and offers only the approved model publishers");
+            try{LocalAssistant.Endpoint("https://example.com/");Check(false,"Assistant rejects remote endpoint");}catch(ArgumentException){results.Add("PASS: Assistant rejects remote inference endpoints");}
+            try{LocalAssistant.Profile("unapproved:model");Check(false,"Assistant rejects unapproved model");}catch(ArgumentException){results.Add("PASS: Assistant rejects unapproved model identifiers");}
             using(var db=new Storage(Path.Combine(root,"test.db")))
             {
                 var now=J.Now;db.Sample(now,[new("cpu","CPU","test","%",20,"test")]);db.Sample(now,[new("cpu","CPU","test","%",99,"test")]);db.Sample(now+1,[new("cpu","CPU","test","%",40,"test")]);
@@ -49,6 +59,11 @@ public static class SelfTests
                 tokens.PutUsage(new("tool-token","Codex","model","session",now,10,8,3,0,4,null,null,"Reported"));
                 var day=tokens.TokenBreakdown(now-86400);Check(day.Single(r=>r.OnPrem).Total==7&&day.Single(r=>r.OnPrem).Incomplete==1&&tokens.TokenBreakdown(now-7*86400).Single(r=>r.OnPrem).Total==117,"Token ranges separate recent history and flag incomplete observations");
                 Check(day.Single(r=>!r.OnPrem).Reasoning==4&&day.Single(r=>!r.OnPrem).Total==18,"Reasoning stays a subset of output and same model names remain separated by source");
+                tokens.PutUsage(new("future-token","Ollama","future-model","",now+120,900,100,0,0,0,null,null,"Completed"));
+                var coverage=tokens.TokenCoverage(now);var recorded=tokens.TokenBreakdown(now-86400,now);
+                Check(coverage.Single(r=>r.Source=="Ollama").Tokens==117&&coverage.Single(r=>r.Source=="Ollama").LastSeen==now&&recorded.Single(r=>r.OnPrem).Total==7,"Token coverage preserves older observations while selected totals exclude future timestamps");
+                Check(tokens.TokenBreakdown(now+1,now+60).Count==0&&coverage.Count==2,"An empty time window stays distinct from retained usage history");
+                string bounded=Path.Combine(root,"bounded-token-export.csv");tokens.ExportUsage(bounded,now-86400,now);Check(File.ReadLines(bounded).Count()==3&&!File.ReadAllText(bounded).Contains("future-model"),"Token CSV uses the same bounded period as the dashboard");
             }
             Check(!System.Text.Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(root,"test.db"))).Contains("SECRET_PROMPT_SHOULD_NOT_PERSIST"),"Prompt bodies not persisted");
             using(var compact=new Storage(Path.Combine(root,"compact.db")))
@@ -62,6 +77,8 @@ public static class SelfTests
                 var summary=compact.CompactActivity(midnight,now);
                 Check(summary.ActiveAgents==103,"Compact active count includes all recent sessions beyond the 100-row list and excludes quiet/completed/future sessions");
                 Check(summary.Tokens==120&&summary.Tools==120&&summary.OnPrem==0,"Tokens today starts at local midnight, excludes future records and does not add cache/reasoning twice");
+                compact.PutUsage(new("assistant-today","AIPULSE Assistant","m","",now,5,2,0,0,0,null,null,"Completed"));var withAssistant=compact.CompactActivity(midnight,now);
+                Check(withAssistant.OnPrem==7&&withAssistant.Tools==120,"Optional local assistant usage has the same local/tool classification in compact and detailed totals");
                 var zone=TimeZoneInfo.CreateCustomTimeZone("test-offset",TimeSpan.FromHours(-5),"test","test");
                 Check(J.DayStart(DateTimeOffset.Parse("2026-10-19T02:00:00Z"),zone)==DateTimeOffset.Parse("2026-10-18T05:00:00Z").ToUnixTimeSeconds(),"Local calendar-day boundary differs from UTC midnight and rolling 24 hours");
             }

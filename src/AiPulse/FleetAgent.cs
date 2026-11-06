@@ -32,12 +32,12 @@ public sealed class FleetAgent(MonitorService monitor,HostAgentConfig config,str
         {
             try
             {
-                using var response=await client.PostAsJsonAsync("/fleet/v1/live",monitor.Snapshot() with{Name=config.Name},ct);response.EnsureSuccessStatusCode();
+                using var response=await client.PostAsJsonAsync("/fleet/v1/live",monitor.Snapshot() with{Name=config.Name,AgentSentAt=J.Now},ct);response.EnsureSuccessStatusCode();
                 Status=monitor.Store.QueueInfo().Count>0?"Connected · history syncing":"Connected · up to date";
             }
             catch(OperationCanceledException)when(ct.IsCancellationRequested){break;}
             catch(Exception e){Status="Disconnected · collecting locally · "+e.GetType().Name;Paths.Log("fleet-live",e);}
-            try{FleetFiles.Write(Path.Combine(Path.GetDirectoryName(configFile)!,"sync-status.json"),new{Status,At=J.Now,Count=monitor.Store.QueueInfo().Count,Bytes=monitor.Store.QueueInfo().Bytes});await Task.Delay(2000,ct);}catch(OperationCanceledException){}catch(Exception e){Paths.Log("fleet-status",e);}
+            try{FleetFiles.Write(Path.Combine(Path.GetDirectoryName(configFile)!,"sync-status.json"),new{Status,At=J.Now,Count=monitor.Store.QueueInfo().Count,Bytes=monitor.Store.QueueInfo().Bytes,Rejected=monitor.Store.RejectedUploads()});await Task.Delay(2000,ct);}catch(OperationCanceledException){}catch(Exception e){Paths.Log("fleet-status",e);}
         }
     }
     async Task HistoryLoop(CancellationToken ct)
@@ -49,11 +49,14 @@ public sealed class FleetAgent(MonitorService monitor,HostAgentConfig config,str
             {
                 var events=monitor.Store.Events();
                 if(events.Count==0){await Task.Delay(1000,ct);continue;}
-                using var response=await client.PostAsJsonAsync("/fleet/v1/ingest",new IngestBatch(config.InstallationId,events),ct);response.EnsureSuccessStatusCode();
+                using var response=await client.PostAsJsonAsync("/fleet/v1/ingest",new IngestBatch(config.InstallationId,events,true),ct);response.EnsureSuccessStatusCode();
                 var ack=await response.Content.ReadFromJsonAsync<IngestAck>(ct)??throw new InvalidDataException();
                 if(ack.HubId!=config.HubEpoch)throw new InvalidDataException("Hub identity changed; re-pair required");
                 var offered=events.Select(e=>e.Sequence).ToHashSet();if(ack.Accepted.Any(s=>!offered.Contains(s)))throw new InvalidDataException("Invalid acknowledgement");
-                monitor.Store.Acknowledge(ack.Accepted);failures=0;
+                var rejected=ack.Rejected??[];
+                var settled=ack.Accepted.Concat(rejected.Select(e=>e.Sequence)).ToList();
+                if(settled.Count!=offered.Count||!offered.SetEquals(settled)||rejected.Any(e=>e.Reason is null||e.Reason.Length>512))throw new InvalidDataException("Invalid upload settlement");
+                monitor.Store.SettleUpload(ack);failures=0;
                 // Bound historical payload delivery to about 1 MiB/s, independently of live updates.
                 await Task.Delay(Math.Max(100,events.Sum(e=>System.Text.Encoding.UTF8.GetByteCount(e.Payload))/1024),ct);
             }

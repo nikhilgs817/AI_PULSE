@@ -29,7 +29,7 @@ public sealed partial class MainWindow
         var selector=new ComboBox{ItemsSource=choices,SelectedIndex=selected,MinHeight=compact?25:34,FontSize=compact?11:12,HorizontalAlignment=compact?HorizontalAlignment.Stretch:HorizontalAlignment.Center,MaxWidth=compact?double.PositiveInfinity:300,MinWidth=compact?0:180};
         AutomationProperties.SetName(selector,"Select monitored host");
         if(compact){selector.Background=Brush.Parse("#20ffffff");selector.BorderBrush=Brush.Parse("#60e7f1ff");selector.CornerRadius=new CornerRadius(12);}
-        selector.SelectionChanged+=(_,_)=>{if(selector.SelectedIndex<0||selector.SelectedIndex>=ids.Length)return;fleet.SelectedHost=ids[selector.SelectedIndex];localService.Settings.SelectedHostId=fleet.SelectedHost;Paths.Save(localService.Settings);modelsExpanded=false;layoutPage=null;scroller=null;RenderBody();};
+        selector.SelectionChanged+=(_,_)=>{if(selector.SelectedIndex<0||selector.SelectedIndex>=ids.Length)return;ResetAssistant();fleet.SelectedHost=ids[selector.SelectedIndex];localService.Settings.SelectedHostId=fleet.SelectedHost;Paths.Save(localService.Settings);modelsExpanded=false;layoutPage=null;scroller=null;RenderBody();};
         if(compact){title.RowDefinitions=new("Auto,28");Grid.SetRow(selector,1);Grid.SetColumnSpan(selector,2);}else Grid.SetColumnSpan(selector,2);
         title.Children.Add(selector);lastHostMenu=string.Join('|',choices);
     }

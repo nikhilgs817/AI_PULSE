@@ -2,7 +2,7 @@
 
 ## Status and prerequisites
 
-The integration is implemented but **not yet activated**. SignPath acceptance, account MFA, a production policy/certificate and service-side configuration are external prerequisites. Existing releases remain unsigned. Application entry point: [SignPath Foundation](https://signpath.org/apply.html). Their [terms](https://signpath.org/terms) govern acceptance; there is no guaranteed review time or acceptance.
+The integration is implemented and the application was submitted, with receipt confirmed by the form, but production signing is **not yet activated**. The owner approved public source visibility. SignPath acceptance, account MFA, a production policy/certificate and service-side configuration are external prerequisites. Existing releases remain unsigned. Application entry point: [SignPath Foundation](https://signpath.org/apply.html). Their [terms](https://signpath.org/terms) govern acceptance; there is no guaranteed review time or acceptance.
 
 The MIT license, release downloads, illustrated functionality, privacy/security policies and signing policy are in this repository. Before making the source public, scan the complete reachable history, inspect documentation/screenshots and check release packages. Never publish local app data or the contact email/application stored in the ignored build folder. Public visibility exposes history and screenshots; removing a file later does not retract public copies.
 

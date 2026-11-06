@@ -8,10 +8,13 @@ public sealed partial class Storage : IDisposable
 {
     readonly object gate=new();
     readonly SqliteConnection db;
+    readonly string databasePath;
+    readonly object backupGate=new();
     int retentionDays=90;
     public int RetentionDays {get=>Volatile.Read(ref retentionDays);set=>Volatile.Write(ref retentionDays,Math.Clamp(value,7,365));}
     public Storage(string path,int retentionDays=90,bool replication=false,bool durable=false)
     {
+        databasePath=Path.GetFullPath(path);
         RetentionDays=retentionDays;
         Replication=replication;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -87,30 +90,44 @@ public sealed partial class Storage : IDisposable
     {
         lock(gate){using var c=Command("SELECT coalesce(sum(input),0),coalesce(sum(output),0),coalesce(sum(cached),0),count(*) FROM usage WHERE time>=@p0",since);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
     }
+    public (string Model,double Rate,long Time)? LatestOllamaDecode(long since,long now)
+    {
+        lock(gate)
+        {
+            using var c=Command("SELECT model,rate,time FROM usage WHERE source='Ollama' AND status='Completed' AND rate>0 AND rate<=1e9 AND time BETWEEN @p0 AND @p1 ORDER BY time DESC,id DESC LIMIT 1",since,now);
+            using var r=c.ExecuteReader();
+            return r.Read()?(r.GetString(0),r.GetDouble(1),r.GetInt64(2)):null;
+        }
+    }
     public (long ActiveAgents,long Tokens,long OnPrem,long Tools) CompactActivity(long since,long now)
     {
         lock(gate){using var c=Command("""
             SELECT (SELECT count(*) FROM sessions WHERE state IN ('Working','Recent activity') AND last_seen>=@p1-300 AND last_seen<=@p1),
                    coalesce(sum(input+output),0),
-                   coalesce(sum(CASE WHEN source='Ollama' THEN input+output ELSE 0 END),0),
-                   coalesce(sum(CASE WHEN source<>'Ollama' THEN input+output ELSE 0 END),0)
+                   coalesce(sum(CASE WHEN source IN ('Ollama','AIPULSE Assistant') THEN input+output ELSE 0 END),0),
+                   coalesce(sum(CASE WHEN source NOT IN ('Ollama','AIPULSE Assistant') THEN input+output ELSE 0 END),0)
             FROM usage WHERE time>=@p0 AND time<=@p1
             """,since,now);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
     }
-    public List<TokenBreakdown> TokenBreakdown(long since)
+    public List<UsageCoverage> TokenCoverage(long now)
+    {
+        lock(gate){using var c=Command("SELECT source,count(*),sum(input+output),max(time) FROM usage WHERE time BETWEEN @p0 AND @p1 GROUP BY source ORDER BY source",now-RetentionDays*86400L,now);
+        using var r=c.ExecuteReader();var rows=new List<UsageCoverage>();while(r.Read())rows.Add(new(r.GetString(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3)));return rows;}
+    }
+    public List<TokenBreakdown> TokenBreakdown(long since,long? until=null)
     {
         // Aggregate in SQLite over the entire selected range, without UsageSince's display cap.
         lock(gate){using var c=Command("""
             SELECT source,model,sum(input),sum(output),sum(cached),sum(cache_write),sum(reasoning),
                    sum(max(0,input-cached-cache_write)),count(*),
                    sum(CASE WHEN status IN ('Completed','Reported') THEN 0 ELSE 1 END)
-            FROM usage WHERE time>=@p0 GROUP BY source,model ORDER BY sum(input+output) DESC,source,model
-            """,since);
+            FROM usage WHERE time BETWEEN @p0 AND @p1 GROUP BY source,model ORDER BY sum(input+output) DESC,source,model
+            """,since,until??J.Now);
             using var r=c.ExecuteReader();var rows=new List<TokenBreakdown>();
             while(r.Read())rows.Add(new(r.GetString(0),r.GetString(1),r.GetInt64(2),r.GetInt64(3),r.GetInt64(4),r.GetInt64(5),r.GetInt64(6),r.GetInt64(7),r.GetInt64(8),r.GetInt64(9)));
             return rows;}
     }
-    public void ExportUsage(string file,long since)
+    public void ExportUsage(string file,long since,long? until=null)
     {
         // Stream the full retained range without the UI's row cap or an unbounded in-memory list.
         static string Q(string value){if(value.Length>0&&"=+-@\t\r".Contains(value[0]))value="'"+value;return "\""+value.Replace("\"","\"\"")+"\"";}
@@ -118,7 +135,7 @@ public sealed partial class Storage : IDisposable
         {
             using var writer=new StreamWriter(file);
             writer.WriteLine("UTC,Source,Model,Session,InputTokens,OutputTokens,CachedInputTokens,CacheWriteTokens,ReasoningTokens,DurationMs,DecodeTokensPerSecond,Status");
-            using var c=Command("SELECT * FROM usage WHERE time>=@p0 ORDER BY time DESC",since);using var r=c.ExecuteReader();
+            using var c=Command("SELECT * FROM usage WHERE time BETWEEN @p0 AND @p1 ORDER BY time DESC",since,until??J.Now);using var r=c.ExecuteReader();
             while(r.Read())
             {
                 var cells=new List<string>{Q(DateTimeOffset.FromUnixTimeSeconds(r.GetInt64(4)).ToString("O")),Q(r.GetString(1)),Q(r.GetString(2)),Q(r.GetString(3))};
@@ -161,9 +178,13 @@ public sealed partial class Storage : IDisposable
     }
     public string Backup(string folder)
     {
+        lock(backupGate)return BackupCore(folder);
+    }
+    string BackupCore(string folder)
+    {
         Directory.CreateDirectory(folder);
         string file=Path.Combine(folder,"pulse-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+".db"), temp=file+".partial";
-        lock(gate){using var dest=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=temp,Pooling=false}.ToString());dest.Open();db.BackupDatabase(dest);using var c=dest.CreateCommand();c.CommandText="PRAGMA integrity_check";if((string?)c.ExecuteScalar()!="ok")throw new InvalidDataException("Backup verification failed");}
+        {using var source=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=databasePath,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString());source.Open();using var dest=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=temp,Pooling=false}.ToString());dest.Open();source.BackupDatabase(dest);using var c=dest.CreateCommand();c.CommandText="PRAGMA integrity_check";if((string?)c.ExecuteScalar()!="ok")throw new InvalidDataException("Backup verification failed");}
         File.Move(temp,file,true);
         using(var f=File.OpenRead(file)) File.WriteAllText(file+".sha256",Convert.ToHexString(SHA256.HashData(f)));
         // Snapshot coverage follows the selected history window (13 weeks by default).

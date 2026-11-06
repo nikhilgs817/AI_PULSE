@@ -6,9 +6,11 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
+**0.3.2 source/local preview:** Updated compact workload fields, independent local/tool token totals, explicit empty-period and collection status, Today/all-retained views, and fleet/backup reliability improvements. See the [update notes and validation scope](docs/UPDATE-0.3.2.md). Optional assistant and metrics-pilot features remain experimental and off by default. Public downloads listed below remain 0.3.0.
+
 **0.3.1 source update:** Compact mode now has a Liquid Glass inspired surface: desktop blur, a transparent smoke tint, curved reflective edges and pill-shaped controls in both orientations, with a dark fallback where native blur is unavailable. Expanded mode retains its solid dark theme. See [screenshots and validation](docs/GLASS-0.3.1.md). Existing published downloads below are still the 0.3.0 preview.
 
-> **0.3.0 unsigned preview:** The central hub, Host Agent services and dashboard passed Windows and Ubuntu CI. Windows Application Control blocked this version on the development PC, which retains 0.2.2; the new local fleet installation is not complete. Earlier standalone versions were exercised on its AMD Ryzen AI Max+ 395 / Radeon 8060S with real Ollama requests. Consult the [validation report](docs/VALIDATION.md) for the exact testing boundary. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
+> **0.3.0 unsigned preview:** The central hub, Host Agent services and dashboard passed Windows and Ubuntu CI. Windows Application Control initially blocked that version on the development PC; later local preview builds were allowed and installed. A production multi-machine fleet installation remains unverified. Standalone monitoring was exercised on an AMD Ryzen AI Max+ 395 / Radeon 8060S with real Ollama requests. Consult the [validation report](docs/VALIDATION.md) and newer update notes for the testing boundaries. Sensor availability varies by hardware and driver. This is monitoring software, not a thermal safety controller.
 
 ![AI Pulse compact view with multiple loaded models](docs/images/compact.png)
 
@@ -36,7 +38,7 @@ Read the [step-by-step installation guide](docs/INSTALLATION.md), including sens
 
 ## Code signing policy
 
-We are preparing SignPath Foundation onboarding; acceptance and signed downloads are **not yet available**. Existing 0.3.0 files remain unsigned. See the [code signing policy](CODE_SIGNING_POLICY.md), [SignPath setup](docs/SIGNPATH.md) and [privacy policy](PRIVACY.md). This integration does not itself remove a Windows Application Control block.
+The SignPath Foundation application has been submitted; acceptance and signed downloads are **not yet available**. Existing 0.3.0 files remain unsigned. See the [code signing policy](CODE_SIGNING_POLICY.md), [SignPath setup](docs/SIGNPATH.md) and [privacy policy](PRIVACY.md). This integration does not itself remove a Windows Application Control block.
 
 ## What you can do
 

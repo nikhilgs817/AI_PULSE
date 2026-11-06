@@ -15,11 +15,11 @@ public sealed class MonitorService : IDisposable
     public long LastSample{get;private set;}
     public string Health{get;private set;}="Starting";
     readonly CancellationTokenSource stop=new();
-    Task? hardwareTask,modelTask,agentTask;
+    Task? hardwareTask,modelTask,agentTask,metricsTask;
     readonly Dictionary<string,long> breaches=[];
     public bool IsRemote {get;}
     public bool RemoteLive {get;private set;}
-    public bool Fresh=>LastSample>0&&Math.Abs(J.Now-LastSample)<=(IsRemote?10:8)&&(!IsRemote||RemoteLive);
+    public bool Fresh=>LastSample>0&&(IsRemote?RemoteLive:Math.Abs(J.Now-LastSample)<=8);
     public HostSnapshot? RemoteSnapshot {get;private set;}
     public string HostName=>RemoteSnapshot?.Name??Environment.MachineName;
     public string HostPlatform=>RemoteSnapshot?.Platform??(OperatingSystem.IsWindows()?"Windows":"Ubuntu / Linux");
@@ -48,6 +48,7 @@ public sealed class MonitorService : IDisposable
     public void Start()
     {
         if(IsRemote)return;
+        if(Settings.MetricsPilotPort is >0 and <=65535)metricsTask=MetricsPilot.Run(this,Settings.MetricsPilotPort,stop.Token);
         hardwareTask=Task.Run(async()=>
         {
             try{Hardware=new Hardware();}catch(Exception e){Paths.Log("collector-start",e);Health="Hardware collector unavailable";return;}
@@ -99,7 +100,7 @@ public sealed class MonitorService : IDisposable
     }
     public void Dispose()
     {
-        stop.Cancel();try{Task.WaitAll(new[]{hardwareTask,modelTask,agentTask}.Where(x=>x!=null).Cast<Task>().ToArray(),6000);}catch{}
+        stop.Cancel();try{Task.WaitAll(new[]{hardwareTask,modelTask,agentTask,metricsTask}.Where(x=>x!=null).Cast<Task>().ToArray(),6000);}catch{}
         try{Gateway.DisposeAsync().AsTask().Wait(2000);}catch{}
         SensorBridge.Dispose();Hardware?.Dispose();Ollama.Dispose();Store.Dispose();stop.Dispose();
     }

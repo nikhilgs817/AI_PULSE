@@ -20,7 +20,9 @@ public sealed class RegisteredHost
     public string EnrollmentHash {get;set;}="";
     public long EnrollmentExpiry {get;set;}
     public bool Revoked {get;set;}
+    [System.Text.Json.Serialization.JsonIgnore]
     public long ReceivedAt {get;set;}
+    [System.Text.Json.Serialization.JsonIgnore]
     public HostSnapshot? Snapshot {get;set;}
 }
 public sealed class HubState
@@ -78,25 +80,41 @@ public sealed class FleetHub : IDisposable
         }
     }
     public bool Revoke(string id){lock(gate){var host=state.Hosts.FirstOrDefault(h=>h.Id==id);if(host==null)return false;host.Revoked=true;Save();return true;}}
-    public static string ConnectionState(long received,long sampled,long now)=>received==0||now-received>30?"Offline":Math.Abs(now-sampled)>10?"Stale":"Live";
-    HostSummary Summary(RegisteredHost h)=>new(h.Id,h.Name,h.Snapshot?.Platform??"Waiting",h.NetworkType,h.ReceivedAt,h.Snapshot?.SampledAt??0,h.Revoked?"Revoked":ConnectionState(h.ReceivedAt,h.Snapshot?.SampledAt??0,J.Now),h.Snapshot?.QueueCount??0,h.Snapshot?.QueueBytes??0);
+    public static string ConnectionState(long received,long sampled,long now,long? sent=null)=>received==0||now-received>30?"Offline":sampled==0||(sent is long t ? t<sampled || t-sampled+Math.Max(0,now-received)>10 : Math.Abs(now-sampled)>10)?"Stale":"Live";
+    HostSummary Summary(RegisteredHost h)=>new(h.Id,h.Name,h.Snapshot?.Platform??"Waiting",h.NetworkType,h.ReceivedAt,h.Snapshot?.SampledAt??0,h.Revoked?"Revoked":ConnectionState(h.ReceivedAt,h.Snapshot?.SampledAt??0,J.Now,h.Snapshot?.AgentSentAt),h.Snapshot?.QueueCount??0,h.Snapshot?.QueueBytes??0);
     public List<HostSummary> Hosts(){lock(gate)return state.Hosts.Select(Summary).ToList();}
     public void Live(RegisteredHost host,HostSnapshot snapshot)
     {
         ValidateSnapshot(snapshot);
-        lock(gate){if(host.Revoked)throw new UnauthorizedAccessException();host.Snapshot=snapshot;host.ReceivedAt=J.Now;Save();}
+        lock(gate){if(host.Revoked)throw new UnauthorizedAccessException();host.Snapshot=snapshot;host.ReceivedAt=J.Now;}
     }
     public static void ValidateSnapshot(HostSnapshot s)
     {
-        if(s.SampledAt>J.Now+300||s.SampledAt<0||s.Readings.Count>5000||s.Models.Count>1000||s.Installed.Count>5000||s.Inventory.Count>5000||s.Processes.Count>1000||s.AgentApps.Sum(a=>a.Processes.Count)>10000||s.ModelStatus.Count>100||s.ActiveRequests.Count>1000||s.ActiveRequests.Values.Any(n=>n<0||n>100000)||s.LogicalProcessors is <1 or >65536)throw new InvalidDataException("Invalid snapshot bounds");
-        if(s.SampledAt>0)Storage.ValidateEvent(new(1,"sample",JsonSerializer.Serialize(new SamplePayload(s.SampledAt,s.Readings))));
+        if(s.AgentSentAt is <0 or >253402300799L||s.SampledAt is <0 or >253402300799L||s.Readings.Count>5000||s.Models.Count>1000||s.Installed.Count>5000||s.Inventory.Count>5000||s.Processes.Count>1000||s.AgentApps.Sum(a=>a.Processes.Count)>10000||s.ModelStatus.Count>100||s.ActiveRequests.Count>1000||s.ActiveRequests.Values.Any(n=>n<0||n>100000)||s.LogicalProcessors is <1 or >65536)throw new InvalidDataException("Invalid snapshot bounds");
+        if(s.SampledAt>0)Storage.ValidateEvent(new(1,"sample",JsonSerializer.Serialize(new SamplePayload(J.Now,s.Readings))));
         // Re-serialization size also bounds nested names and arrays before persistence/querying.
         if(JsonSerializer.SerializeToUtf8Bytes(s).Length>1_500_000)throw new InvalidDataException("Snapshot too large");
     }
     public IngestAck Ingest(RegisteredHost host,IngestBatch batch)
     {
         if(batch.InstallationId!=host.InstallationId||batch.Events.Count>1000||batch.Events.Sum(e=>e.Payload.Length)>1_000_000)throw new InvalidDataException("Invalid batch");
-        lock(gate){if(host.Revoked)throw new UnauthorizedAccessException();Store(host).ApplyBatch(host.InstallationId,batch.Events,true);return new(config.HubId,batch.Events.Select(e=>e.Sequence).ToList());}
+        if(batch.Events.Any(e=>e.Sequence<=0||e.Kind is not ("sample" or "usage" or "session" or "alert" or "rollup"))||batch.Events.Select(e=>e.Sequence).Distinct().Count()!=batch.Events.Count)throw new InvalidDataException("Invalid event envelope");
+        lock(gate)
+        {
+            if(host.Revoked)throw new UnauthorizedAccessException();
+            var store=Store(host);
+            var accepted=new List<SyncEvent>();var rejected=new List<RejectedEvent>();
+            foreach(var e in batch.Events)
+            {
+                if(store.RejectedReceipt(e.Sequence) is {} prior){rejected.Add(new(e.Sequence,prior));continue;}
+                try{Storage.ValidateEvent(e);accepted.Add(e);}
+                catch(InvalidDataException error){rejected.Add(new(e.Sequence,error.Message.Length==0?"Invalid telemetry":error.Message));}
+                catch(Exception error)when(error is JsonException or NullReferenceException or InvalidOperationException or FormatException or OverflowException){rejected.Add(new(e.Sequence,"Invalid telemetry payload"));}
+            }
+            if(rejected.Count>0&&!batch.SupportsRejection)throw new InvalidDataException("Invalid telemetry payload");
+            store.ApplyBatch(host.InstallationId,accepted,true,rejected);
+            return new(config.HubId,accepted.Select(e=>e.Sequence).ToList(),rejected);
+        }
     }
     public HostView? View(string id,long after,bool liveOnly=false)
     {
@@ -128,12 +146,25 @@ public sealed class FleetHub : IDisposable
             source.Reader.Dispose();foreach(var file in new[]{source.File,source.File+"-wal",source.File+"-shm"})File.Delete(file);baselines.Remove(id);
         }
     }
+    readonly Dictionary<string,DateOnly> backupDays=[];
+    readonly object maintenanceGate=new();
     public void Maintain()
     {
+        lock(maintenanceGate)MaintainCore();
+    }
+    void MaintainCore()
+    {
+        List<(string Id,Storage Store)> targets;
         lock(gate)
         {
             foreach(var id in baselines.Where(p=>p.Value.Created<J.Now-86400).Select(p=>p.Key).ToArray())ReleaseBaseline(baselines[id].Host,id);
-            foreach(var h in state.Hosts){var store=Store(h);store.Retain(J.Now);store.RetainJournal(J.Now);store.Backup(Path.Combine(root,"hosts",h.Id,"backups"));}
+            targets=state.Hosts.Select(h=>(h.Id,Store(h))).ToList();
+        }
+        var day=DateOnly.FromDateTime(DateTime.UtcNow);
+        foreach(var (id,store) in targets)
+        {
+            try{store.Retain(J.Now);store.RetainJournal(J.Now);if(!backupDays.TryGetValue(id,out var last)||last!=day){store.Backup(Path.Combine(root,"hosts",id,"backups"));backupDays[id]=day;}}
+            catch(Exception e){Paths.Log("hub-host-maintenance",e);}
         }
     }
     public async Task Run(CancellationToken ct)
@@ -177,8 +208,9 @@ public sealed class FleetHub : IDisposable
         app.MapPost("/fleet/v1/revoke/{id}",(string id)=>Revoke(id)?Results.Ok():Results.NotFound());
         app.MapPost("/fleet/v1/live",(HttpContext c,HostSnapshot s)=>{Live((RegisteredHost)c.Items["host"]!,s);return Results.Ok();});
         app.MapPost("/fleet/v1/ingest",(HttpContext c,IngestBatch b)=>Ingest((RegisteredHost)c.Items["host"]!,b));
-        var maintenance=Task.Run(async()=>{while(!ct.IsCancellationRequested){try{await Task.Delay(TimeSpan.FromHours(1),ct);Maintain();}catch(OperationCanceledException){}catch(Exception e){Paths.Log("hub-maintenance",e);}}},ct);
-        try{await app.RunAsync(ct);}finally{await app.DisposeAsync();}
+        using var maintenanceStop=CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var maintenance=Task.Run(async()=>{while(!maintenanceStop.IsCancellationRequested){try{await Task.Delay(TimeSpan.FromHours(1),maintenanceStop.Token);Maintain();}catch(OperationCanceledException){}catch(Exception e){Paths.Log("hub-maintenance",e);}}});
+        try{await app.RunAsync(ct);}finally{await maintenanceStop.CancelAsync();await maintenance;await app.DisposeAsync();}
     }
     public void Dispose(){lock(gate){foreach(var s in stores.Values)s.Dispose();foreach(var source in baselines.Values)source.Reader.Dispose();}}
 }

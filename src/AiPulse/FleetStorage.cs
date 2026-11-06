@@ -13,6 +13,7 @@ public sealed partial class Storage
     public long QueueBudgetBytes {get;set;}=2L*1024*1024*1024;
     void InitializeReplication()=>Execute("""
         CREATE TABLE IF NOT EXISTS sync_events(seq INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT NOT NULL,payload TEXT NOT NULL,bytes INTEGER NOT NULL,created INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS sync_rejected(seq INTEGER PRIMARY KEY,kind TEXT NOT NULL,payload TEXT NOT NULL,reason TEXT NOT NULL,created INTEGER NOT NULL);
         CREATE INDEX IF NOT EXISTS sync_events_created ON sync_events(created);
         CREATE TABLE IF NOT EXISTS sync_state(key TEXT PRIMARY KEY,value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS sync_queue_stats(id INTEGER PRIMARY KEY CHECK(id=1),bytes INTEGER NOT NULL);
@@ -43,9 +44,25 @@ public sealed partial class Storage
     {
         lock(gate){using var tx=db.BeginTransaction();foreach(var seq in sequences)Execute("DELETE FROM sync_events WHERE seq=@p0",seq);tx.Commit();}
     }
+    public void SettleUpload(IngestAck ack)
+    {
+        lock(gate)
+        {
+            using var tx=db.BeginTransaction();
+            foreach(var rejected in ack.Rejected??[])
+            {
+                Execute("INSERT OR IGNORE INTO sync_rejected SELECT seq,kind,payload,@p0,created FROM sync_events WHERE seq=@p1",rejected.Reason,rejected.Sequence);
+                Execute("DELETE FROM sync_events WHERE seq=@p0",rejected.Sequence);
+            }
+            foreach(var seq in ack.Accepted)Execute("DELETE FROM sync_events WHERE seq=@p0",seq);
+            tx.Commit();
+        }
+    }
+    public long RejectedUploads(){lock(gate)return Convert.ToInt64(Scalar("SELECT count(*) FROM sync_rejected"));}
+    public string? RejectedReceipt(long sequence){lock(gate)return Scalar("SELECT reason FROM sync_rejected WHERE seq=@p0",sequence) as string;}
     // A separate database for every host makes every legacy history/token/export query host-scoped.
     // Commit the data, replay cursor and downstream journal together, before returning an ACK.
-    public void ApplyBatch(string stream,List<SyncEvent> events,bool forward)
+    public void ApplyBatch(string stream,List<SyncEvent> events,bool forward,List<RejectedEvent>? rejected=null)
     {
         foreach(var e in events)ValidateEvent(e);
         lock(gate)
@@ -72,6 +89,7 @@ public sealed partial class Storage
                 if(forward)Execute("INSERT INTO sync_events(kind,payload,bytes,created) VALUES(@p0,@p1,@p2,@p3)",e.Kind,e.Payload,System.Text.Encoding.UTF8.GetByteCount(e.Payload),J.Now);
                 applied=e.Sequence;
             }
+            foreach(var e in rejected??[])Execute("INSERT OR IGNORE INTO sync_rejected VALUES(@p0,'receipt','',@p1,@p2)",e.Sequence,e.Reason,J.Now);
             SyncState("applied:"+stream,applied.ToString());tx.Commit();
         }
     }

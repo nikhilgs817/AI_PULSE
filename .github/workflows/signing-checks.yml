@@ -25,11 +25,11 @@ jobs:
           'Fixture payload; not application code' | Set-Content build/win-x64/fixture.txt
           ./scripts/prepare-uninstaller.ps1
           $metadata=(Get-Item build/signpath/uninstaller-input/uninstaller.exe).VersionInfo
-          if($metadata.ProductName.Trim() -ne 'AIPULSE' -or $metadata.ProductVersion.Trim() -ne '0.3.1'){throw 'Incorrect Inno identity'}
+          if($metadata.ProductName.Trim() -ne 'AIPULSE' -or $metadata.ProductVersion.Trim() -ne '0.3.2'){throw 'Incorrect Inno identity'}
       - name: Reject unsigned files and unexpected response files
         shell: pwsh
         run: |
-          $env:AIPULSE_VERSION='0.3.1'
+          $env:AIPULSE_VERSION='0.3.2'
           $env:SIGNPATH_CERTIFICATE_THUMBPRINT='0000000000000000000000000000000000000000'
           New-Item -ItemType Directory -Path build/reject-signature -Force | Out-Null
           'not-an-executable' | Set-Content build/reject-signature/uninstaller.exe
