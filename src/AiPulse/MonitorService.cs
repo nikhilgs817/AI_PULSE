@@ -16,6 +16,8 @@ public sealed class MonitorService : IDisposable
     public string Health{get;private set;}="Starting";
     readonly CancellationTokenSource stop=new();
     Task? hardwareTask,modelTask,agentTask,metricsTask;
+    Task<string?>? backupTask;
+    readonly object backupRequests=new();
     readonly Dictionary<string,long> breaches=[];
     public bool IsRemote {get;}
     public bool RemoteLive {get;private set;}
@@ -61,7 +63,7 @@ public sealed class MonitorService : IDisposable
                     if(J.Now-SensorBridge.LastSeen<8){var deeper=SensorBridge.Readings.Where(r=>r.Value.HasValue).ToList();raw.RemoveAll(r=>deeper.Any(d=>d.Id==r.Id));raw.AddRange(deeper);}
                     var rows=raw.GroupBy(r=>r.Id).Select(g=>g.First()).ToList();long sampled=J.Now;Store.Sample(sampled,rows);Readings=rows;LastSample=sampled;Health=Hardware.Status;
                     CheckAlerts();
-                    if(J.Now-maintenance>3600){Store.Retain(J.Now);maintenance=J.Now;await EnsureBackup();}
+                    if(J.Now-maintenance>3600){Store.Retain(J.Now);maintenance=J.Now;EnsureBackup();}
                 }catch(Exception e){Paths.Log("collector",e);Health="Collector error · check diagnostics";}
                 try{await Task.Delay(2000,stop.Token);}catch(OperationCanceledException){}
             }
@@ -82,16 +84,24 @@ public sealed class MonitorService : IDisposable
         Sustained("memory","Memory pressure","Less than 5% of physical memory remains available.",Value("ram.load")>95);
         var drive=new DriveInfo(Path.GetPathRoot(Paths.Root)!);Sustained("storage","Monitoring storage running low","Less than 5 GiB free on the data drive.",drive.AvailableFreeSpace<5L*1024*1024*1024);
     }
-    async Task EnsureBackup()
+    void EnsureBackup()
     {
         if(DateTimeOffset.TryParse(Settings.LastBackup,out var last)&&last.UtcDateTime.Date==DateTime.UtcNow.Date)return;
-        await BackupNow();
+        _=BackupNow(); // BackupNow retains the task; sampling continues while compression runs.
     }
-    public Task<string?> BackupNow()=>Task.Run(()=>
+    public Task<string?> BackupNow()
     {
-        try{var file=Store.Backup(Paths.Backups(Settings));Settings.LastBackup=DateTimeOffset.UtcNow.ToString("O");Settings.LastBackupError=null;Paths.Save(Settings);Store.Alert("backup","Backup failure","",false);return (string?)file;}
-        catch(Exception e){Paths.Log("backup",e);Settings.LastBackupError="Backup failed: "+e.GetType().Name;Paths.Save(Settings);Store.Alert("backup","Backup failure",Settings.LastBackupError,true);return null;}
-    });
+        lock(backupRequests)
+        {
+            if(backupTask is {IsCompleted:false})return backupTask;
+            return backupTask=Task.Run(()=>
+            {
+                try{var file=Store.Backup(Paths.Backups(Settings),Settings.BackupPolicy,stop.Token);stop.Token.ThrowIfCancellationRequested();Settings.LastBackup=DateTimeOffset.UtcNow.ToString("O");Settings.LastBackupError=null;Paths.Save(Settings);Store.Alert("backup","Backup failure","",false);return (string?)file;}
+                catch(OperationCanceledException)when(stop.IsCancellationRequested){return null;}
+                catch(Exception e){if(stop.IsCancellationRequested)return null;Paths.Log("backup",e);Settings.LastBackupError="Backup failed: "+e.GetType().Name;Paths.Save(Settings);Store.Alert("backup","Backup failure",Settings.LastBackupError,true);return null;}
+            });
+        }
+    }
     public string Export()
     {
         var file=Path.Combine(Paths.Root,"exports","usage-"+DateTime.Now.ToString("yyyyMMdd-HHmmss")+".csv");
@@ -100,7 +110,7 @@ public sealed class MonitorService : IDisposable
     }
     public void Dispose()
     {
-        stop.Cancel();try{Task.WaitAll(new[]{hardwareTask,modelTask,agentTask,metricsTask}.Where(x=>x!=null).Cast<Task>().ToArray(),6000);}catch{}
+        stop.Cancel();try{Task.WaitAll(new[]{hardwareTask,modelTask,agentTask,metricsTask,backupTask}.Where(x=>x!=null).Cast<Task>().ToArray(),6000);}catch{}
         try{Gateway.DisposeAsync().AsTask().Wait(2000);}catch{}
         SensorBridge.Dispose();Hardware?.Dispose();Ollama.Dispose();Store.Dispose();stop.Dispose();
     }

@@ -6,6 +6,8 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
+**0.3.3 source/local preview:** Backups now use compacted, compressed SQLite snapshots, independently configurable daily/weekly restore points and a 512 MiB default archive budget. Legacy snapshots remain restorable and can be losslessly converted before rotation. Large intermediate files stay out of the backup/sync folder. See [backup details](docs/DATA-AND-BACKUPS.md).
+
 **0.3.2 source/local preview:** Updated compact workload fields, independent local/tool token totals, explicit empty-period and collection status, Today/all-retained views, and fleet/backup reliability improvements. See the [update notes and validation scope](docs/UPDATE-0.3.2.md). Optional assistant and metrics-pilot features remain experimental and off by default. Public downloads listed below remain 0.3.0.
 
 **0.3.1 source update:** Compact mode now has a Liquid Glass inspired surface: desktop blur, a transparent smoke tint, curved reflective edges and pill-shaped controls in both orientations, with a dark fallback where native blur is unavailable. Expanded mode retains its solid dark theme. See [screenshots and validation](docs/GLASS-0.3.1.md). Existing published downloads below are still the 0.3.0 preview.
@@ -51,7 +53,7 @@ The SignPath Foundation application has been submitted; acceptance and signed do
 - **Watch agent resources and sessions.** See local Codex, Claude and Ollama app CPU, summed working-set memory and child-process details. Import Codex/Claude Code token metadata without saving prompts or replies. App resources are shared across sessions.
 - **Inspect the Token page.** Separate on-prem Ollama and tool usage, with exact counts by source/model, input/output/cache/reasoning splits, selectable history and CSV export. Incomplete observations and coverage gaps are explicit.
 - **Review history.** Seven days of detailed readings and configurable 7–365-day summaries, usage records and CSV exports. The shipping default remains 90 days.
-- **Protect the data.** Verified SQLite snapshots, seven daily restore points plus weekly snapshots covering the configured retention period (13 weeks by default; 53 for a year), and an in-app restore flow that preserves the previous database.
+- **Protect the data.** Verified, compressed SQLite snapshots with 3 daily + 4 weekly restore points within a 512 MiB default archive budget, configurable separately from monitoring-history retention. The newest backup is retained even if it alone exceeds the budget. Restore supports both compressed and legacy snapshots and preserves the previous database.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).
 
 ## Central monitoring

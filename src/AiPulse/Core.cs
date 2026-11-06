@@ -46,6 +46,11 @@ public sealed class AppSettings
     public double CompactHeight { get; set; } = 450;
     public double TemperatureWarning { get; set; } = 90;
     public string? BackupDirectory { get; set; }
+    public int BackupDailyCopies {get;set;}=3;
+    public int BackupWeeklyCopies {get;set;}=4;
+    public int BackupBudgetMiB {get;set;}=512;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public BackupPolicy BackupPolicy=>new BackupPolicy(BackupDailyCopies,BackupWeeklyCopies,BackupBudgetMiB).Bounded();
     public string? LastBackup { get; set; }
     public string? LastBackupError { get; set; }
 }

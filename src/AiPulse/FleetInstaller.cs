@@ -77,10 +77,10 @@ public static class FleetInstaller
     }
     static void CopyConfig(string role,string source,string destination)
     {
-        if(role=="agent"&&File.Exists(Path.Combine(source,"history.db"))&&!File.Exists(Path.Combine(destination,"data","pulse.db")))
+        string history=Path.Combine(source,File.Exists(Path.Combine(source,"history.db.gz"))?"history.db.gz":"history.db");
+        if(role=="agent"&&File.Exists(history)&&!File.Exists(Path.Combine(destination,"data","pulse.db")))
         {
-            Storage.VerifyBackup(Path.Combine(source,"history.db"));Directory.CreateDirectory(Path.Combine(destination,"data"));
-            File.Copy(Path.Combine(source,"history.db"),Path.Combine(destination,"data","pulse.db"));
+            Storage.MaterializeBackup(history,Path.Combine(destination,"data","pulse.db"));
             File.WriteAllText(Path.Combine(destination,"seed-history"),"Seed retained minute history and usage on first agent start.");
         }
         // Identity and credentials survive upgrades. Config replacement is an explicit separate operation.

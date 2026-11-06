@@ -114,7 +114,7 @@ public sealed partial class MainWindow
                 if(usage.IsChecked==true){string home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);config.UsageRoots=[Path.Combine(home,".codex","sessions"),Path.Combine(home,".claude","projects")];}
                 string folder=Path.Combine(Paths.Root,"fleet-setup","agent");FleetFiles.Write(Path.Combine(folder,"agent.json"),config);FleetFiles.Write(Path.Combine(folder,"settings.json"),new AppSettings{ReadAgentUsage=config.UsageRoots.Count>0,UsageRoots=config.UsageRoots});if(history.IsChecked==true)
                 {
-                    string backup=await Task.Run(()=>localService.Store.Backup(Path.Combine(folder,"migration")));File.Copy(backup,Path.Combine(folder,"history.db"),true);File.Copy(backup+".sha256",Path.Combine(folder,"history.db.sha256"),true);
+                    string backup=await Task.Run(()=>localService.Store.Backup(Path.Combine(folder,"migration")));File.Copy(backup,Path.Combine(folder,"history.db.gz"),true);File.Copy(backup+".sha256",Path.Combine(folder,"history.db.gz.sha256"),true);
                 }
                 RequestServiceInstall("agent",folder);
             }catch(Exception e){fleetNotice="Host Agent setup failed: "+e.Message;}RenderBody();

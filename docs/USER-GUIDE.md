@@ -153,6 +153,7 @@ Alerts cover sustained temperature thresholds, memory pressure, low data-drive s
 - **Ask for deep-sensor permission at launch:** optional, off by default. Windows still requires your approval; it does not silently elevate or install a privileged service.
 - **Temperature warning:** threshold sustained for 30 seconds.
 - **Back up now / Restore:** create a verified snapshot or choose one to restore. Restore restarts the app after confirmation and retains the old database.
+- **Backup restore points and storage budget:** default 3 daily + 4 weekly archives within 512 MiB where possible. Snapshots are compacted and compressed; the latest is always retained even if oversized. These limits do not shorten your monitoring history. **Optimize existing backups** verifies and losslessly converts legacy snapshots before rotation. Restore accepts `.db.gz` and legacy `.db` with their checksum sidecars.
 
 Remote endpoints should be on a private network or protected transport. URLs with embedded credentials are rejected. This preview does not yet provide credential-managed remote connections.
 

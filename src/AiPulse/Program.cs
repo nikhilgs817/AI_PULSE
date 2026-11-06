@@ -36,7 +36,7 @@ public static class Program
             if(exclusiveMode)
             {
                 try{acquired=new FileStream(Path.Combine(Paths.Root,"instance.lock"),FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None);}
-                catch(IOException) when(!args.Contains("--collect")&&!args.Contains("--restore"))
+                catch(IOException) when(!args.Contains("--collect")&&!args.Contains("--restore")&&!args.Contains("--optimize-backups")&&!args.Contains("--backup-now"))
                 {if(InstanceActivation.TryShow())return 0;throw;}
             }
             using var instance=acquired;
@@ -47,13 +47,23 @@ public static class Program
                 File.WriteAllText(Path.Combine(Paths.Root,"diagnostics.json"),JsonSerializer.Serialize(report,new JsonSerializerOptions{WriteIndented=true}));return 0;
             }
             if(args.Contains("--self-test"))return SelfTests.Run();
+            if(args.Contains("--optimize-backups"))
+            {
+                var settings=Paths.Load();var result=Storage.OptimizeBackups(Paths.Backups(settings),settings.BackupPolicy);
+                File.WriteAllText(Path.Combine(Paths.Root,"backup-optimization.json"),JsonSerializer.Serialize(new{result.Before,result.After,result.Converted}));return 0;
+            }
+            if(args.Contains("--backup-now"))
+            {
+                var settings=Paths.Load();using var store=new Storage(Paths.Database,settings.RetentionDays);string backup=store.Backup(Paths.Backups(settings),settings.BackupPolicy);
+                Storage.VerifyBackup(backup);settings.LastBackup=DateTimeOffset.UtcNow.ToString("O");settings.LastBackupError=null;Paths.Save(settings);return 0;
+            }
             if(args.Contains("--restore"))
             {
                 int index=Array.IndexOf(args,"--restore");if(args.Length<=index+1)throw new ArgumentException("Provide a backup file.");
                 var backup=Path.GetFullPath(args[index+1]);Storage.VerifyBackup(backup);
                 // Opening the DB exclusively protects against restoring while a collector is using it.
                 using var exclusive=File.Exists(Paths.Database)?new FileStream(Paths.Database,FileMode.Open,FileAccess.ReadWrite,FileShare.None):null;
-                string staged=Paths.Database+".restore";File.Copy(backup,staged,true);exclusive?.Dispose();
+                string staged=Paths.Database+".restore-"+Guid.NewGuid().ToString("N");Storage.MaterializeBackup(backup,staged);exclusive?.Dispose();
                 if(File.Exists(Paths.Database))File.Move(Paths.Database,Paths.Database+".before-restore-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss"));
                 File.Delete(Paths.Database+"-wal");File.Delete(Paths.Database+"-shm");File.Move(staged,Paths.Database);
                 if(args.Contains("--launch-after")){instance?.Dispose();System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!){ArgumentList={"--data-dir",Paths.Root},UseShellExecute=true});}return 0;

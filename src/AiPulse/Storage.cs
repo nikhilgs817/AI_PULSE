@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
-using System.Security.Cryptography;
 
 namespace AiPulse;
 
@@ -175,30 +174,6 @@ public sealed partial class Storage : IDisposable
     public void Retain(long now)
     {
         lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
-    }
-    public string Backup(string folder)
-    {
-        lock(backupGate)return BackupCore(folder);
-    }
-    string BackupCore(string folder)
-    {
-        Directory.CreateDirectory(folder);
-        string file=Path.Combine(folder,"pulse-"+DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")+".db"), temp=file+".partial";
-        {using var source=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=databasePath,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString());source.Open();using var dest=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=temp,Pooling=false}.ToString());dest.Open();source.BackupDatabase(dest);using var c=dest.CreateCommand();c.CommandText="PRAGMA integrity_check";if((string?)c.ExecuteScalar()!="ok")throw new InvalidDataException("Backup verification failed");}
-        File.Move(temp,file,true);
-        using(var f=File.OpenRead(file)) File.WriteAllText(file+".sha256",Convert.ToHexString(SHA256.HashData(f)));
-        // Snapshot coverage follows the selected history window (13 weeks by default).
-        var files=Directory.GetFiles(folder,"pulse-*.db").OrderDescending().ToArray();
-        var keep=files.GroupBy(f=>File.GetLastWriteTimeUtc(f).Date).Take(7).Select(g=>g.First()).ToHashSet();
-        foreach(var f in files.GroupBy(f=>{var d=File.GetLastWriteTimeUtc(f).Date;return d.AddDays(-((int)d.DayOfWeek+6)%7);}).Take((int)Math.Ceiling(RetentionDays/7.0)).Select(g=>g.First()))keep.Add(f);
-        foreach(var f in files.Where(f=>!keep.Contains(f))){File.Delete(f);File.Delete(f+".sha256");}
-        return file;
-    }
-    public static void VerifyBackup(string file)
-    {
-        if(!File.Exists(file+".sha256"))throw new InvalidDataException("Checksum missing");
-        using(var f=File.OpenRead(file))if(!string.Equals(Convert.ToHexString(SHA256.HashData(f)),File.ReadAllText(file+".sha256").Trim(),StringComparison.OrdinalIgnoreCase))throw new InvalidDataException("Checksum mismatch");
-        using var db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=file,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString());db.Open();using var c=db.CreateCommand();c.CommandText="PRAGMA integrity_check";if((string?)c.ExecuteScalar()!="ok")throw new InvalidDataException("Database integrity failed");c.CommandText="PRAGMA user_version";if(Convert.ToInt32(c.ExecuteScalar())!=1)throw new InvalidDataException("Unsupported schema");
     }
     public void Dispose(){lock(gate)db.Dispose();}
 }

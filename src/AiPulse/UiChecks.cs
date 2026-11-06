@@ -105,7 +105,9 @@ public sealed partial class MainWindow
             await Click("History");Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"Default 90-day history does not offer unavailable year ranges");
             service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
             await Shot("history-year");
-            await Click("Settings");await Shot("settings");
+            await Click("Settings");
+            Check(this.GetVisualDescendants().OfType<NumericUpDown>().Any(c=>AutomationProperties.GetName(c)=="Backup storage budget in MiB"&&c.Value==512)&&this.GetVisualDescendants().OfType<NumericUpDown>().Any(c=>AutomationProperties.GetName(c)=="Daily backup restore points"&&c.Value==3)&&this.GetVisualDescendants().OfType<NumericUpDown>().Any(c=>AutomationProperties.GetName(c)=="Weekly backup restore points"&&c.Value==4)&&this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Optimize existing backups")),"Settings exposes independent compressed-backup retention and storage limits without reducing monitoring history");
+            await Shot("settings");
             await RunFleetUiChecks(results);
             File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);
         }

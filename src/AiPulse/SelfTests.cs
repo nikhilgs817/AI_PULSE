@@ -1,7 +1,7 @@
 using System.Text.Json;
 
 namespace AiPulse;
-public static class SelfTests
+public static partial class SelfTests
 {
     public static int Run()
     {
@@ -45,7 +45,7 @@ public static class SelfTests
                 using(var j=JsonDocument.Parse(fixture)){AgentUsage.Parse(j.RootElement,true,state,"test",db);AgentUsage.Parse(j.RootElement,true,state,"test",db);}Check(db.Totals(now-1).Input==200,"Codex repeated cumulative counts are not double-counted");
                 using(var j=JsonDocument.Parse("""{"type":"assistant","sessionId":"claude-test","requestId":"r1","message":{"id":"m1","model":"test","usage":{"input_tokens":10,"cache_read_input_tokens":50,"cache_creation_input_tokens":5,"output_tokens":12},"content":[{"text":"SECRET_PROMPT_SHOULD_NOT_PERSIST"}]}}""")){AgentUsage.Parse(j.RootElement,false,new(),"fallback",db);AgentUsage.Parse(j.RootElement,false,new(),"fallback",db);}Check(db.Totals(now-1).Input==265,"Claude cached input normalized and duplicate message deduplicated");
                 db.Sample(now-8*86400,[new("old","old","test","%",30,"test")]);db.Sample(now-91*86400,[new("expired","expired","test","%",30,"test")]);db.Retain(now);Check(db.History("old",now-9*86400).Count>0&&db.History("expired",now-92*86400).Count==0,"90-day history retention boundary");
-                var backup=db.Backup(Path.Combine(root,"backups"));Storage.VerifyBackup(backup);File.Copy(backup,Path.Combine(root,"restore.db"));using var restored=new Storage(Path.Combine(root,"restore.db"));Check(restored.Totals(now-1).Input==265,"Verified snapshot restores exact token totals");
+                var backup=db.Backup(Path.Combine(root,"backups"));Storage.VerifyBackup(backup);Storage.MaterializeBackup(backup,Path.Combine(root,"restore.db"));using var restored=new Storage(Path.Combine(root,"restore.db"));Check(restored.Totals(now-1).Input==265,"Verified snapshot restores exact token totals");
                 for(int i=0;i<20001;i++)db.PutUsage(new("bulk-"+i,"Test","=unsafe-formula","bulk",now,1,0,0,0,0,null,null,"Completed"));
                 Check(db.UsageSince(now-1,"Ollama",5).Single().Id=="test","Recent request source is filtered before display limits even with more than 20,000 other observations");
                 var export=Path.Combine(root,"export.csv");db.ExportUsage(export,now-1);var lines=File.ReadLines(export);Check(lines.Count()==20005&&lines.Any(l=>l.Contains("'=unsafe-formula")),"CSV exports beyond 20,000 records and escapes spreadsheet formulas");
@@ -88,7 +88,7 @@ public static class SelfTests
                 year.Sample(inside,[new("year","Year boundary","test","%",42,"test")]);year.Sample(outside,[new("expired-year","Expired","test","%",99,"test")]);
                 year.PutUsage(new("year-usage","Test","old-model","old-session",inside,321,12,0,0,0,null,null,"Reported"));year.PutUsage(new("expired-year-usage","Test","old-model","old-session",outside,999,0,0,0,0,null,null,"Reported"));
                 year.Retain(now);Check(year.History("year",outside).Count==1&&year.History("expired-year",outside-1).Count==0&&year.Totals(outside).Input==321,"365-day history and usage boundaries preserve in-range records only");
-                var snapshot=year.Backup(Path.Combine(root,"year-backups"));Storage.VerifyBackup(snapshot);using(var restoredYear=new Storage(snapshot,365))Check(restoredYear.Totals(outside).Input==321,"Year-old usage survives verified backup and restore");
+                var snapshot=year.Backup(Path.Combine(root,"year-backups"));Storage.VerifyBackup(snapshot);string restoredFile=Path.Combine(root,"year-restored.db");Storage.MaterializeBackup(snapshot,restoredFile);using(var restoredYear=new Storage(restoredFile,365))Check(restoredYear.Totals(outside).Input==321,"Year-old usage survives verified backup and restore");
                 year.Session("needle-session","Codex","historic-model","Completed",now-500);for(int i=0;i<110;i++)year.Session("newer-"+i,"Claude Code","other","Working",now-i);
                 Check(year.Sessions(365).All(s=>s.Id!="needle-session")&&year.Sessions(365,"HISTORIC").Single().Id=="needle-session","Agent search filters before the 100-result limit, case-insensitively");
                 year.Checkpoint("fixture",100,"{}");var importer=new AgentUsage(year);importer.SetRetention(90);Check(year.RetentionDays==90&&year.Checkpoint("fixture").Offset==100,"Reducing retention preserves importer checkpoints");
@@ -96,6 +96,7 @@ public static class SelfTests
                 year.RetentionDays=90;year.Retain(now);Check(year.Totals(outside).Input==0&&year.History("year",outside).Count==0,"Reducing retention cleans older hardware and usage records");
                 year.RetentionDays=500;Check(year.RetentionDays==365&&new AppSettings().RetentionDays==90,"Retention caps at one year and shipping default stays 90 days");
             }
+            RunBackupChecks(root,Check);
             try{Ollama.Validate("file:///etc/passwd");Check(false,"Invalid endpoint rejection");}catch(InvalidOperationException){results.Add("PASS: Invalid endpoint rejected");}
             File.WriteAllLines(Path.Combine(Paths.Root,"self-test-results.txt"),results);return 0;
         }
