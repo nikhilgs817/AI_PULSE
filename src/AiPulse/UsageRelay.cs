@@ -40,6 +40,7 @@ public static class UsageRelay
         }
         gateway.Configure=app=>
         {
+            app.Lifetime.ApplicationStopping.Register(stop.Cancel);
             app.MapGet("/aipulse/metadata",(HttpContext c)=>{if(!Auth(c))return Results.StatusCode(403);var range=db.JournalRange();return Results.Json(new RelayBatch(db.StoreId,db.Events(),range.First,range.Latest));});
             app.MapPost("/aipulse/baseline",async(HttpContext c)=>{if(!Auth(c))return Results.StatusCode(403);var cursor=await c.Request.ReadFromJsonAsync<BaselineCursor>();return Results.Json(db.Baseline(cursor??new()));});
             app.MapPost("/aipulse/ack",async(HttpContext c)=>

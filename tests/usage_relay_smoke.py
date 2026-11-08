@@ -44,7 +44,8 @@ def main():
             req=urllib.request.Request(base+'/api/generate',data=b'{"model":"fixture","prompt":"SECRET_RELAY_PROMPT"}',headers={'Content-Type':'application/json'})
             with urllib.request.urlopen(req,timeout=5) as response: assert json.load(response)['eval_count']==7
             time.sleep(.2)
-            relay.terminate();relay.wait(timeout=10)
+            # Simulate abrupt process loss on every OS, not only Windows.
+            relay.kill();relay.wait(timeout=10)
             relay=subprocess.Popen(command,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             wait_ready(base)
             collector=[args.executable,'--collect','--seconds','3','--data-dir',temp]
@@ -64,6 +65,11 @@ def main():
             assert b'SECRET_RELAY_PROMPT' not in (root/'relay/usage.db').read_bytes()
             print('PASS: capture survives relay restart, commits then ACKs once, backfills a fresh dashboard after ACK, and never persists prompts')
         finally:
-            relay.terminate();relay.wait(timeout=10);server.shutdown();server.server_close()
+            relay.terminate()
+            try:relay.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                relay.kill();relay.wait(timeout=10)
+                raise AssertionError('relay did not stop gracefully')
+            finally:server.shutdown();server.server_close()
 
 if __name__=='__main__':main()
