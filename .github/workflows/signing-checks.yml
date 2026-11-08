@@ -25,11 +25,12 @@ jobs:
           'Fixture payload; not application code' | Set-Content build/win-x64/fixture.txt
           ./scripts/prepare-uninstaller.ps1
           $metadata=(Get-Item build/signpath/uninstaller-input/uninstaller.exe).VersionInfo
-          if($metadata.ProductName.Trim() -ne 'AIPULSE' -or $metadata.ProductVersion.Trim() -ne '0.3.3'){throw 'Incorrect Inno identity'}
+          $expected=([xml](Get-Content src/AiPulse/AiPulse.csproj -Raw)).Project.PropertyGroup.Version
+          if($metadata.ProductName.Trim() -ne 'AIPULSE' -or $metadata.ProductVersion.Trim() -ne $expected){throw 'Incorrect Inno identity'}
       - name: Reject unsigned files and unexpected response files
         shell: pwsh
         run: |
-          $env:AIPULSE_VERSION='0.3.3'
+          $env:AIPULSE_VERSION=([xml](Get-Content src/AiPulse/AiPulse.csproj -Raw)).Project.PropertyGroup.Version
           $env:SIGNPATH_CERTIFICATE_THUMBPRINT='0000000000000000000000000000000000000000'
           New-Item -ItemType Directory -Path build/reject-signature -Force | Out-Null
           'not-an-executable' | Set-Content build/reject-signature/uninstaller.exe
@@ -43,7 +44,7 @@ jobs:
       - name: Parse every PowerShell script
         shell: pwsh
         run: |
-          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+          @(Get-ChildItem scripts/*.ps1; Get-ChildItem docs/telemetry/*.ps1) | ForEach-Object {
             $errors=$null;$tokens=$null
             [Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$tokens,[ref]$errors) | Out-Null
             if($errors.Count){throw ($errors | Out-String)}
