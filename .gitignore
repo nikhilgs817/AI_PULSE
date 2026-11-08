@@ -5,6 +5,11 @@ app/
 data/
 backups/
 logs/
+# These are official protocol source definitions, not collected application logs.
+!src/AiPulse/Telemetry/Proto/opentelemetry/proto/logs/
+!src/AiPulse/Telemetry/Proto/opentelemetry/proto/logs/**
+!src/AiPulse/Telemetry/Proto/opentelemetry/proto/collector/logs/
+!src/AiPulse/Telemetry/Proto/opentelemetry/proto/collector/logs/**
 exports/
 **/bin/
 **/obj/
