@@ -35,6 +35,8 @@ public sealed partial class Storage : IDisposable
         PRAGMA user_version=1;
         """);
         InitializeReplication();
+        InitializeAccounting();
+        if(Integrity()!="ok")throw new InvalidDataException("Monitoring database integrity check failed. Original files are preserved; use a verified backup or recovery copy.");
     }
     SqliteCommand Command(string sql,params object?[] values)
     {
@@ -67,7 +69,7 @@ public sealed partial class Storage : IDisposable
     }
     void UsageCore(Usage u)=>Execute("""
         INSERT INTO usage VALUES(@p0,@p1,@p2,@p3,@p4,@p5,@p6,@p7,@p8,@p9,@p10,@p11,@p12)
-        ON CONFLICT(id) DO UPDATE SET input=max(input,excluded.input),output=max(output,excluded.output),cached=max(cached,excluded.cached),cache_write=max(cache_write,excluded.cache_write),reasoning=max(reasoning,excluded.reasoning),duration=coalesce(excluded.duration,duration),rate=coalesce(excluded.rate,rate),status=excluded.status
+        ON CONFLICT(id) DO UPDATE SET input=max(input,excluded.input),output=max(output,excluded.output),cached=max(cached,excluded.cached),cache_write=max(cache_write,excluded.cache_write),reasoning=max(reasoning,excluded.reasoning),model=CASE WHEN excluded.model='' THEN model ELSE excluded.model END,session=CASE WHEN excluded.session='' THEN session ELSE excluded.session END,duration=coalesce(excluded.duration,duration),rate=coalesce(excluded.rate,rate),status=excluded.status
         """,u.Id,u.Source,u.Model,u.Session,u.Time,Math.Max(0,u.Input),Math.Max(0,u.Output),Math.Max(0,u.Cached),Math.Max(0,u.CacheWrite),Math.Max(0,u.Reasoning),u.DurationMs,u.DecodeRate,u.Status);
     public void Session(string id,string source,string model,string state,long time)
     {
@@ -87,7 +89,7 @@ public sealed partial class Storage : IDisposable
     }
     public (long Input,long Output,long Cached,long Requests) Totals(long since)
     {
-        lock(gate){using var c=Command("SELECT coalesce(sum(input),0),coalesce(sum(output),0),coalesce(sum(cached),0),count(*) FROM usage WHERE time>=@p0",since);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
+        lock(gate){using var c=Command("SELECT coalesce(sum(input),0),coalesce(sum(output),0),coalesce(sum(cached),0),count(*) FROM usage WHERE time>=@p0 AND source NOT LIKE '%OTLP%'",since);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
     }
     public (string Model,double Rate,long Time)? LatestOllamaDecode(long since,long now)
     {
@@ -105,7 +107,7 @@ public sealed partial class Storage : IDisposable
                    coalesce(sum(input+output),0),
                    coalesce(sum(CASE WHEN source IN ('Ollama','AIPULSE Assistant') THEN input+output ELSE 0 END),0),
                    coalesce(sum(CASE WHEN source NOT IN ('Ollama','AIPULSE Assistant') THEN input+output ELSE 0 END),0)
-            FROM usage WHERE time>=@p0 AND time<=@p1
+            FROM usage WHERE time>=@p0 AND time<=@p1 AND source NOT LIKE '%OTLP%'
             """,since,now);using var r=c.ExecuteReader();r.Read();return(r.GetInt64(0),r.GetInt64(1),r.GetInt64(2),r.GetInt64(3));}
     }
     public List<UsageCoverage> TokenCoverage(long now)
@@ -173,7 +175,7 @@ public sealed partial class Storage : IDisposable
     }
     public void Retain(long now)
     {
-        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
+        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
     }
     public void Dispose(){lock(gate)db.Dispose();}
 }

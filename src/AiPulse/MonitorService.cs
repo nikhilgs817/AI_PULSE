@@ -10,6 +10,8 @@ public sealed class MonitorService : IDisposable
     public Ollama Ollama {get;}=new();
     public AgentUsage Agents {get;}
     public Gateway Gateway {get;}
+    public TelemetryReceiver Telemetry {get;}
+    public UsageRelayClient Relay {get;}
     public SensorBridge SensorBridge {get;}=new();
     public List<Reading> Readings {get;private set;}=[];
     public long LastSample{get;private set;}
@@ -36,7 +38,7 @@ public sealed class MonitorService : IDisposable
     public string AgentStatus=>RemoteSnapshot?.AgentStatus??Agents.Status;
     public string GatewayStatus=>RemoteSnapshot?.GatewayStatus??Gateway.Status;
     public MonitorService(AppSettings settings,string? database=null,bool replication=false,bool remote=false,string? metadataUserSid=null)
-    {Settings=settings;IsRemote=remote;Store=new(database??Paths.Database,settings.RetentionDays,replication);Agents=new(Store,settings.UsageRoots,OperatingSystem.IsWindows()&&System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem?new MetadataAccess(metadataUserSid??""):null);Gateway=new(Store,Ollama,settings);}
+    {Settings=settings;IsRemote=remote;Store=new(database??Paths.Database,settings.RetentionDays,replication);Agents=new(Store,settings.UsageRoots,OperatingSystem.IsWindows()&&System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem?new MetadataAccess(metadataUserSid??""):null);Gateway=new(Store,Ollama,settings,observe:!File.Exists(UsageRelay.ConfigFile));Telemetry=new(Store,settings.TelemetryPort);Relay=new(Store);}
     public void ApplySnapshot(HostSnapshot snapshot,bool live)
     {
         RemoteLive=live;RemoteSnapshot=snapshot;Readings=live?snapshot.Readings: snapshot.Readings.Select(r=>r with{Value=null}).ToList();LastSample=snapshot.SampledAt;Health=snapshot.Health;
@@ -69,7 +71,7 @@ public sealed class MonitorService : IDisposable
             }
         });
         modelTask=Task.Run(async()=>{await Gateway.Start(stop.Token);while(!stop.IsCancellationRequested){try{if(!Gateway.Status.StartsWith("Listening"))await Gateway.Start(stop.Token);await Ollama.Poll(Settings,stop.Token);}catch(Exception e){Paths.Log("model-discovery",e);}try{await Task.Delay(4000,stop.Token);}catch(OperationCanceledException){}}});
-        agentTask=Task.Run(async()=>{while(!stop.IsCancellationRequested){try{if(Settings.ReadAgentUsage)Agents.Poll();}catch(Exception e){Paths.Log("agent-import",e);}try{await Task.Delay(8000,stop.Token);}catch(OperationCanceledException){}}});
+        agentTask=Task.Run(async()=>{await Telemetry.Start(stop.Token);while(!stop.IsCancellationRequested){try{if(Settings.ReadAgentUsage)Agents.Poll();await Relay.Poll(stop.Token);}catch(Exception e){Paths.Log("agent-import",e);}try{await Task.Delay(8000,stop.Token);}catch(OperationCanceledException){}}});
     }
     public double? Value(string id)=>Readings.FirstOrDefault(r=>r.Id==id)?.Value;
     void CheckAlerts()
@@ -112,6 +114,8 @@ public sealed class MonitorService : IDisposable
     {
         stop.Cancel();try{Task.WaitAll(new[]{hardwareTask,modelTask,agentTask,metricsTask,backupTask}.Where(x=>x!=null).Cast<Task>().ToArray(),6000);}catch{}
         try{Gateway.DisposeAsync().AsTask().Wait(2000);}catch{}
+        try{Telemetry.DisposeAsync().AsTask().Wait(2000);}catch{}
+        Relay.Dispose();
         SensorBridge.Dispose();Hardware?.Dispose();Ollama.Dispose();Store.Dispose();stop.Dispose();
     }
 }

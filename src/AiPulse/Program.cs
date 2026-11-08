@@ -14,6 +14,8 @@ public static class Program
         int waitIndex=Array.IndexOf(args,"--wait-for-exit");if(waitIndex>=0&&args.Length>waitIndex+1&&int.TryParse(args[waitIndex+1],out var parentId)){try{System.Diagnostics.Process.GetProcessById(parentId).WaitForExit(20000);}catch(ArgumentException){}}
         try
         {
+            if(args.Contains("--usage-relay"))return UsageRelay.Run();
+            if(args.Contains("--usage-diagnostics"))return UsageDiagnostics.Run();
             if(args.Contains("--create-agent-config")||args.Contains("--check-fleet"))
             {
                 int n=Array.IndexOf(args,"--hub-connection");if(n<0||n+1>=args.Length)throw new ArgumentException("Provide a hub connection file");

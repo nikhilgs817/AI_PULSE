@@ -98,7 +98,7 @@ public sealed class FleetHub : IDisposable
     public IngestAck Ingest(RegisteredHost host,IngestBatch batch)
     {
         if(batch.InstallationId!=host.InstallationId||batch.Events.Count>1000||batch.Events.Sum(e=>e.Payload.Length)>1_000_000)throw new InvalidDataException("Invalid batch");
-        if(batch.Events.Any(e=>e.Sequence<=0||e.Kind is not ("sample" or "usage" or "session" or "alert" or "rollup"))||batch.Events.Select(e=>e.Sequence).Distinct().Count()!=batch.Events.Count)throw new InvalidDataException("Invalid event envelope");
+        if(batch.Events.Any(e=>e.Sequence<=0||e.Kind is not ("sample" or "usage" or "session" or "alert" or "rollup" or "usage-source" or "usage-replacement" or "token-interval"))||batch.Events.Select(e=>e.Sequence).Distinct().Count()!=batch.Events.Count)throw new InvalidDataException("Invalid event envelope");
         lock(gate)
         {
             if(host.Revoked)throw new UnauthorizedAccessException();

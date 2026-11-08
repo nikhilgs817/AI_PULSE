@@ -9,6 +9,8 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
     DateTime nextScan=DateTime.MinValue;
     List<string> files=[];
     int nextFile;
+    int readErrors;
+    int parseErrors;
     readonly object importGate=new();
     public void SetRetention(int days)
     {
@@ -33,7 +35,7 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
         if(DateTime.UtcNow>=nextScan)
         {
             var home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            var roots=configuredRoots?.Count>0?configuredRoots.ToArray():new[]{Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(home,".codex"),"sessions"),Path.Combine(home,".claude","projects")};
+            var roots=configuredRoots?.Count>0?configuredRoots.ToArray():DefaultRoots(home);
             files=ReadUser(()=>
             {
                 var found=new List<string>();
@@ -43,8 +45,24 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
         }
         // Revisit hottest files each pass and rotate the backlog. Keep work bounded so sampling stays responsive.
         var selected=files.Take(4).Concat(files.Skip(nextFile).Take(4)).Distinct().ToArray();nextFile=files.Count==0?0:(nextFile+4)%files.Count;
-        foreach(var file in selected)try{ReadNew(file);}catch(MetadataUserUnavailableException){throw;}catch(Exception e){Paths.Log("usage-reader",e);}
+        readErrors=0;parseErrors=0;
+        foreach(var file in selected)try{ReadNew(file);}catch(MetadataUserUnavailableException){throw;}catch(Exception e){readErrors++;Paths.Log("usage-reader",e);}
         Status=files.Count==0?"No supported local session records found":"Local usage records • "+files.Count+" files discovered • "+db.RetentionDays+"-day import";
+        if(readErrors>0)Status+=$" · {readErrors} files unreadable";
+        if(parseErrors>0)Status+=$" · {parseErrors} malformed records skipped";
+        foreach(string source in new[]{"Codex","Claude Code"})
+        {
+            var c=db.TokenCoverage(J.Now).FirstOrDefault(c=>c.Source==source);
+            db.SourceState(source,readErrors>0||parseErrors>0?"Read errors":c==null?"No observations":J.Now-c.LastSeen>3600?"No recent records":"Receiving",source=="Claude Code"?"Session JSONL metadata only. Desktop Chat/Cowork may not expose exact token counts. "+Status:Status,c?.LastSeen??0);
+        }
+        db.SourceState("Claude desktop Chat","No token ledger","Chat usage is not exposed by this local session importer. Subscription percentages are not token counts.");
+        if(!db.SourceStates().Any(s=>s.Source=="Claude Cowork"&&s.LastObserved>0))db.SourceState("Claude Cowork","Needs exporter","Desktop/cloud Cowork is separate from Code. Official OTLP export requires eligible Team/Enterprise admin setup; local process activity is not token usage.");
+    }
+    public static string[] DefaultRoots(string home)
+    {
+        var roots=new List<string>{Path.Combine(Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(home,".codex"),"sessions"),Path.Combine(home,".claude","projects"),Path.Combine(Environment.GetEnvironmentVariable("XDG_CONFIG_HOME")??Path.Combine(home,".config"),"claude","projects")};
+        foreach(var path in (Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR")??"").Split(Path.PathSeparator,StringSplitOptions.RemoveEmptyEntries|StringSplitOptions.TrimEntries))roots.Add(Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar))=="projects"?path:Path.Combine(path,"projects"));
+        return roots.Distinct(OperatingSystem.IsWindows()?StringComparer.OrdinalIgnoreCase:StringComparer.Ordinal).ToArray();
     }
     void ReadNew(string file)
     {
@@ -64,7 +82,7 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
         for(int i=start;i<=last;i++)if(bytes[i]==10)
         {
             // Only parse allowlisted metadata. Never persist raw JSON, prompts, responses or tool arguments.
-            try{using var doc=JsonDocument.Parse(bytes.AsMemory(start,i-start));Parse(doc.RootElement,codex,state,J.Hash(file),db);}catch(JsonException){}
+            try{using var doc=JsonDocument.Parse(bytes.AsMemory(start,i-start));Parse(doc.RootElement,codex,state,J.Hash(file),db);}catch(JsonException){parseErrors++;}
             start=i+1;
         }
         db.Checkpoint(file,offset+last+1,JsonSerializer.Serialize(state));
@@ -97,12 +115,28 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
             s.Session=j.Str("sessionId",s.Session==""?fallback:s.Session);
             if(type!="assistant")return;
             var message=j.Get("message");var u=message.Get("usage");if(u.ValueKind!=JsonValueKind.Object)return;
+            bool hasInput=u.Get("input_tokens").ValueKind==JsonValueKind.Number,hasOutput=u.Get("output_tokens").ValueKind==JsonValueKind.Number;
+            if(!hasInput&&!hasOutput)return;
             string model=message.Str("model",s.Model);s.Model=model;
-            string id=j.Str("requestId",message.Str("id",j.Str("uuid")));
+            string requestId=j.Str("requestId");string id=j.Str("requestId",message.Str("id",j.Str("uuid")));
             if(id=="")return;
-            long cache=u.Num("cache_read_input_tokens"),write=u.Num("cache_creation_input_tokens"),input=u.Num("input_tokens")+cache+write;
-            db.PutUsage(new("claude:"+s.Session+":"+id+":"+message.Str("id"),"Claude Code",model,s.Session,time,input,u.Num("output_tokens"),cache,write,u.Get("output_tokens_details").Num("thinking_tokens"),null,null,"Reported"));
+            long cache=u.Num("cache_read_input_tokens"),write=CacheWrites(u),input=u.Num("input_tokens")+cache+write;
+            string legacy="claude:"+s.Session+":"+id+":"+message.Str("id");
+            db.PutClaudeUsage(new(legacy,"Claude Code",model,s.Session,time,input,u.Num("output_tokens"),cache,write,u.Get("output_tokens_details").Num("thinking_tokens"),null,null,hasInput&&hasOutput?"Reported":"Partial usage"),requestId,legacy);
+            // Recent Claude Code logs can include separately billed advisor iterations.
+            // Main message iterations are already included above and must not be added again.
+            if(u.Get("iterations").ValueKind==JsonValueKind.Array)
+            {
+                int index=0;foreach(var iteration in u.Get("iterations").EnumerateArray().Take(1000))
+                {
+                    if(iteration.Str("type")!="advisor_message"||iteration.Str("model")=="")continue;
+                    long advisorCache=iteration.Num("cache_read_input_tokens"),advisorWrite=CacheWrites(iteration);
+                    string advisorId="claude-advisor:"+J.Hash(s.Session+":"+id+":"+message.Str("id")+":"+index++);
+                    db.PutUsage(new(advisorId,"Claude Code",iteration.Str("model"),s.Session,time,iteration.Num("input_tokens")+advisorCache+advisorWrite,iteration.Num("output_tokens"),advisorCache,advisorWrite,0,null,null,"Reported"));
+                }
+            }
             db.Session(s.Session,"Claude Code",model,"Recent activity",time);
         }
     }
+    static long CacheWrites(JsonElement usage)=>usage.Get("cache_creation_input_tokens").ValueKind==JsonValueKind.Number?usage.Num("cache_creation_input_tokens"):usage.Get("cache_creation").Num("ephemeral_5m_input_tokens")+usage.Get("cache_creation").Num("ephemeral_1h_input_tokens");
 }

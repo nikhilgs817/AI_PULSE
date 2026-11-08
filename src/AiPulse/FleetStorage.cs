@@ -79,6 +79,9 @@ public sealed partial class Storage
                 {
                     case "sample":var s=JsonSerializer.Deserialize<SamplePayload>(e.Payload)!;SampleCore(s.Time,s.Readings);break;
                     case "usage":UsageCore(JsonSerializer.Deserialize<Usage>(e.Payload)!);break;
+                    case "usage-replacement":var replacement=JsonSerializer.Deserialize<UsageReplacement>(e.Payload)!;if(replacement.Alias!="")Execute("DELETE FROM usage WHERE id=@p0",replacement.Alias);UsageCore(replacement.Usage);break;
+                    case "usage-source":SourceStateCore(JsonSerializer.Deserialize<UsageSourceState>(e.Payload)!);break;
+                    case "token-interval":CounterCore(JsonSerializer.Deserialize<TokenCounterInterval>(e.Payload)!);break;
                     case "session":SessionCore(JsonSerializer.Deserialize<SessionPayload>(e.Payload)!);break;
                     case "alert":AlertCore(JsonSerializer.Deserialize<AlertInfo>(e.Payload)!);break;
                     case "rollup":
@@ -101,6 +104,9 @@ public sealed partial class Storage
         static void Sensor(Reading r){Text(r.Id);Text(r.Name);Text(r.Device);Text(r.Unit,32);Text(r.Source,128);if(r.Value.HasValue&&!double.IsFinite(r.Value.Value))throw new InvalidDataException("Non-finite metric");}
         switch(e.Kind)
         {
+            case "usage-replacement":var replacement=JsonSerializer.Deserialize<UsageReplacement>(e.Payload)??throw new InvalidDataException();Text(replacement.Alias);if(replacement.Alias!=""&&!replacement.Alias.StartsWith("claude:"))throw new InvalidDataException();ValidateEvent(e with{Kind="usage",Payload=JsonSerializer.Serialize(replacement.Usage)});break;
+            case "usage-source":var state=JsonSerializer.Deserialize<UsageSourceState>(e.Payload)??throw new InvalidDataException();Text(state.Source);Text(state.State);Text(state.Detail,2048);Time(state.Checked);Time(state.LastObserved);break;
+            case "token-interval":var interval=JsonSerializer.Deserialize<TokenCounterInterval>(e.Payload)??throw new InvalidDataException();Text(interval.Id);Text(interval.Source);Text(interval.Instance);Text(interval.Model);Text(interval.Kind);Time(interval.Start);Time(interval.Time);if(interval.Start>interval.Time||interval.Tokens is <0 or >1_000_000_000_000)throw new InvalidDataException();break;
             case "sample":var s=JsonSerializer.Deserialize<SamplePayload>(e.Payload)??throw new InvalidDataException();Time(s.Time);if(s.Readings.Count>5000)throw new InvalidDataException();foreach(var r in s.Readings)Sensor(r);break;
             case "usage":var u=JsonSerializer.Deserialize<Usage>(e.Payload)??throw new InvalidDataException();Time(u.Time);Text(u.Id);Text(u.Source);Text(u.Model);Text(u.Session);Text(u.Status);if(new[]{u.Input,u.Output,u.Cached,u.CacheWrite,u.Reasoning}.Any(v=>v<0||v>1_000_000_000_000))throw new InvalidDataException();break;
             case "session":var p=JsonSerializer.Deserialize<SessionPayload>(e.Payload)??throw new InvalidDataException();Time(p.Time);Text(p.Id);Text(p.Source);Text(p.Model);Text(p.State);break;

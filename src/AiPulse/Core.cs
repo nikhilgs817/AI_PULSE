@@ -15,7 +15,8 @@ public record Endpoint(string Name, string Url);
 public record UsageCoverage(string Source,long Records,long Tokens,long LastSeen);
 public record TokenBreakdown(string Source,string Model,long Input,long Output,long Cached,long CacheWrite,long Reasoning,long Uncached,long Records,long Incomplete)
 {
-    public bool OnPrem=>Source is "Ollama" or "AIPULSE Assistant";
+    public bool OnPrem=>IsOnPrem(Source);
+    public static bool IsOnPrem(string source)=>source is "Ollama" or "AIPULSE Assistant" or "Ollama (OTLP)" or "vLLM (OTLP)";
     public long Total=>Input+Output;
 }
 
@@ -36,6 +37,7 @@ public sealed class AppSettings
     public bool ReadAgentUsage { get; set; } = true;
     public bool EnableGateway { get; set; } = true;
     public int MetricsPilotPort {get;set;}
+    public int TelemetryPort {get;set;}=4319;
     public int GatewayPort { get; set; } = 11435;
     public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
     public string WifiInterfaceId { get; set; } = "";

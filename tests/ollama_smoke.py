@@ -4,6 +4,7 @@ No models are downloaded. Keep-alive is five minutes; original loaded models are
 import argparse, concurrent.futures, json, pathlib, sqlite3, time, urllib.request, urllib.error
 
 parser=argparse.ArgumentParser()
+parser.add_argument('--model',default='gpt-oss:20b',help='Existing approved test model; never downloaded')
 parser.add_argument('--database',required=True)
 parser.add_argument('--output',required=True)
 parser.add_argument('--gateway',default='http://127.0.0.1:11435')
@@ -19,13 +20,13 @@ results=[]
 baseline=json.loads(call(args.ollama,'/api/ps'))
 tags=json.loads(call(args.ollama,'/api/tags'))
 names={m['name'] for m in tags['models']}
-assert 'qwen3:8b' in names and 'nomic-embed-text:latest' in names,'Required existing small test models are missing; no download attempted.'
+assert args.model in names and 'nomic-embed-text:latest' in names,'Required existing small test models are missing; no download attempted.'
 db=sqlite3.connect(args.database,timeout=15)
 before={r[0] for r in db.execute("select id from usage where source='Ollama'")}
 start=int(time.time())
 
 def generate(stream=False):
-    text=call(args.gateway,'/api/generate',{'model':'qwen3:8b','prompt':'Reply with a short sentence about the sky.','think':False,'stream':stream,'keep_alive':'5m','options':{'num_ctx':2048,'num_predict':48,'temperature':0}})
+    text=call(args.gateway,'/api/generate',{'model':args.model,'prompt':'Reply with a short sentence about the sky.','think':False,'stream':stream,'keep_alive':'5m','options':{'num_ctx':2048,'num_predict':48,'temperature':0}})
     return json.loads(text.splitlines()[-1]) if stream else json.loads(text)
 
 first=generate()
@@ -47,11 +48,11 @@ except urllib.error.HTTPError as e:
     results.append({'test':'upstream error preserved','passed':e.code==404,'http_status':e.code})
 time.sleep(2)
 rows=[r for r in db.execute("select id,model,input,output,rate,status from usage where source='Ollama' and time>=?",(start,)) if r[0] not in before]
-qwen=[r for r in rows if r[1]=='qwen3:8b' and r[5]=='Completed']
+generated=[r for r in rows if r[1]==args.model and r[5]=='Completed']
 expected_input=sum(x.get('prompt_eval_count',0) for x in (first,second,third))
 expected_output=sum(x.get('eval_count',0) for x in (first,second,third))
-results.append({'test':'exact Qwen token accounting','passed':len(qwen)==3 and sum(r[2] for r in qwen)==expected_input and sum(r[3] for r in qwen)==expected_output,'requests':len(qwen),'expected_input':expected_input,'recorded_input':sum(r[2] for r in qwen),'expected_output':expected_output,'recorded_output':sum(r[3] for r in qwen)})
-rates=sorted(r[4] for r in qwen if r[4] is not None)
+results.append({'test':'exact generation token accounting','passed':len(generated)==3 and sum(r[2] for r in generated)==expected_input and sum(r[3] for r in generated)==expected_output,'requests':len(generated),'expected_input':expected_input,'recorded_input':sum(r[2] for r in generated),'expected_output':expected_output,'recorded_output':sum(r[3] for r in generated)})
+rates=sorted(r[4] for r in generated if r[4] is not None)
 expected_rates=sorted(x['eval_count']/(x['eval_duration']/1e9) for x in (first,second,third) if x.get('eval_duration'))
 results.append({'test':'decode rate matches provider duration','passed':len(rates)==len(expected_rates) and all(abs(a-b)<1e-6 for a,b in zip(rates,expected_rates))})
 report={'started_utc_epoch':start,'duration_seconds':round(time.time()-start,1),'baseline_loaded_models':[m['name'] for m in baseline['models']],'results':results,'all_passed':all(r['passed'] for r in results),'note':'Actual local Ollama traffic. No large-model load, model download, tuning, or forced unload. Test models expire after five minutes.'}

@@ -9,6 +9,7 @@ public static partial class SelfTests
         void Check(bool condition,string name){if(!condition)throw new Exception("FAILED: "+name);results.Add("PASS: "+name);}
         try
         {
+            UsageFrameworkTests.Run(root,Check);
             Check(NetworkMetrics.IsFilterAdapter("Wi-Fi-QoS Packet Scheduler-0000","")&&NetworkMetrics.IsFilterAdapter("x","Card-WFP Native MAC Layer LightWeight Filter-0000")&&!NetworkMetrics.IsFilterAdapter("Wi-Fi","MediaTek Wi-Fi 7")&&!NetworkMetrics.IsFilterAdapter("wlan0","Wireless"),"Wi-Fi filter-driver aliases are excluded without excluding real Windows/Linux adapters");
             Check(NetworkMetrics.Rate(1048576,0,1)==1&&NetworkMetrics.Rate(0,1048576,1)==null&&NetworkMetrics.Rate(1048576,0,0)==null&&Math.Abs(NetworkMetrics.MiBToMegabits-8*1048576/1e6)<1e-10,"Network rates use elapsed counter deltas, handle reconnect/reset and distinguish MiB/s from Mbps");
             var interfaces=NetworkMetrics.From([new("nic.one.up","","Wi-Fi","",1,"test"),new("nic.one.wireless","","Wi-Fi","",1,"test"),new("nic.one.speed","","Wi-Fi","Mbps",600,"test"),new("nic.one.rx","","Wi-Fi","MiB/s",1,"test"),new("nic.two.up","","Ethernet","",1,"test"),new("nic.two.wireless","","Ethernet","",0,"test")]);

@@ -23,3 +23,5 @@ startup-error.txt
 *.p12
 *.key
 kubeconfig*
+usage-relay.json
+setup-rollback.json

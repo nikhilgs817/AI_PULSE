@@ -12,7 +12,7 @@ public sealed partial class MainWindow
     bool tokenExportBusy;
     string tokenNotice="";
     long TokenWindowStart(long now)=>tokenDays==0?J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local):now-tokenDays*86400L;
-    static bool OnPremSource(string source)=>source is "Ollama" or "AIPULSE Assistant";
+    static bool OnPremSource(string source)=>TokenBreakdown.IsOnPrem(source);
     Control TokenPage()
     {
         var stack=new StackPanel{Spacing=18};
@@ -30,14 +30,23 @@ public sealed partial class MainWindow
         stack.Children.Add(Text($"{DateTimeOffset.FromUnixTimeSeconds(since).ToLocalTime():MMM d, yyyy HH:mm} → {DateTimeOffset.FromUnixTimeSeconds(now).ToLocalTime():MMM d, yyyy HH:mm zzz} · {service.HostName}",12,"#9eb1ca"));
         var rows=service.Store.TokenBreakdown(since,now);
         var coverage=service.Store.TokenCoverage(now);
-        var onPrem=rows.Where(r=>r.OnPrem).ToList();var tools=rows.Where(r=>!r.OnPrem).ToList();
+        // Instrumented app spans can overlap the gateway/server boundary. Display them
+        // independently rather than manufacturing an all-source consumption total.
+        var instrumented=rows.Where(r=>r.Source.Contains("OTLP",StringComparison.Ordinal)).ToList();
+        var onPrem=rows.Where(r=>r.OnPrem&&!instrumented.Contains(r)).ToList();var tools=rows.Where(r=>!r.OnPrem&&!instrumented.Contains(r)).ToList();
         var summary=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*")};
-        Control Summary(string title,List<TokenBreakdown> records)=>Metric(title,records.Count==0?"—":records.Sum(r=>r.Total).ToString("N0"),records.Count==0?"No observations in this window":$"Input {records.Sum(r=>r.Input):N0} · output {records.Sum(r=>r.Output):N0}");
+        Control Summary(string title,List<TokenBreakdown> records)=>Metric(title,records.Count==0||records.All(r=>r.Total==0&&r.Incomplete==r.Records)?"—":records.Sum(r=>r.Total).ToString("N0"),records.Count==0?"No observations in this window":$"Input {records.Sum(r=>r.Input):N0} · output {records.Sum(r=>r.Output):N0}"+(records.Any(r=>r.Incomplete>0)?" · incomplete coverage":""));
         var local=Summary("On-prem models",onPrem);summary.Children.Add(local);
         var other=Summary("Tools & other usage",tools);other.Margin=new Thickness(12,0,0,0);Grid.SetColumn(other,1);summary.Children.Add(other);stack.Children.Add(summary);
         var collection=new StackPanel{Spacing=8};collection.Children.Add(Text("Collection & recorded history",16,null,true));
         collection.Children.Add(Text("Local tools: "+(service.Settings.ReadAgentUsage?service.AgentStatus:"Import disabled. Enable local usage metadata in Settings."),12,"#9eb1ca"));
         collection.Children.Add(Text("Ollama gateway: "+service.GatewayStatus,12,"#9eb1ca"));
+        foreach(var state in service.Store.SourceStates())
+        {
+            bool stale=now-state.Checked>90;
+            collection.Children.Add(Text(state.Source+" · "+(stale?"Collector status stale":state.State)+(state.LastObserved>0?" · last observation "+DateTimeOffset.FromUnixTimeSeconds(state.LastObserved).ToLocalTime().ToString("MMM d HH:mm:ss"):" · no observations"),13,stale||state.State is "Error" or "Incomplete" or "Disconnected" or "Storage error"?"#e8b65f":"#b3c8e2",true));
+            collection.Children.Add(Text(state.Detail,12,"#9eb1ca"));
+        }
         if(service.IsRemote&&!service.RemoteLive)collection.Children.Add(Text("Host is offline or stale. Showing the history received so far.",12,"#e8b65f"));
         foreach(var source in coverage)collection.Children.Add(Text($"{source.Source} · last recorded {DateTimeOffset.FromUnixTimeSeconds(source.LastSeen).ToLocalTime():MMM d, yyyy HH:mm:ss zzz} · {source.Tokens:N0} tokens in retained history",12,"#9eb1ca"));
         if(coverage.Count==0)collection.Children.Add(Text("No retained usage records yet. Running an app or loading a model does not provide token counts.",12,"#9eb1ca"));
@@ -50,6 +59,13 @@ public sealed partial class MainWindow
         string Empty(bool localSource)=>coverage.Any(c=>OnPremSource(c.Source)==localSource)?"No usage recorded in this window. Older records are available; choose a longer range or Show older recorded usage.":localSource?"No observed local usage yet. Send Ollama requests through the AIPULSE gateway to measure tokens; loading a model alone does not consume recorded tokens.":service.Settings.ReadAgentUsage?"No readable tool usage recorded yet. Codex / Claude Code must write supported token metadata; desktop Chat usage may not be available.":"Local usage import is disabled in Settings. Retained records remain available when present.";
         stack.Children.Add(TokenSection("On-prem models",onPrem,"Ollama usage observed through the AIPULSE gateway, plus optional local assistant usage. Direct Ollama calls and discovery-only remote endpoints are not counted.",Empty(true)));
         stack.Children.Add(TokenSection("Tools & other usage",tools,"Codex and Claude Code usage reported in readable local session files. Tool names identify the usage source; they do not prove where the model is hosted.",Empty(false)));
+        if(instrumented.Count>0)stack.Children.Add(TokenSection("Instrumented applications · independent boundary",instrumented,"OTLP request spans may describe calls also seen by a gateway or server. Compare these observations; do not add them to the sections above.","No instrumented request observations."));
+        var counters=service.Store.CounterTotals(since,now);
+        var counterPanel=new StackPanel{Spacing=10};counterPanel.Children.Add(Text("Server / tool counters · independent boundary",16,null,true));
+        counterPanel.Children.Add(Text("vLLM, Kubernetes replicas and native tool metrics. Cumulative counters start from a baseline; resets and replay are handled per instance. Only whole intervals inside this period are included, so a cross-midnight interval is not guessed. These totals are never added to request totals.",12,"#9eb1ca"));
+        if(counters.Count==0)counterPanel.Children.Add(Text("No measured intervals. Configure an OTLP exporter or the supplied OpenTelemetry Collector profile; Kubernetes discovery alone cannot supply tokens.",13,"#8da1bd"));
+        else counterPanel.Children.Add(Table(["Source / instance","Model","Token kind","Observed tokens","From → to"],counters.Select(c=>new[]{c.Source+"\n"+c.Instance,c.Model,c.Kind,c.Tokens.ToString("N0"),DateTimeOffset.FromUnixTimeSeconds(c.First).ToLocalTime().ToString("MMM d HH:mm:ss")+" → "+DateTimeOffset.FromUnixTimeSeconds(c.Last).ToLocalTime().ToString("MMM d HH:mm:ss")}),"2*,*,*,*,2*"));
+        stack.Children.Add(Card(counterPanel));
         stack.Children.Add(Message("Reading the split","Input includes cache reads and cache writes. Reasoning is included in output. Total = input + output; do not add the subset columns again. — means there are no observations in the selected window, not measured zero consumption. A zero category means no tokens were recorded for that field, which can also mean the provider did not report it. Records are usage events, not a request count."));
         stack.Children.Add(Message("Coverage","On-prem and tool totals are independent observations: a tool using a monitored Ollama backend may appear in both, so no combined total is presented. No API billing or desktop subscription allowance is inferred. Claude desktop/Chat/Cowork usage may not be available. Remote k3s discovery alone does not provide token accounting."));
         var export=Btn(tokenExportBusy?"Exporting…":"Export selected period CSV");export.IsEnabled=!tokenExportBusy;

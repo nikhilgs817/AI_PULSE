@@ -6,6 +6,8 @@
 
 AI Pulse is a dark Windows and Ubuntu application for people running local AI. Pin it beside your work, see every loaded model, and expand it for sensors, token usage, history and backups.
 
+**0.3.4 source/local preview:** A token collection framework with optional persistent default-port Ollama capture, native OTLP/HTTP ingestion, explicit source coverage, Claude Code/Cowork adapters and reset-aware vLLM counter intervals. Includes tested OpenTelemetry Collector profiles for local vLLM and future Kubernetes discovery. [Setup](docs/telemetry/README.md) · [accounting design, reviewed source and limits](docs/TOKEN-COLLECTION.md). Cowork export eligibility and actual cluster setup remain provider/environment dependent; unobserved past calls cannot be backfilled from GPU activity.
+
 **0.3.3 source/local preview:** Backups now use compacted, compressed SQLite snapshots, independently configurable daily/weekly restore points and a 512 MiB default archive budget. Legacy snapshots remain restorable and can be losslessly converted before rotation. Large intermediate files stay out of the backup/sync folder. See [backup details](docs/DATA-AND-BACKUPS.md).
 
 **0.3.2 source/local preview:** Updated compact workload fields, independent local/tool token totals, explicit empty-period and collection status, Today/all-retained views, and fleet/backup reliability improvements. See the [update notes and validation scope](docs/UPDATE-0.3.2.md). Optional assistant and metrics-pilot features remain experimental and off by default. Public downloads listed below remain 0.3.0.

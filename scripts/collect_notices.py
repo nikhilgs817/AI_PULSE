@@ -46,6 +46,8 @@ LibreHardwareMonitor, BlackSharp, DiskInfoToolkit and RAMSPDToolkit use MPL-2.0.
 
 PawnIO is an optional, separately installed driver, not bundled in these installers. Obtain its official signed installer and source from https://github.com/namazso/PawnIO. Ollama, Codex and Claude are independently installed products, not distributed as part of AI Pulse.
 
+Official OpenTelemetry protocol definitions are included unmodified at a pinned revision under `src/AiPulse/Telemetry/Proto`, licensed under Apache-2.0. Their license is included under `docs/licenses/OpenTelemetry-Proto-LICENSE.txt`; C# wire types are generated during the build. Google.Protobuf uses BSD-3-Clause.
+
 The following inventory is generated from the resolved dependency lock file. Some entries are build-only or platform-specific and are not present in every installer.
 
 | Package | Version | Declared license | Source |

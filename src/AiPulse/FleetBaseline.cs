@@ -23,22 +23,24 @@ public sealed partial class Storage
     }
     public void ResetReplica()
     {
-        lock(gate){using var tx=db.BeginTransaction();Execute("DELETE FROM metrics;DELETE FROM minute_metrics;DELETE FROM sensors;DELETE FROM usage;DELETE FROM sessions;DELETE FROM alerts;DELETE FROM checkpoints;DELETE FROM sync_state WHERE key<>'last-snapshot';");tx.Commit();}
+            lock(gate){using var tx=db.BeginTransaction();Execute("DELETE FROM metrics;DELETE FROM minute_metrics;DELETE FROM sensors;DELETE FROM usage;DELETE FROM sessions;DELETE FROM alerts;DELETE FROM checkpoints;DELETE FROM usage_sources;DELETE FROM token_intervals;DELETE FROM token_counter_state;DELETE FROM sync_state WHERE key<>'last-snapshot';");tx.Commit();}
     }
     public BaselinePage Baseline(BaselineCursor cursor)
     {
-        if(cursor.Stage is <0 or >4||cursor.Time<0||cursor.Key.Length>512||cursor.Sequence<0)throw new InvalidDataException("Invalid baseline cursor");
+        if(cursor.Stage is <0 or >6||cursor.Time<0||cursor.Key.Length>512||cursor.Sequence<0)throw new InvalidDataException("Invalid baseline cursor");
         lock(gate)
         {
             var rows=new List<SyncEvent>();int bytes=0;var next=cursor;
-            while(next.Stage<4&&rows.Count<1000)
+            while(next.Stage<6&&rows.Count<1000)
             {
                 string sql=next.Stage switch
                 {
                     0=>"SELECT * FROM usage WHERE (time,id)>(@p0,@p1) ORDER BY time,id LIMIT @p2",
                     1=>"SELECT m.time,s.id,s.name,s.device,s.unit,s.source,m.total,m.count,m.minimum,m.maximum FROM minute_metrics m JOIN sensors s ON s.id=m.id WHERE (m.time,m.id)>(@p0,@p1) ORDER BY m.time,m.id LIMIT @p2",
                     2=>"SELECT id,source,model,state,last_seen FROM sessions WHERE id>@p1 ORDER BY id LIMIT @p2",
-                    _=>"SELECT key,title,detail,time,active FROM alerts WHERE key>@p1 ORDER BY key LIMIT @p2"
+                    3=>"SELECT key,title,detail,time,active FROM alerts WHERE key>@p1 ORDER BY key LIMIT @p2",
+                    4=>"SELECT * FROM token_intervals WHERE (time,id)>(@p0,@p1) ORDER BY time,id LIMIT @p2",
+                    _=>"SELECT * FROM usage_sources WHERE source>@p1 ORDER BY source LIMIT @p2"
                 };
                 using var command=Command(sql,next.Time,next.Key,1000-rows.Count);using var reader=command.ExecuteReader();bool any=false;
                 while(reader.Read())
@@ -54,15 +56,19 @@ public sealed partial class Storage
                             kind="rollup";payload=JsonSerializer.Serialize(p);time=p.Time;key=p.Sensor.Id;break;
                         case 2:
                             var s=new SessionPayload(reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetInt64(4));kind="session";payload=JsonSerializer.Serialize(s);key=s.Id;break;
-                        default:
+                        case 3:
                             var a=new AlertInfo(reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetInt64(3),reader.GetInt64(4)==1);kind="alert";payload=JsonSerializer.Serialize(a);key=a.Key;break;
+                        case 4:
+                            var interval=new TokenCounterInterval(reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetString(4),reader.GetInt64(5),reader.GetInt64(6),reader.GetInt64(7));kind="token-interval";payload=JsonSerializer.Serialize(interval);time=interval.Time;key=interval.Id;break;
+                        default:
+                            var state=new UsageSourceState(reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetInt64(3),reader.GetInt64(4));kind="usage-source";payload=JsonSerializer.Serialize(state);key=state.Source;break;
                     }
                     int size=System.Text.Encoding.UTF8.GetByteCount(payload);if(rows.Count>0&&bytes+size>750_000)return new(rows,next,false);
                     bytes+=size;next=new(next.Stage,time,key,next.Sequence+1);rows.Add(new(next.Sequence,kind,payload));
                 }
                 if(!any)next=new(next.Stage+1,0,"",next.Sequence);
             }
-            return new(rows,next,next.Stage==4);
+            return new(rows,next,next.Stage==6);
         }
     }
 }

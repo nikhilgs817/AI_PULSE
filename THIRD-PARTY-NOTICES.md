@@ -6,6 +6,8 @@ LibreHardwareMonitor, BlackSharp, DiskInfoToolkit and RAMSPDToolkit use MPL-2.0.
 
 PawnIO is an optional, separately installed driver, not bundled in these installers. Obtain its official signed installer and source from https://github.com/namazso/PawnIO. Ollama, Codex and Claude are independently installed products, not distributed as part of AI Pulse.
 
+Official OpenTelemetry protocol definitions are included unmodified at a pinned revision under `src/AiPulse/Telemetry/Proto`, licensed under Apache-2.0. Their license is included under `docs/licenses/OpenTelemetry-Proto-LICENSE.txt`; C# wire types are generated during the build. Google.Protobuf uses BSD-3-Clause.
+
 The following inventory is generated from the resolved dependency lock file. Some entries are build-only or platform-specific and are not present in every installer.
 
 | Package | Version | Declared license | Source |
@@ -25,6 +27,8 @@ The following inventory is generated from the resolved dependency lock file. Som
 | Avalonia.X11 | 12.1.4 | MIT | https://github.com/AvaloniaUI/Avalonia/tree/2d79ba55fae1b1e71c69f93a668080c9029e6a31 |
 | BlackSharp.Core | 1.0.7 | MPL-2.0 | https://github.com/Blacktempel/BlackSharp/tree/c70b735c6cec123ee8a046ac4a0bc6c606f52cf0 |
 | DiskInfoToolkit | 1.1.2 | MPL-2.0 | https://github.com/Blacktempel/DiskInfoToolkit/tree/25319eae5781e75bcf141e844ceab2afe94d40ea |
+| Google.Protobuf | 3.36.2 | BSD-3-Clause | https://github.com/protocolbuffers/protobuf/tree/2c74169b34066ceb8ddb6b882fcb3fb32d737a55 |
+| Grpc.Tools | 2.85.0 | Apache-2.0 | https://github.com/grpc/grpc/tree/cc92f57677a4b8283821affef0648e8c9a6ff9a8 |
 | HarfBuzzSharp | 8.3.1.3 | MIT | https://go.microsoft.com/fwlink/?linkid=868515/tree/2888c737ad016d584c74525e2d35db5097ea8576 |
 | HarfBuzzSharp.NativeAssets.Linux | 8.3.1.3 | MIT | https://go.microsoft.com/fwlink/?linkid=868515/tree/2888c737ad016d584c74525e2d35db5097ea8576 |
 | HarfBuzzSharp.NativeAssets.WebAssembly | 8.3.1.3 | MIT | https://go.microsoft.com/fwlink/?linkid=868515/tree/2888c737ad016d584c74525e2d35db5097ea8576 |
@@ -35,11 +39,12 @@ The following inventory is generated from the resolved dependency lock file. Som
 | MicroCom.Runtime | 0.11.6 | MIT | https://github.com/kekekeks/MicroCom/tree/76785efcafd91b5902fd19dd11145f6dd655b7b4 |
 | Microsoft.Data.Sqlite | 10.0.13 | MIT | https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699 |
 | Microsoft.Data.Sqlite.Core | 10.0.13 | MIT | https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699 |
+| Microsoft.Extensions.Hosting.WindowsServices | 10.0.13 | MIT | https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699 |
 | Mono.Posix.NETStandard | 1.0.0 | https://go.microsoft.com/fwlink/?linkid=869050 | https://go.microsoft.com/fwlink/?linkid=869051 |
 | RAMSPDToolkit-NDD | 1.4.2 | MPL-2.0 | https://github.com/Blacktempel/RAMSPDToolkit/tree/3b47b960e0830fef344624ad5e389675d5f0a1ce |
 | SQLitePCLRaw.bundle_e_sqlite3 | 2.1.13 | Apache-2.0 | https://github.com/ericsink/SQLitePCL.raw |
 | SQLitePCLRaw.core | 2.1.13 | Apache-2.0 | https://github.com/ericsink/SQLitePCL.raw |
-| SQLitePCLRaw.lib.e_sqlite3 | 2.1.13 | Apache-2.0 | https://github.com/ericsink/SQLitePCL.raw |
+| SQLitePCLRaw.lib.e_sqlite3 | 3.53.3 | LICENSE.txt | https://github.com/sourcegear/sqlite-builds/tree/e7d537a1576bac9d7452411c4468640fa730de3e |
 | SQLitePCLRaw.provider.e_sqlite3 | 2.1.13 | Apache-2.0 | https://github.com/ericsink/SQLitePCL.raw |
 | SkiaSharp | 3.119.4 | MIT | https://go.microsoft.com/fwlink/?linkid=868515/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5 |
 | SkiaSharp.NativeAssets.Linux | 3.119.4 | MIT | https://go.microsoft.com/fwlink/?linkid=868515/tree/f568ac94dd768ef9a2f593537cfde2dd0d348ef5 |
@@ -53,6 +58,7 @@ The following inventory is generated from the resolved dependency lock file. Som
 | System.IO.Ports | 10.0.3 | MIT | https://github.com/dotnet/dotnet/tree/c2435c3e0f46de784341ac3ed62863ce77e117b4 |
 | System.Management | 10.0.13 | MIT | https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699 |
 | System.Security.Cryptography.ProtectedData | 10.0.13 | MIT | https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699 |
+| System.ServiceProcess.ServiceController | 10.0.13 | MIT | https://github.com/dotnet/dotnet/tree/4099f83977f4d29604a9aeb971fb0a7bc1d5f699 |
 | Tmds.DBus.Protocol | 0.94.1 | MIT | https://github.com/tmds/Tmds.DBus/tree/b4a7fed0b878f74cb54f7cca84d2889af4e596ba |
 | runtime.android-arm.runtime.native.System.IO.Ports | 10.0.3 | MIT | https://github.com/dotnet/dotnet/tree/c2435c3e0f46de784341ac3ed62863ce77e117b4 |
 | runtime.android-arm64.runtime.native.System.IO.Ports | 10.0.3 | MIT | https://github.com/dotnet/dotnet/tree/c2435c3e0f46de784341ac3ed62863ce77e117b4 |
