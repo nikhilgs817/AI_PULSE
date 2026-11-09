@@ -82,6 +82,10 @@ public static partial class SelfTests
                 Check(withAssistant.OnPrem==7&&withAssistant.Tools==120,"Optional local assistant usage has the same local/tool classification in compact and detailed totals");
                 var zone=TimeZoneInfo.CreateCustomTimeZone("test-offset",TimeSpan.FromHours(-5),"test","test");
                 Check(J.DayStart(DateTimeOffset.Parse("2026-10-19T02:00:00Z"),zone)==DateTimeOffset.Parse("2026-10-18T05:00:00Z").ToUnixTimeSeconds(),"Local calendar-day boundary differs from UTC midnight and rolling 24 hours");
+                string heartbeatRoot=Path.Combine(root,"heartbeat","sessions","2026","11","09");Directory.CreateDirectory(heartbeatRoot);
+                string heartbeatFile=Path.Combine(heartbeatRoot,"rollout-test.jsonl");File.WriteAllText(heartbeatFile,"{\"timestamp\":\""+DateTimeOffset.UtcNow.ToString("O")+"\",\"type\":\"session_meta\",\"payload\":{\"id\":\"heartbeat-session\"}}\n{\"timestamp\":\""+DateTimeOffset.UtcNow.ToString("O")+"\",\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"}}\n");
+                new AgentUsage(compact,[Path.Combine(root,"heartbeat")]).Poll();
+                Check(compact.CompactActivity(midnight,J.Now).ActiveAgents==104,"A freshly written session is visible immediately while bounded history replay catches up");
             }
             using(var year=new Storage(Path.Combine(root,"year.db"),365))
             {

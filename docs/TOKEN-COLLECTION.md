@@ -1,4 +1,4 @@
-# Token collection framework (0.3.4 preview)
+# Token collection framework (0.3.5 preview)
 
 AIPULSE measures provider-reported usage at an instrumented boundary. It does not infer tokens from GPU load, model residency, RAM, a process being open, subscription percentages or a guessed tokenizer. Previous Ollama calls that bypassed capture cannot be reconstructed from `/api/ps`.
 

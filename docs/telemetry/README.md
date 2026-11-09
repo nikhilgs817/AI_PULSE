@@ -1,6 +1,6 @@
 # Usage setup
 
-These profiles configure observation without bundling a model, changing API credentials or replacing your existing monitoring system. Use AIPULSE 0.3.4 or newer on every fleet role.
+These profiles configure observation without bundling a model, changing API credentials or replacing your existing monitoring system. Use AIPULSE 0.3.5 or newer on every fleet role.
 
 ## Quick verification
 

@@ -46,7 +46,7 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
         // Revisit hottest files each pass and rotate the backlog. Keep work bounded so sampling stays responsive.
         var selected=files.Take(4).Concat(files.Skip(nextFile).Take(4)).Distinct().ToArray();nextFile=files.Count==0?0:(nextFile+4)%files.Count;
         readErrors=0;parseErrors=0;
-        foreach(var file in selected)try{ReadNew(file);}catch(MetadataUserUnavailableException){throw;}catch(Exception e){readErrors++;Paths.Log("usage-reader",e);}
+        foreach(var file in selected)try{ReadNew(file);MarkRecentFile(file);}catch(MetadataUserUnavailableException){throw;}catch(Exception e){readErrors++;Paths.Log("usage-reader",e);}
         Status=files.Count==0?"No supported local session records found":"Local usage records • "+files.Count+" files discovered • "+db.RetentionDays+"-day import";
         if(readErrors>0)Status+=$" · {readErrors} files unreadable";
         if(parseErrors>0)Status+=$" · {parseErrors} malformed records skipped";
@@ -86,6 +86,16 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
             start=i+1;
         }
         db.Checkpoint(file,offset+last+1,JsonSerializer.Serialize(state));
+    }
+    void MarkRecentFile(string file)
+    {
+        // Token history can be many megabytes behind after startup. File activity is a safe,
+        // metadata-only heartbeat, so surface the live session while the bounded replay catches up.
+        var modified=ReadUser(()=>File.GetLastWriteTimeUtc(file));
+        var age=DateTime.UtcNow-modified;if(age<TimeSpan.FromSeconds(-60)||age>TimeSpan.FromMinutes(5))return;
+        var state=JsonSerializer.Deserialize<ParseState>(db.Checkpoint(file).State);if(state==null||state.Session=="")return;
+        bool codex=file.Contains(Path.DirectorySeparatorChar+"sessions"+Path.DirectorySeparatorChar)&&!file.Contains(Path.DirectorySeparatorChar+".claude"+Path.DirectorySeparatorChar);
+        db.Session(state.Session,codex?"Codex":"Claude Code",state.Model,"Recent activity",new DateTimeOffset(modified).ToUnixTimeSeconds());
     }
     public static void Parse(JsonElement j,bool codex,ParseState s,string fallback,Storage db)
     {
