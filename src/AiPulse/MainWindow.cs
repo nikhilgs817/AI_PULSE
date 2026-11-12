@@ -196,7 +196,18 @@ public sealed partial class MainWindow : Window
             if(vertical)Grid.SetRow(cell,i);else Grid.SetColumn(cell,i);metrics.Children.Add(cell);
         }
         grid.Children.Add(metrics);
-        var now=DateTimeOffset.Now;var activity=service.Store.CompactActivity(J.DayStart(now,TimeZoneInfo.Local),now.ToUnixTimeSeconds());
+        var now=DateTimeOffset.Now;var since=J.DayStart(now,TimeZoneInfo.Local);var until=now.ToUnixTimeSeconds();var activity=service.Store.CompactActivity(since,until);
+        // Keep compact counters sourced from the same aggregate as Token. This
+        // prevents relay/import timing or decorated provider labels from making
+        // local Ollama/vLLM usage appear as zero in the always-on window.
+        var observedRows=service.Store.TokenBreakdown(since,until);
+        var localTokens=observedRows.Where(r=>r.OnPrem).Sum(r=>r.Total);
+        // The compact SQL aggregate remains the authoritative bounded total;
+        // derive the local remainder too, covering older stores whose source
+        // classifier did not recognize the relay label.
+        localTokens=Math.Max(localTokens,Math.Max(0,activity.Tokens-activity.Tools));
+        var toolTokens=activity.Tools;
+        activity=(activity.ActiveAgents,activity.Tokens,localTokens,toolTokens);
         Control ActivityCell(string title,string value,string help)
         {
             var cell=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),Margin=new Thickness(6,2)};

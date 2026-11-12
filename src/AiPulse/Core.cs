@@ -16,7 +16,19 @@ public record UsageCoverage(string Source,long Records,long Tokens,long LastSeen
 public record TokenBreakdown(string Source,string Model,long Input,long Output,long Cached,long CacheWrite,long Reasoning,long Uncached,long Records,long Incomplete)
 {
     public bool OnPrem=>IsOnPrem(Source);
-    public static bool IsOnPrem(string source)=>source is "Ollama" or "AIPULSE Assistant" or "Ollama (OTLP)" or "vLLM (OTLP)";
+    public static bool IsOnPrem(string source)
+    {
+        // Relay/import adapters may decorate the provider name. Normalize here so
+        // compact, token and future k3s/vLLM views never silently classify local
+        // inference as cloud/tool usage.
+        var s=(source??"").Trim();
+        return s.Equals("Ollama",StringComparison.OrdinalIgnoreCase)
+            || s.Equals("AIPULSE Assistant",StringComparison.OrdinalIgnoreCase)
+            || s.Equals("Ollama (OTLP)",StringComparison.OrdinalIgnoreCase)
+            || s.Equals("vLLM (OTLP)",StringComparison.OrdinalIgnoreCase)
+            || s.StartsWith("vLLM",StringComparison.OrdinalIgnoreCase)
+            || s.StartsWith("Ollama",StringComparison.OrdinalIgnoreCase);
+    }
     public long Total=>Input+Output;
 }
 
