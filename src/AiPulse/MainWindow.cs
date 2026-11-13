@@ -76,11 +76,11 @@ public sealed partial class MainWindow : Window
         if(compact&&WindowState==WindowState.Maximized)WindowState=WindowState.Normal;
         MinWidth=compact?(vertical?240:560):850;MinHeight=compact?100:520;CanResize=!compact;CanMaximize=!compact;
         shell.RowDefinitions=new RowDefinitions(compact?(fleet!=null?"62,*,0":"34,*,0"):"64,*,34");footer.IsVisible=!compact;
-        Width=compact?(vertical?260:560):1280;
+        Width=compact?(vertical?286:560):1280;
         Height=compact?CompactHeight():820;
         BuildHeader();layoutPage=null;
     }
-    double CompactBaseHeight=>(localService.Settings.CompactVertical?256:142)+(fleet!=null?28:0);
+    double CompactBaseHeight=>(localService.Settings.CompactVertical?305:172)+(fleet!=null?28:0);
     double CompactHeight()=>CompactBaseHeight+(modelsExpanded?Math.Min(300,Math.Max(66,service.Ollama.Models.Count*(localService.Settings.CompactVertical?94:76)+12)):0);
     void BuildHeader()
     {
@@ -106,7 +106,10 @@ public sealed partial class MainWindow : Window
     {
         if(!IsVisible&&updates++>0)return;
         if(fleet!=null){footer.Text=fleet.Status+" · "+SelectedHostLabel();if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;RefreshHostMenu();if(layoutPage==null||page is not ("Settings" or "Assistant"))RenderBody();return;}
-        var alerts=service.Store.Alerts().Count(a=>a.Active);string fresh=service.LastSample==0?"Starting":J.Now-service.LastSample>8?"STALE readings":"Live · 2s";
+        int alerts;
+        try{alerts=service.Store.Alerts().Count(a=>a.Active);}
+        catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();return;}
+        string fresh=service.LastSample==0?"Starting":J.Now-service.LastSample>8?"STALE readings":"Live · 2s";
         footer.Text=$"{fresh}   ·   {alerts} alerts   ·   {service.Settings.RetentionDays}-day history   ·   "+(service.Settings.LastBackupError!=null?"Backup needs attention":service.Settings.LastBackup!=null?"Backup verified":"Backup pending");
         if(settingsSensorStatus!=null)settingsSensorStatus.Text=SensorDescription();
         if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;
@@ -144,7 +147,16 @@ public sealed partial class MainWindow : Window
                 scroller=new ScrollViewer{HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);main.Children.Add(scroller);Grid.SetColumn(main,1);layout.Children.Add(main);body.Content=layout;layoutPage=page;
             }
             scroller!.Content=fleet!=null&&page is not ("Settings" or "Assistant")&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page is not ("Settings" or "Assistant")&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),"Assistant"=>AssistantPage(),_=>SettingsPage()};scroller.Offset=offset;
-        }finally{rebuilding=false;}
+        }
+        catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();}
+        finally{rebuilding=false;}
+    }
+    void ShowDatabaseError()
+    {
+        var error=Message("Monitoring database needs recovery","Usage and history are unavailable. Close AIPULSE and restore a verified backup.");
+        if(!localService.Settings.Compact&&scroller!=null)scroller.Content=error;
+        else body.Content=error;
+        footer.Text="Database integrity error";
     }
     static Control NavIcon(string name)
     {
@@ -164,8 +176,8 @@ public sealed partial class MainWindow : Window
     Control Compact()
     {
         bool vertical=localService.Settings.CompactVertical;
-        var grid=new Grid{RowDefinitions=new RowDefinitions(vertical?"196,26,Auto":"52,30,26,Auto"),Margin=new Thickness(8,0)};
-        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?"24.5,24.5,24.5,24.5,24.5,24.5,24.5,24.5":"*")};
+        var grid=new Grid{RowDefinitions=new RowDefinitions(vertical?"245,26,Auto":"52,60,26,Auto"),Margin=new Thickness(8,0)};
+        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?string.Join(",",Enumerable.Repeat("24.5",10)):"*")};
         bool fresh=service.Fresh;
         string freshness=!fresh?(service.LastSample==0?"Waiting":"Stale"):service.IsRemote?"Live":$"Live {Math.Max(0,J.Now-service.LastSample)}s";
         string Live(string id)=>fresh?Format(id):"—";
@@ -196,18 +208,10 @@ public sealed partial class MainWindow : Window
             if(vertical)Grid.SetRow(cell,i);else Grid.SetColumn(cell,i);metrics.Children.Add(cell);
         }
         grid.Children.Add(metrics);
-        var now=DateTimeOffset.Now;var since=J.DayStart(now,TimeZoneInfo.Local);var until=now.ToUnixTimeSeconds();var activity=service.Store.CompactActivity(since,until);
-        // Keep compact counters sourced from the same aggregate as Token. This
-        // prevents relay/import timing or decorated provider labels from making
-        // local Ollama/vLLM usage appear as zero in the always-on window.
-        var observedRows=service.Store.TokenBreakdown(since,until);
-        var localTokens=observedRows.Where(r=>r.OnPrem).Sum(r=>r.Total);
-        // The compact SQL aggregate remains the authoritative bounded total;
-        // derive the local remainder too, covering older stores whose source
-        // classifier did not recognize the relay label.
-        localTokens=Math.Max(localTokens,Math.Max(0,activity.Tokens-activity.Tools));
-        var toolTokens=activity.Tools;
-        activity=(activity.ActiveAgents,activity.Tokens,localTokens,toolTokens);
+        long until=J.Now,since=J.DayStart(DateTimeOffset.FromUnixTimeSeconds(until),TimeZoneInfo.Local);
+        var activity=service.Store.CompactActivity(since,until);
+        var tokens=TokenSummary.From(service.Store.TokenBreakdown(since,until),service.Store.CounterTotals(since,until));
+        var spawns=service.Store.AgentSpawns(since,until);
         Control ActivityCell(string title,string value,string help)
         {
             var cell=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),Margin=new Thickness(6,2)};
@@ -216,10 +220,21 @@ public sealed partial class MainWindow : Window
         }
         var agents=ActivityCell("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||service.Fresh)?activity.ActiveAgents.ToString("N0"):"—",service.Settings.ReadAgentUsage?"Sessions reporting Working or Recent activity within the last 5 minutes. Completed, interrupted and quiet sessions are excluded. This does not prove the model is generating right now.":"Agent usage import is disabled. Enable Read local usage metadata in Settings to count recent active sessions.");
         const string overlap="Observed input and output since local midnight. Local and agent sources may overlap; do not add them. Open Token for details.";
-        var local=ActivityCell("LOCAL TOKENS TODAY",J.Count(activity.OnPrem),overlap);
-        var tools=ActivityCell("AGENT TOKENS TODAY",J.Count(activity.Tools),overlap);
-        if(vertical){Grid.SetRow(agents,5);metrics.Children.Add(agents);Grid.SetRow(local,6);metrics.Children.Add(local);Grid.SetRow(tools,7);metrics.Children.Add(tools);}
-        else{var activityRow=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*,*")};activityRow.Children.Add(agents);Grid.SetColumn(local,1);activityRow.Children.Add(local);Grid.SetColumn(tools,2);activityRow.Children.Add(tools);Grid.SetRow(activityRow,1);grid.Children.Add(activityRow);}
+        var local=ActivityCell("LOCAL TOKENS TODAY",CompactCount(tokens.LocalRequests),overlap+" Includes observed Ollama and AIPULSE Assistant requests.");
+        var tools=ActivityCell("AGENT TOKENS TODAY",CompactCount(tokens.ToolRequests),overlap);
+        var vllm=ActivityCell("vLLM TOKENS TODAY",CompactCount(tokens.VllmCounters),"Server counters observed since local midnight. Open Token to inspect each model and replica.");
+        var spawned=ActivityCell("AGENT SPAWNS TODAY",spawns.Count==0?"—":J.Count(spawns.Sum(s=>s.Count)),"Distinct agent starts observed since local midnight. Open Agents to see the sources.");
+        Control[] activityCells=[agents,local,tools,spawned,vllm];
+        if(vertical)
+        {
+            for(int i=0;i<activityCells.Length;i++){Grid.SetRow(activityCells[i],5+i);metrics.Children.Add(activityCells[i]);}
+        }
+        else
+        {
+            var activityRows=new UniformGrid{Columns=3,Rows=2};
+            foreach(var cell in activityCells)activityRows.Children.Add(cell);
+            Grid.SetRow(activityRows,1);grid.Children.Add(activityRows);
+        }
         string modelStatus=fresh?$"{service.Ollama.Active.Values.Sum(n=>(long)n)} requests · {service.Ollama.Models.Count} loaded":"Models unavailable";
         var toggle=Btn((modelsExpanded?"▴":"▾")+"  "+modelStatus+" · "+freshness);ToolTip.SetTip(toggle,"Observed active gateway requests and resident models. Direct inference may not be counted. Select to show the model list.");toggle.Padding=new Thickness(6,2);toggle.MinHeight=24;toggle.FontSize=11;toggle.HorizontalAlignment=HorizontalAlignment.Stretch;toggle.HorizontalContentAlignment=HorizontalAlignment.Left;toggle.Background=Brush.Parse("#0cffffff");toggle.CornerRadius=new CornerRadius(12);
         Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,vertical?1:2);grid.Children.Add(toggle);
@@ -239,6 +254,7 @@ public sealed partial class MainWindow : Window
         }
         return grid;
     }
+    static string CompactCount(long? count)=>count is long measured?J.Count(measured):"—";
     string ModelHost(ModelInfo model)=>service.IsRemote&&model.Host=="This PC"?service.HostName:model.Host;
     string Format(string id)
     {
@@ -331,6 +347,10 @@ public sealed partial class MainWindow : Window
     {
         var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Agents","Live app resources and retained session activity"));
         stack.Children.Add(AgentResourcePanel(service.AgentApps,service.ProcessSampleTime,service.UnreadableProcesses));
+        long now=J.Now;
+        var spawns=service.Store.AgentSpawns(J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local),now);
+        stack.Children.Add(Metric("Agent spawns today",spawns.Count==0?"—":spawns.Sum(s=>s.Count).ToString("N0"),
+            spawns.Count==0?"No agent starts reported today. Coverage requires supported agent metadata or a lifecycle exporter.":string.Join(" · ",spawns.Select(s=>$"{s.Source} {s.Count:N0}"))));
         stack.Children.Add(Text("Session activity & tokens",16,null,true));
         stack.Children.Add(Text(service.AgentStatus,12,"#8ba0bd"));
         stack.Children.Add(Message("Metadata only","Input/output/cache tokens are read from supported local session records. Prompts, replies and tool output are not stored. Quiet sessions are not assumed completed."));

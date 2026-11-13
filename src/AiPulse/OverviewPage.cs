@@ -13,14 +13,15 @@ public sealed partial class MainWindow
     async void ShowMeasuredExplanation()
     {
         var now=DateTimeOffset.Now;
-        var activity=service.Store.CompactActivity(J.DayStart(now,TimeZoneInfo.Local),now.ToUnixTimeSeconds());
+        long since=J.DayStart(now,TimeZoneInfo.Local),until=now.ToUnixTimeSeconds();
+        var tokens=TokenSummary.From(service.Store.TokenBreakdown(since,until),service.Store.CounterTotals(since,until));
         var fresh=service.Fresh;
         var cpu=fresh?Format("cpu.temperature"):"—";
         var temperature=cpu=="—"
             ?(!fresh?"CPU temperature is unavailable while readings are stale or starting.":!service.IsRemote&&OperatingSystem.IsWindows()&&!service.SensorBridge.Connected?"CPU temperature is unavailable. Check deep-sensor access in Sensors.":"CPU temperature is unavailable from the current sensor sources.")
             :"CPU temperature: "+cpu+".";
         var summary=(fresh?$"Current readings: CPU {Format("cpu.load")}, GPU {Format("gpu.load")}, RAM used {Format("ram.used")}.":"Current resource readings are unavailable.")+
-            $"\n\n{temperature}\n\nRecorded today: {activity.OnPrem:N0} local tokens and {activity.Tools:N0} agent tokens. Sources may overlap.";
+            $"\n\n{temperature}\n\nToday: {CompactCount(tokens.LocalRequests)} on-prem request tokens, {CompactCount(tokens.VllmCounters)} vLLM server tokens, {CompactCount(tokens.ToolRequests)} tool tokens. A dash means no usage measurement for that source.";
         var close=Btn("Close");var dialog=new Window{Title="Explain this · "+service.HostName,Width=440,SizeToContent=SizeToContent.Height,CanResize=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,
             Content=new StackPanel{Margin=new Thickness(20),Spacing=12,Children={new TextBlock{Text=summary,TextWrapping=TextWrapping.Wrap},close}}};
         close.Click+=(_,_)=>dialog.Close();await dialog.ShowDialog(this);
@@ -38,7 +39,10 @@ public sealed partial class MainWindow
     {
         long now=J.Now,start=now-overviewSeconds;bool fresh=service.Fresh;
         string Live(string id)=>fresh?Format(id):"—";
-        var activity=service.Store.CompactActivity(J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local),now);
+        long today=J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local);
+        var activity=service.Store.CompactActivity(today,now);
+        var tokens=TokenSummary.From(service.Store.TokenBreakdown(today,now),service.Store.CounterTotals(today,now));
+        var spawns=service.Store.AgentSpawns(today,now);
         var alerts=service.Store.Alerts().Where(a=>a.Active).ToList();
         var stack=new StackPanel{Spacing=14};
         stack.Children.Add(Heading("Overview",service.HostName+" · "+service.HostPlatform+" · "+(service.CpuName??"Discovering CPU")));
@@ -78,8 +82,10 @@ public sealed partial class MainWindow
         stack.Children.Add(Columns(OverviewChart("CPU / GPU temperature",start,now,"°C",null,
             new("CPU",service.Store.History("cpu.temperature",start,now),"#40d5ed"),new("GPU core",service.Store.History("gpu.temperature",start,now),"#ad8bfa")),WifiPanel(NetworkMetrics.From(service.Readings),start,now,fresh)));
 
-        var onPrem=Metric("ON-PREM TOKENS · TODAY",J.Count(activity.OnPrem),"Ollama gateway · input + output since local midnight");
-        var tools=Metric("TOOL TOKENS · TODAY",J.Count(activity.Tools),"Codex / Claude Code observations · cache already included");stack.Children.Add(Columns(onPrem,tools));
+        var onPrem=Metric("ON-PREM TOKENS · TODAY",CompactCount(tokens.LocalRequests),"Observed model requests · input + output since local midnight");
+        var tools=Metric("TOOL TOKENS · TODAY",CompactCount(tokens.ToolRequests),"Codex / Claude Code observations · cache already included");stack.Children.Add(Columns(onPrem,tools));
+        stack.Children.Add(Columns(Metric("vLLM TOKENS · TODAY",CompactCount(tokens.VllmCounters),"Observed server counters · see Token for model and replica details"),
+            Metric("AGENT SPAWNS · TODAY",spawns.Count==0?"—":J.Count(spawns.Sum(s=>s.Count)),"Distinct reported agent starts · see Agents for coverage")));
         stack.Children.Add(Text("Sources are independent observations and can overlap when a tool uses the Ollama gateway. Open Token for the detailed split.",11,"#8ba0bd"));
         stack.Children.Add(Columns(OverviewModels(),OverviewApps()));
         stack.Children.Add(Columns(OverviewStorage(fresh),OverviewHealth()));

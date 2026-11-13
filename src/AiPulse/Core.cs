@@ -16,19 +16,9 @@ public record UsageCoverage(string Source,long Records,long Tokens,long LastSeen
 public record TokenBreakdown(string Source,string Model,long Input,long Output,long Cached,long CacheWrite,long Reasoning,long Uncached,long Records,long Incomplete)
 {
     public bool OnPrem=>IsOnPrem(Source);
-    public static bool IsOnPrem(string source)
-    {
-        // Relay/import adapters may decorate the provider name. Normalize here so
-        // compact, token and future k3s/vLLM views never silently classify local
-        // inference as cloud/tool usage.
-        var s=(source??"").Trim();
-        return s.Equals("Ollama",StringComparison.OrdinalIgnoreCase)
-            || s.Equals("AIPULSE Assistant",StringComparison.OrdinalIgnoreCase)
-            || s.Equals("Ollama (OTLP)",StringComparison.OrdinalIgnoreCase)
-            || s.Equals("vLLM (OTLP)",StringComparison.OrdinalIgnoreCase)
-            || s.StartsWith("vLLM",StringComparison.OrdinalIgnoreCase)
-            || s.StartsWith("Ollama",StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool IsOnPrem(string source)=>source is "Ollama" or "AIPULSE Assistant" or "Ollama (OTLP)" or "vLLM (OTLP)";
+    public bool Instrumented=>Source.Contains("OTLP",StringComparison.Ordinal);
+    public bool HasMeasuredUsage=>Total>0||Incomplete<Records;
     public long Total=>Input+Output;
 }
 
@@ -79,7 +69,11 @@ public static class Paths
     public static void Initialize(string[] args)
     {
         int ix=Array.IndexOf(args,"--data-dir");
-        Root=ix>=0 && args.Length>ix+1 ? Path.GetFullPath(args[ix+1]) :
+        if(ix>=0&&(ix+1>=args.Length||string.IsNullOrWhiteSpace(args[ix+1])||
+                  args[ix+1].StartsWith("--",StringComparison.Ordinal)||
+                  ix+2<args.Length&&!args[ix+2].StartsWith("--",StringComparison.Ordinal)))
+            throw new ArgumentException("Pass --data-dir followed by one quoted path.");
+        Root=ix>=0 ? Path.GetFullPath(args[ix+1]) :
             OperatingSystem.IsWindows() ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AI Pulse") :
             Path.Combine(Environment.GetEnvironmentVariable("XDG_DATA_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".local","share"),"ai-pulse");
         foreach(var sub in new[]{"data","backups","logs","exports"}) Directory.CreateDirectory(Path.Combine(Root,sub));

@@ -24,6 +24,11 @@ public static class UsageRelay
 {
     public static string ConfigFile=>Path.Combine(Paths.Root,"usage-relay.json");
     public static UsageRelayConfig? Load()=>File.Exists(ConfigFile)?JsonSerializer.Deserialize<UsageRelayConfig>(File.ReadAllText(ConfigFile)):null;
+    public static int? ConfiguredPort()
+    {
+        try{return Load()?.ListenPort;}
+        catch(Exception e)when(e is IOException or UnauthorizedAccessException or JsonException){Paths.Log("relay-config",e);return null;}
+    }
     public static int Run()
     {
         var config=Load()??throw new InvalidOperationException("Create usage-relay.json before starting the relay.");
@@ -79,9 +84,9 @@ public sealed class UsageRelayClient(Storage db) : IDisposable
     readonly HttpClient client=new(new SocketsHttpHandler{AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(4),MaxResponseContentBufferSize=2*1024*1024};
     public async Task Poll(CancellationToken ct)
     {
-        var config=UsageRelay.Load();if(config==null)return;
         try
         {
+            var config=UsageRelay.Load();if(config==null)return;
             using var request=new HttpRequestMessage(HttpMethod.Get,"http://127.0.0.1:"+config.ListenPort+"/aipulse/metadata");request.Headers.Add("X-AIPULSE-Read-Key",config.ReadKey);
             using var response=await client.SendAsync(request,ct);response.EnsureSuccessStatusCode();
             if(response.Content.Headers.ContentLength>1_000_000)throw new InvalidDataException();
@@ -112,7 +117,7 @@ public sealed class UsageRelayClient(Storage db) : IDisposable
             db.SourceState("Persistent Ollama capture","Connected","Default Ollama port is instrumented. Metadata survives closing the dashboard; backend-port calls still bypass it.",batch.Events.Count>0?J.Now:0);
         }
         catch(OperationCanceledException)when(ct.IsCancellationRequested){}
-        catch(Exception e){Paths.Log("relay-import",e);db.SourceState("Persistent Ollama capture","Disconnected","Relay unavailable or delivery failed. Check its process, port and local configuration; history remains retained.");}
+        catch(Exception e){Paths.Log("relay-import",e);db.SourceState("Persistent Ollama capture","Disconnected","Relay unavailable or delivery failed. Use the dashboard gateway address above for explicit routing while the relay is offline.");}
     }
     public void Dispose()=>client.Dispose();
 }

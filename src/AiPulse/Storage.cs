@@ -7,18 +7,20 @@ public sealed partial class Storage : IDisposable
 {
     readonly object gate=new();
     readonly SqliteConnection db;
-    readonly string databasePath;
     readonly object backupGate=new();
     int retentionDays=90;
     public int RetentionDays {get=>Volatile.Read(ref retentionDays);set=>Volatile.Write(ref retentionDays,Math.Clamp(value,7,365));}
     public Storage(string path,int retentionDays=90,bool replication=false,bool durable=false)
     {
-        databasePath=Path.GetFullPath(path);
         RetentionDays=retentionDays;
         Replication=replication;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=path,Pooling=false}.ToString());db.Open();
-        Execute("PRAGMA journal_mode=WAL; PRAGMA synchronous="+(replication||durable?"FULL":"NORMAL")+"; PRAGMA busy_timeout=5000;");
+        db=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=Path.GetFullPath(path),Pooling=false}.ToString());
+        try
+        {
+        db.Open();
+        if(Integrity()!="ok")throw new InvalidDataException("Monitoring database integrity check failed. Original files are preserved; use a verified backup or recovery copy.");
+        Execute("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous="+(replication||durable?"FULL":"NORMAL")+";");
         var version=Convert.ToInt32(Scalar("PRAGMA user_version"));
         if(version>1) throw new InvalidOperationException("Database belongs to a newer AI Pulse version.");
         Execute("""
@@ -36,7 +38,9 @@ public sealed partial class Storage : IDisposable
         """);
         InitializeReplication();
         InitializeAccounting();
-        if(Integrity()!="ok")throw new InvalidDataException("Monitoring database integrity check failed. Original files are preserved; use a verified backup or recovery copy.");
+        InitializeAgentSpawns();
+        }
+        catch{db.Dispose();throw;}
     }
     SqliteCommand Command(string sql,params object?[] values)
     {
@@ -175,7 +179,7 @@ public sealed partial class Storage : IDisposable
     }
     public void Retain(long now)
     {
-        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
+        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM agent_spawns WHERE time<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
     }
     public void Dispose(){lock(gate)db.Dispose();}
 }

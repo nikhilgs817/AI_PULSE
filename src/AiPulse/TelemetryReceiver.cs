@@ -80,7 +80,8 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
         "event.name","event.sequence","event.timestamp","model","input_tokens","output_tokens","cache_read_tokens","cache_creation_tokens","duration_ms","request_id","client_request_id","session.id","session_id",
         "gen_ai.provider.name","gen_ai.system","gen_ai.request.model","gen_ai.response.model","gen_ai.response.id","gen_ai.usage.input_tokens","gen_ai.usage.output_tokens",
         "gen_ai.usage.cache_read.input_tokens","gen_ai.usage.cache_write.input_tokens","gen_ai.usage.cache_creation.input_tokens","gen_ai.usage.reasoning.output_tokens",
-        "service.name","service.instance.id","k8s.pod.uid","k8s.namespace.name","k8s.cluster.name","model_name","model.name","gen_ai.token.type","type","instance","job","engine","engine_id","source"
+        "service.name","service.instance.id","k8s.pod.uid","k8s.namespace.name","k8s.cluster.name","model_name","model.name","gen_ai.token.type","type","instance","job","engine","engine_id","source",
+        "aipulse_pod_uid","aipulse_namespace","aipulse_pod","aipulse_container","aipulse_port","gen_ai.agent.id"
     };
     static Dictionary<string,string> Attributes(IEnumerable<KeyValue>? values)
     {
@@ -96,7 +97,7 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
     static string S(Dictionary<string,string> d,params string[] names)=>names.Select(n=>d.GetValueOrDefault(n,"")).FirstOrDefault(v=>v!="")??"";
     static long? N(Dictionary<string,string> d,params string[] names){var s=S(d,names);return long.TryParse(s,NumberStyles.Integer,CultureInfo.InvariantCulture,out long n)&&n is >=0 and <=1_000_000_000_000?n:null;}
     static long Seconds(ulong nano)=>checked((long)(nano/1_000_000_000));
-    static string Instance(Dictionary<string,string> a)=>S(a,"k8s.pod.uid","service.instance.id","instance");
+    static string Instance(Dictionary<string,string> a)=>S(a,"aipulse_pod_uid","k8s.pod.uid","service.instance.id","instance");
     static string Model(Dictionary<string,string> a)=>S(a,"gen_ai.response.model","gen_ai.request.model","model_name","model.name","model");
     void Request(Dictionary<string,string> a,long time,string eventName,string trace,string span,double? duration=null)
     {
@@ -121,8 +122,29 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
     static string Hex(ByteString bytes)=>Convert.ToHexString(bytes.Span);
     public void Process(ExportLogsServiceRequest request)
     {
-        int n=0;foreach(var resource in request.ResourceLogs){var a=Attributes(resource.Resource?.Attributes);foreach(var scope in resource.ScopeLogs)foreach(var log in scope.LogRecords)
-        {if(++n>10000)throw new InvalidDataException();var values=Merge(a,log.Attributes);string ev=log.EventName!=""?log.EventName:S(values,"event.name");if(ev==""&&log.Body?.ValueCase==AnyValue.ValueOneofCase.StringValue&&log.Body.StringValue is "claude_code.api_request" or "api_request")ev=log.Body.StringValue;if(ev!="claude_code.api_request"&&!(ev=="api_request"&&S(values,"service.name")=="cowork"))continue;long at=Seconds(log.TimeUnixNano!=0?log.TimeUnixNano:log.ObservedTimeUnixNano);if(at==0&&DateTimeOffset.TryParse(S(values,"event.timestamp"),out var parsed))at=parsed.ToUnixTimeSeconds();Request(values,at,ev,Hex(log.TraceId),Hex(log.SpanId));}}
+        int count=0;
+        foreach(var resource in request.ResourceLogs)
+        {
+            var attributes=Attributes(resource.Resource?.Attributes);
+            foreach(var log in resource.ScopeLogs.SelectMany(scope=>scope.LogRecords))
+            {
+                if(++count>10000)throw new InvalidDataException();
+                var values=Merge(attributes,log.Attributes);
+                string ev=log.EventName!=""?log.EventName:S(values,"event.name");
+                if(ev==""&&log.Body?.ValueCase==AnyValue.ValueOneofCase.StringValue&&log.Body.StringValue is "claude_code.api_request" or "api_request")ev=log.Body.StringValue;
+                long at=Seconds(log.TimeUnixNano!=0?log.TimeUnixNano:log.ObservedTimeUnixNano);
+                if(at==0&&DateTimeOffset.TryParse(S(values,"event.timestamp"),out var parsed))at=parsed.ToUnixTimeSeconds();
+                if(ev=="aipulse.agent.started")
+                {
+                    string service=S(values,"service.name"),agent=S(values,"gen_ai.agent.id");
+                    if(service.Length is >0 and <=114&&agent!="")
+                        db.RecordAgentSpawn("OTLP · "+service,S(values,"k8s.cluster.name")+"\n"+agent,at);
+                    continue;
+                }
+                if(ev=="claude_code.api_request"||ev=="api_request"&&S(values,"service.name")=="cowork")
+                    Request(values,at,ev,Hex(log.TraceId),Hex(log.SpanId));
+            }
+        }
     }
     public void Process(ExportTraceServiceRequest request)
     {
@@ -145,13 +167,23 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
             {
                 if(++n>10000)throw new InvalidDataException();if((point.Flags&1)!=0)continue;
                 var attr=Merge(a,point.Attributes);string instance=Instance(attr),model=Model(attr);
-                if(S(attr,"engine","engine_id") is string engine&&engine!="")instance+=" / engine "+engine;
                 if(instance==""){db.SourceState("OTLP counters","Incomplete","Exporter must include service.instance.id, k8s.pod.uid or instance to distinguish restarts and replicas.");continue;}
+                string engine=S(attr,"engine","engine_id");
                 double number=point.ValueCase==NumberDataPoint.ValueOneofCase.AsInt?point.AsInt:point.AsDouble;
                 if(!double.IsFinite(number)||number<0||number>1e12||number!=Math.Truncate(number))throw new InvalidDataException();
                 string kind=prompt?"input":output?"output":cached?"cacheRead":bySource?"input."+S(attr,"source"):S(attr,"gen_ai.token.type","type");if(kind is not ("input" or "output" or "cacheRead" or "cacheCreation" or "input.local_compute" or "input.local_cache_hit" or "input.external_kv_transfer"))continue;
                 string source=claude?"Claude Code counters":vllm?"vLLM counters":"GenAI counters";
                 string series=J.Hash(metric.Name+":"+string.Join(";",attr.OrderBy(p=>p.Key).Select(p=>p.Key+"="+p.Value)));
+                string podUid=S(attr,"aipulse_pod_uid");
+                if(vllm&&podUid!="")
+                {
+                    string ns=S(attr,"aipulse_namespace"),pod=S(attr,"aipulse_pod");
+                    string container=S(attr,"aipulse_container"),port=S(attr,"aipulse_port");
+                    instance=$"{ns}/{pod} ({podUid}) / {container}:{port}";
+                    // Pod UID and container port identify the series even if scrape metadata changes.
+                    series=J.Hash(System.Text.Json.JsonSerializer.Serialize(new[]{source,podUid,container,port,engine,model,kind}));
+                }
+                if(engine!="")instance+=" / engine "+engine;
                 long at=Seconds(point.TimeUnixNano);
                 db.ObserveCounter(series,source,instance,model,kind,Seconds(point.StartTimeUnixNano),at,(long)number,cumulative,checked((long)point.TimeUnixNano),checked((long)point.StartTimeUnixNano));
                 db.SourceState(source,"Receiving","Separate interval totals; never added to request records. First cumulative sample is a baseline.",at);

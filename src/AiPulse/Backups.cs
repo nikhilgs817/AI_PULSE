@@ -65,6 +65,31 @@ public sealed partial class Storage
         try{using(var input=CheckedStream(file))Unpack(input,file,temp,CancellationToken.None);CheckDatabase(temp);File.Move(temp,target,false);}
         finally{CleanScratch(temp);}
     }
+    internal static void RestoreClosedDatabase(string backup,string database)
+    {
+        var staged=database+".restore-"+Guid.NewGuid().ToString("N");
+        var quarantine=database+".before-restore-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss")+"-"+Guid.NewGuid().ToString("N")[..8];
+        var moved=new List<(string Original,string Saved)>();
+        try
+        {
+            MaterializeBackup(backup,staged);
+            if(File.Exists(database))
+                using(new FileStream(database,FileMode.Open,FileAccess.ReadWrite,FileShare.None)){}
+            foreach(var suffix in new[]{"","-wal","-shm","-journal"})
+            {
+                if(!File.Exists(database+suffix))continue;
+                File.Move(database+suffix,quarantine+suffix);
+                moved.Add((database+suffix,quarantine+suffix));
+            }
+            File.Move(staged,database);
+        }
+        catch
+        {
+            foreach(var (original,saved) in moved.AsEnumerable().Reverse())File.Move(saved,original);
+            throw;
+        }
+        finally{CleanScratch(staged);}
+    }
     static void PublishCompressed(string raw,string target,CancellationToken ct)
     {
         string compressed=Scratch()+".gz",partial=target+".partial";
@@ -86,9 +111,15 @@ public sealed partial class Storage
             try
             {
                 ct.ThrowIfCancellationRequested();
-                using(var source=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=databasePath,Mode=SqliteOpenMode.ReadOnly,Pooling=false}.ToString()))
                 using(var dest=new SqliteConnection(new SqliteConnectionStringBuilder{DataSource=raw,Pooling=false}.ToString()))
-                {source.Open();dest.Open();source.BackupDatabase(dest);ct.ThrowIfCancellationRequested();using var vacuum=dest.CreateCommand();vacuum.CommandText="VACUUM";vacuum.ExecuteNonQuery();}
+                {
+                    dest.Open();
+                    lock(gate)db.BackupDatabase(dest);
+                    ct.ThrowIfCancellationRequested();
+                    using var vacuum=dest.CreateCommand();
+                    vacuum.CommandText="VACUUM";
+                    vacuum.ExecuteNonQuery();
+                }
                 CheckDatabase(raw);PublishCompressed(raw,file,ct);PruneBackups(folder,policy??new());return file;
             }
             finally{CleanScratch(raw);}

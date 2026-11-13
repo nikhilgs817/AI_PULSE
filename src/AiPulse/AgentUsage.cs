@@ -12,6 +12,7 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
     int readErrors;
     int parseErrors;
     readonly object importGate=new();
+    const string SpawnImportVersion="agent-spawn-import-v1";
     public void SetRetention(int days)
     {
         lock(importGate){if(days>db.RetentionDays)db.ResetImportCheckpoints();db.RetentionDays=days;nextScan=DateTime.MinValue;nextFile=0;}
@@ -32,6 +33,11 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
     {lock(importGate)try{PollCore();}catch(MetadataUserUnavailableException e){Status=e.Message;}}
     void PollCore()
     {
+        if(db.SyncState(SpawnImportVersion)!="yes")
+        {
+            db.ResetImportCheckpoints();
+            db.SyncState(SpawnImportVersion,"yes");
+        }
         if(DateTime.UtcNow>=nextScan)
         {
             var home=Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -103,11 +109,20 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
         if(codex)
         {
             var p=j.Get("payload");
-            if(type=="session_meta"){s.Session=p.Str("id",fallback);return;}
+            if(type=="session_meta")
+            {
+                s.Session=p.Str("id",fallback);
+                var child=p.Get("source").Get("subagent").Get("thread_spawn");
+                if(child.ValueKind==JsonValueKind.Object&&child.Str("parent_thread_id")!=""&&Guid.TryParse(p.Str("id"),out var childId))
+                    db.RecordAgentSpawn("Codex",childId.ToString("D"),SpawnTime(p,time));
+                return;
+            }
             if(s.Session=="")s.Session=fallback;
             if(type=="turn_context"){s.Model=p.Str("model",s.Model);return;}
             if(type!="event_msg")return;
             string ev=p.Str("type");
+            if(ev=="collab_agent_spawn_end"&&Guid.TryParse(p.Str("new_thread_id"),out var spawned))
+                db.RecordAgentSpawn("Codex",spawned.ToString("D"),time);
             if(ev=="token_count")
             {
                 var info=p.Get("info");var usage=info.Get("total_token_usage");if(usage.ValueKind!=JsonValueKind.Object)return;
@@ -123,6 +138,10 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
         else
         {
             s.Session=j.Str("sessionId",s.Session==""?fallback:s.Session);
+            string claudeAgent=j.Str("agentId");
+            if(j.Get("isSidechain").ValueKind==JsonValueKind.True&&j.Str("sessionId")!=""&&
+               claudeAgent.Length is >0 and <=80&&claudeAgent.All(c=>char.IsAsciiLetterOrDigit(c)||c is '-' or '_'))
+                db.RecordAgentSpawn("Claude Code",j.Str("sessionId")+":"+claudeAgent,time);
             if(type!="assistant")return;
             var message=j.Get("message");var u=message.Get("usage");if(u.ValueKind!=JsonValueKind.Object)return;
             bool hasInput=u.Get("input_tokens").ValueKind==JsonValueKind.Number,hasOutput=u.Get("output_tokens").ValueKind==JsonValueKind.Number;
@@ -148,5 +167,6 @@ public sealed class AgentUsage(Storage db,List<string>? configuredRoots=null,Met
             db.Session(s.Session,"Claude Code",model,"Recent activity",time);
         }
     }
+    static long SpawnTime(JsonElement metadata,long fallback)=>DateTimeOffset.TryParse(metadata.Str("timestamp"),out var start)?start.ToUnixTimeSeconds():fallback;
     static long CacheWrites(JsonElement usage)=>usage.Get("cache_creation_input_tokens").ValueKind==JsonValueKind.Number?usage.Num("cache_creation_input_tokens"):usage.Get("cache_creation").Num("ephemeral_5m_input_tokens")+usage.Get("cache_creation").Num("ephemeral_1h_input_tokens");
 }

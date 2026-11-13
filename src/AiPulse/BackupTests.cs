@@ -15,6 +15,13 @@ public static partial class SelfTests
         using(var db=new Storage(source))archive=db.Backup(Path.Combine(folder,"snapshots"));
         Storage.VerifyBackup(archive);string restored=Path.Combine(folder,"restored.db");Storage.MaterializeBackup(archive,restored);
         using(var db=new Storage(restored))check(archive.EndsWith(".db.gz")&&new FileInfo(restored).Length<bloated/2&&new FileInfo(archive).Length<new FileInfo(restored).Length&&db.Totals(0).Input==123,"Compressed backups remove free pages and restore exact retained usage");
+        string damaged=Path.Combine(folder,"live-before-recovery.db");
+        File.WriteAllText(damaged,"damaged SQLite file");
+        File.WriteAllBytes(damaged+"-wal",[4,5,6]);
+        Storage.RestoreClosedDatabase(archive,damaged);
+        var preserved=Directory.GetFiles(folder,"live-before-recovery.db.before-restore-*-wal").Single();
+        using(var db=new Storage(damaged))
+            check(db.Integrity()=="ok"&&db.Totals(0).Input==123&&File.ReadAllBytes(preserved).SequenceEqual(new byte[]{4,5,6})&&File.Exists(preserved[..^4]),"Restore keeps the original database and journal together and verifies the replacement");
         string legacy=Path.Combine(folder,"legacy.db");File.Copy(restored,legacy);File.WriteAllText(legacy+".sha256",Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(legacy))));Storage.VerifyBackup(legacy);Storage.MaterializeBackup(legacy,Path.Combine(folder,"legacy-restored.db"));
         check(File.ReadAllBytes(legacy).SequenceEqual(File.ReadAllBytes(Path.Combine(folder,"legacy-restored.db"))),"Legacy uncompressed backups remain restorable with checksum verification");
         File.WriteAllBytes(legacy+"-wal",[1,2,3]);try{Storage.VerifyBackup(legacy);check(false,"Uncheckpointed backup rejected");}catch(InvalidDataException){}finally{File.Delete(legacy+"-wal");}

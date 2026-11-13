@@ -1,6 +1,6 @@
 # Usage setup
 
-These profiles configure observation without bundling a model, changing API credentials or replacing your existing monitoring system. Use AIPULSE 0.3.5 or newer on every fleet role.
+These profiles configure observation without bundling a model, changing API credentials or replacing your existing monitoring system. Use AIPULSE 0.3.6 or newer on every fleet role for agent-spawn replication.
 
 ## Quick verification
 
@@ -55,7 +55,7 @@ otelcol-contrib validate --config=otelcol-vllm-local.yaml
 otelcol-contrib --config=otelcol-vllm-local.yaml
 ```
 
-The first cumulative observation establishes a baseline; consume tokens after at least two scrapes to test the delta. `input`, `output`, `cacheRead` and prompt-source subsets appear under **Server / tool counters**, independently of request records. Older vLLM versions can expose fewer fields. Cached input and `input.*` source rows are subsets, so do not add them to input again. Model/engine/pod identities are retained in series keys.
+The first cumulative observation establishes a baseline. Wait for a scrape, make an inference request, then wait for the next scrape. **vLLM tokens today** in compact mode and **vLLM server tokens** in Token show the measured input and output deltas. The model, replica, engine and cache breakdown is under **Server / tool counters**. Older vLLM versions can expose fewer fields. Cached input and `input.*` rows are subsets of input.
 
 ## K3s / Kubernetes
 
@@ -75,7 +75,15 @@ spec:
           containerPort: 8000
 ```
 
-Change the metric port to the deployed server's actual port. The Prometheus receiver maps discovery metadata to pod UID/resource identity and preserves metric labels. Keep Kubernetes credentials and fleet configuration outside the repository. RBAC grants pod get/list/watch only; it grants no secrets, exec, cluster writes or administrative access.
+Change the metric port to the deployed server's actual port. The collector carries the pod UID and container identity across the Prometheus-to-OTLP conversion. AIPULSE uses them with the model and engine labels to keep replica baselines independent. Keep Kubernetes credentials and fleet configuration outside the repository. RBAC grants pod get/list/watch only; it grants no secrets, exec, cluster writes or administrative access.
+
+For Ollama workloads, run one capture relay per Ollama instance alongside its AIPULSE Host Agent. Route inference clients through the relay and keep the Ollama backend private. Select the reporting host on the central dashboard to see its usage.
+
+## Agent starts
+
+**Agents → Agent spawns today** shows distinct child starts since local midnight, grouped by source. The separate **Active agents** count uses recent session activity. Codex child-thread metadata and Claude Code sidechain transcripts are imported from supported local logs. Historical starts appear as the importer catches up.
+
+For custom orchestrators on a host, K3s or Kubernetes, send an OTLP log with event name `aipulse.agent.started`, an event timestamp, resource attribute `service.name`, and log attribute `gen_ai.agent.id`. Use a stable unique ID for each created agent instance across retries. Set `k8s.cluster.name` for multi-cluster exports. The receiver stores a hashed identity, source and timestamp. Export events when the orchestrator creates an agent. A model request, pod start, or loaded model does not establish that an agent was spawned.
 
 The shipped files are validated configuration profiles, not an automatically installed cluster stack. Before deployment, choose the namespace, signed/trusted images, persistent volume, hub reachability, workload target labels and network policy. The user's future cluster has not yet been connected, so pod discovery and real vLLM counters still need validation there.
 

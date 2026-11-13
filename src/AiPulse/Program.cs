@@ -10,10 +10,10 @@ public static class Program
     {
         Arguments=args;
         if(args.Contains("--sensor-helper"))return SensorBridge.Run(args);
-        Paths.Initialize(args);
-        int waitIndex=Array.IndexOf(args,"--wait-for-exit");if(waitIndex>=0&&args.Length>waitIndex+1&&int.TryParse(args[waitIndex+1],out var parentId)){try{System.Diagnostics.Process.GetProcessById(parentId).WaitForExit(20000);}catch(ArgumentException){}}
         try
         {
+            Paths.Initialize(args);
+            int waitIndex=Array.IndexOf(args,"--wait-for-exit");if(waitIndex>=0&&args.Length>waitIndex+1&&int.TryParse(args[waitIndex+1],out var parentId)){try{System.Diagnostics.Process.GetProcessById(parentId).WaitForExit(20000);}catch(ArgumentException){}}
             if(args.Contains("--usage-relay"))return UsageRelay.Run();
             if(args.Contains("--usage-diagnostics"))return UsageDiagnostics.Run();
             if(args.Contains("--create-agent-config")||args.Contains("--check-fleet"))
@@ -62,12 +62,7 @@ public static class Program
             if(args.Contains("--restore"))
             {
                 int index=Array.IndexOf(args,"--restore");if(args.Length<=index+1)throw new ArgumentException("Provide a backup file.");
-                var backup=Path.GetFullPath(args[index+1]);Storage.VerifyBackup(backup);
-                // Opening the DB exclusively protects against restoring while a collector is using it.
-                using var exclusive=File.Exists(Paths.Database)?new FileStream(Paths.Database,FileMode.Open,FileAccess.ReadWrite,FileShare.None):null;
-                string staged=Paths.Database+".restore-"+Guid.NewGuid().ToString("N");Storage.MaterializeBackup(backup,staged);exclusive?.Dispose();
-                if(File.Exists(Paths.Database))File.Move(Paths.Database,Paths.Database+".before-restore-"+DateTime.UtcNow.ToString("yyyyMMddHHmmss"));
-                File.Delete(Paths.Database+"-wal");File.Delete(Paths.Database+"-shm");File.Move(staged,Paths.Database);
+                Storage.RestoreClosedDatabase(Path.GetFullPath(args[index+1]),Paths.Database);
                 if(args.Contains("--launch-after")){instance?.Dispose();System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!){ArgumentList={"--data-dir",Paths.Root},UseShellExecute=true});}return 0;
             }
             if(args.Contains("--collect"))
@@ -76,7 +71,12 @@ public static class Program
             }
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);return Environment.ExitCode;
         }
-        catch(Exception e){Paths.Log("fatal",e);File.WriteAllText(Path.Combine(Paths.Root,"startup-error.txt"),e.GetType().Name+": "+e.Message+(args.Contains("--ui-test")||args.Contains("--diagnostic-stack")?"\n"+e.StackTrace:""));return 1;}
+        catch(Exception e)
+        {
+            Console.Error.WriteLine(e.GetType().Name+": "+e.Message);
+            if(Paths.Root!=""){Paths.Log("fatal",e);File.WriteAllText(Path.Combine(Paths.Root,"startup-error.txt"),e.GetType().Name+": "+e.Message+(args.Contains("--ui-test")||args.Contains("--diagnostic-stack")?"\n"+e.StackTrace:""));}
+            return 1;
+        }
     }
     public static AppBuilder BuildAvaloniaApp()=>AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
 }

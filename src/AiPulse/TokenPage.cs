@@ -32,12 +32,23 @@ public sealed partial class MainWindow
         var coverage=service.Store.TokenCoverage(now);
         // Instrumented app spans can overlap the gateway/server boundary. Display them
         // independently rather than manufacturing an all-source consumption total.
-        var instrumented=rows.Where(r=>r.Source.Contains("OTLP",StringComparison.Ordinal)).ToList();
-        var onPrem=rows.Where(r=>r.OnPrem&&!instrumented.Contains(r)).ToList();var tools=rows.Where(r=>!r.OnPrem&&!instrumented.Contains(r)).ToList();
-        var summary=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*")};
-        Control Summary(string title,List<TokenBreakdown> records)=>Metric(title,records.Count==0||records.All(r=>r.Total==0&&r.Incomplete==r.Records)?"—":records.Sum(r=>r.Total).ToString("N0"),records.Count==0?"No observations in this window":$"Input {records.Sum(r=>r.Input):N0} · output {records.Sum(r=>r.Output):N0}"+(records.Any(r=>r.Incomplete>0)?" · incomplete coverage":""));
-        var local=Summary("On-prem models",onPrem);summary.Children.Add(local);
-        var other=Summary("Tools & other usage",tools);other.Margin=new Thickness(12,0,0,0);Grid.SetColumn(other,1);summary.Children.Add(other);stack.Children.Add(summary);
+        var instrumented=rows.Where(r=>r.Instrumented).ToList();
+        var onPrem=rows.Where(r=>r.OnPrem&&!r.Instrumented).ToList();
+        var tools=rows.Where(r=>!r.OnPrem&&!r.Instrumented).ToList();
+        var counters=service.Store.CounterTotals(since,now);
+        var totals=TokenSummary.From(rows,counters);
+        var summary=new UniformGrid{Columns=3};
+        Control Summary(string title,long? count,string detail)
+        {
+            var card=Metric(title,count?.ToString("N0")??"—",detail);
+            card.Margin=new Thickness(0,0,8,0);
+            return card;
+        }
+        string RequestDetail(List<TokenBreakdown> records)=>records.Count==0?"No observations in this window":$"Input {records.Sum(r=>r.Input):N0} · output {records.Sum(r=>r.Output):N0}"+(records.Any(r=>r.Incomplete>0)?" · incomplete coverage":"");
+        summary.Children.Add(Summary("On-prem requests",totals.LocalRequests,RequestDetail(onPrem)));
+        summary.Children.Add(Summary("vLLM server tokens",totals.VllmCounters,totals.VllmCounters.HasValue?"Observed input + output across configured replicas":"No measured vLLM intervals in this window"));
+        summary.Children.Add(Summary("Tools & other usage",totals.ToolRequests,RequestDetail(tools)));
+        stack.Children.Add(summary);
         var collection=new StackPanel{Spacing=8};collection.Children.Add(Text("Collection & recorded history",16,null,true));
         collection.Children.Add(Text("Local tools: "+(service.Settings.ReadAgentUsage?service.AgentStatus:"Import disabled. Enable local usage metadata in Settings."),12,"#9eb1ca"));
         collection.Children.Add(Text("Ollama gateway: "+service.GatewayStatus,12,"#9eb1ca"));
@@ -60,7 +71,6 @@ public sealed partial class MainWindow
         stack.Children.Add(TokenSection("On-prem models",onPrem,"Ollama usage observed through the AIPULSE gateway, plus optional local assistant usage. Direct Ollama calls and discovery-only remote endpoints are not counted.",Empty(true)));
         stack.Children.Add(TokenSection("Tools & other usage",tools,"Codex and Claude Code usage reported in readable local session files. Tool names identify the usage source; they do not prove where the model is hosted.",Empty(false)));
         if(instrumented.Count>0)stack.Children.Add(TokenSection("Instrumented applications · independent boundary",instrumented,"OTLP request spans may describe calls also seen by a gateway or server. Compare these observations; do not add them to the sections above.","No instrumented request observations."));
-        var counters=service.Store.CounterTotals(since,now);
         var counterPanel=new StackPanel{Spacing=10};counterPanel.Children.Add(Text("Server / tool counters · independent boundary",16,null,true));
         counterPanel.Children.Add(Text("vLLM, Kubernetes replicas and native tool metrics. Cumulative counters start from a baseline; resets and replay are handled per instance. Only whole intervals inside this period are included, so a cross-midnight interval is not guessed. These totals are never added to request totals.",12,"#9eb1ca"));
         if(counters.Count==0)counterPanel.Children.Add(Text("No measured intervals. Configure an OTLP exporter or the supplied OpenTelemetry Collector profile; Kubernetes discovery alone cannot supply tokens.",13,"#8da1bd"));

@@ -19,6 +19,20 @@ receivers:
             - source_labels: [__meta_kubernetes_pod_container_port_name]
               regex: metrics
               action: keep
+            - source_labels: [__meta_kubernetes_pod_container_init]
+              regex: 'true'
+              action: drop
+            # Carry identity as ordinary labels so it survives the Prometheus/OTLP conversion.
+            - source_labels: [__meta_kubernetes_pod_uid]
+              target_label: aipulse_pod_uid
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: aipulse_namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: aipulse_pod
+            - source_labels: [__meta_kubernetes_pod_container_name]
+              target_label: aipulse_container
+            - source_labels: [__meta_kubernetes_pod_container_port_number]
+              target_label: aipulse_port
           metric_relabel_configs:
             - source_labels: [__name__]
               regex: 'vllm:(prompt_tokens_total|generation_tokens_total|prompt_tokens_cached_total|prompt_tokens_by_source_total)'

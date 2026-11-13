@@ -42,7 +42,7 @@ public sealed partial class MainWindow
             selector.SelectedIndex=1;for(int i=0;i<100&&(fleet.SelectedMonitor?.Store.Totals(now-1).Input!=11||fleet.SelectedMonitor?.RemoteSnapshot?.Name!="Minisforum · fixture");i++)await Task.Delay(100);RenderBody();
             Check(service.Store.Totals(now-1).Input==11&&service.Value("cpu.load")==31,"Switching hosts replaces the complete data scope without mixing identical record names");
             localService.Settings.Compact=true;localService.Settings.CompactVertical=true;ApplyWindowLayout();RenderBody();await Task.Delay(100);
-            Check(Height==284&&header.Bounds.Height==62&&this.GetVisualDescendants().OfType<ComboBox>().Any(c=>AutomationProperties.GetName(c)=="Select monitored host"),"Compact fleet mode retains the host dropdown with a bounded additional row");
+            Check(Height==333&&header.Bounds.Height==62&&this.GetVisualDescendants().OfType<ComboBox>().Any(c=>AutomationProperties.GetName(c)=="Select monitored host"),"Compact fleet mode retains the host dropdown with a bounded additional row");
             using(var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96))){bitmap.Render(this);bitmap.Save(Path.Combine(Paths.Root,"fleet-compact.png"));}
             localService.Settings.Compact=false;fleet.SelectedHost="";ApplyWindowLayout();layoutPage=null;RenderBody();await Task.Delay(150);
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="All hosts")&&this.GetVisualDescendants().OfType<Button>().Count(b=>b.Content?.ToString()?.StartsWith("Monitor ")==true)==2,"All hosts shows fleet status and a drill-down for each host");

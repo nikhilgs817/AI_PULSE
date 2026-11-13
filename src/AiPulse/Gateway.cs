@@ -8,8 +8,9 @@ using System.Text.Json.Nodes;
 
 namespace AiPulse;
 
-public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool fullPassthrough=false,bool observe=true) : IAsyncDisposable
+public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool fullPassthrough=false,int? relayPort=null) : IAsyncDisposable
 {
+    const string ObservationHeader="X-AIPULSE-Observation";
     public Action<WebApplication>? Configure {get;set;}
     WebApplication? app;
     readonly HttpClient client=new(new SocketsHttpHandler{AllowAutoRedirect=false}){Timeout=Timeout.InfiniteTimeSpan};
@@ -23,7 +24,7 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
             var builder=WebApplication.CreateSlimBuilder();builder.Logging.ClearProviders();builder.WebHost.UseKestrel(o=>{o.Listen(IPAddress.Loopback,settings.GatewayPort);o.Limits.MaxRequestBodySize=fullPassthrough?null:16*1024*1024;});
             app=builder.Build();app.MapGet("/health",()=>Results.Json(new{service="AI Pulse observation gateway",version=typeof(Gateway).Assembly.GetName().Version?.ToString(3),store=db.StoreId}));
             Configure?.Invoke(app);app.MapFallback("/{**path}",Forward);await app.StartAsync(ct);Status="Listening on 127.0.0.1:"+settings.GatewayPort;
-            db.SourceState("Ollama gateway","Ready",observe?"Only requests through this address are observed. Direct calls to other ports bypass capture.":"Forwarding to the persistent capture relay; the relay owns token accounting.");
+            db.SourceState("Ollama gateway","Ready","Requests through this address are observed. When the persistent relay handles a request, it records the usage once.");
         }catch(Exception e){if(app!=null){try{await app.DisposeAsync();}catch{}app=null;}Paths.Log("gateway-start",e);Status="Port unavailable; direct Ollama remains usable";db.SourceState("Ollama gateway","Error",Status);}
     }
     async Task Forward(HttpContext context)
@@ -36,7 +37,7 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
         if(!fullPassthrough&&(!allowed.Contains(path)||context.Request.Method is not ("GET" or "POST"))){context.Response.StatusCode=404;return;}
         if(generation&&!(context.Request.ContentType??"").StartsWith("application/json",StringComparison.OrdinalIgnoreCase)){context.Response.StatusCode=415;return;}
         string model="",id=Guid.NewGuid().ToString("N"),outcome="Usage unavailable";long start=J.Now;
-        var watch=System.Diagnostics.Stopwatch.StartNew();var usage=new InferenceUsageObserver();bool active=false;
+        var watch=System.Diagnostics.Stopwatch.StartNew();var usage=new InferenceUsageObserver();bool active=false,observe=true;
         try
         {
             using var request=new HttpRequestMessage(new HttpMethod(context.Request.Method),Ollama.Validate(settings.OllamaUrl)+path+context.Request.QueryString);
@@ -59,14 +60,19 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
             foreach(string name in new[]{"Range","If-None-Match","Accept"})if(context.Request.Headers.TryGetValue(name,out var h))request.Headers.TryAddWithoutValidation(name,h.ToArray());
             // Configured Ollama only. Never forward client account credentials or cookies.
             using var response=await client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,context.RequestAborted);
+            // Only the configured loopback relay can take ownership from this gateway.
+            // If plain Ollama holds the same port, the desktop gateway still records.
+            if(generation&&request.RequestUri is {IsLoopback:true,Scheme:"http"} upstream&&upstream.Port==relayPort&&
+               response.Headers.TryGetValues(ObservationHeader,out var markers)&&markers.Contains("relay"))observe=false;
+            if(generation&&fullPassthrough)context.Response.Headers[ObservationHeader]="relay";
             context.Response.StatusCode=(int)response.StatusCode;context.Response.ContentType=response.Content.Headers.ContentType?.ToString()??"application/json";
             foreach(string name in new[]{"Content-Range","ETag","Location"})if(response.Headers.TryGetValues(name,out var v)||response.Content.Headers.TryGetValues(name,out v))context.Response.Headers[name]=v.ToArray();
             outcome=response.IsSuccessStatusCode?"Usage unavailable":"HTTP "+(int)response.StatusCode;
             using var incoming=await response.Content.ReadAsStreamAsync(context.RequestAborted);var chunk=new byte[16384];int read;
             while((read=await incoming.ReadAsync(chunk,context.RequestAborted))>0)
             {
-                await context.Response.Body.WriteAsync(chunk.AsMemory(0,read),context.RequestAborted);await context.Response.Body.FlushAsync(context.RequestAborted);
                 if(generation&&observe)usage.Feed(chunk.AsSpan(0,read));
+                await context.Response.Body.WriteAsync(chunk.AsMemory(0,read),context.RequestAborted);await context.Response.Body.FlushAsync(context.RequestAborted);
             }
             if(generation&&observe){usage.Finish();if(response.IsSuccessStatusCode&&usage.HasInput&&(usage.HasOutput||path.Contains("embed")))outcome="Completed";else if(usage.HasInput||usage.HasOutput)outcome="Partial usage";}
         }

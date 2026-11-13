@@ -7,6 +7,20 @@ public record UsageSourceState(string Source,string State,string Detail,long Che
 public record TokenCounterInterval(string Id,string Source,string Instance,string Model,string Kind,long Start,long Time,long Tokens);
 public record TokenCounterTotal(string Source,string Instance,string Model,string Kind,long Tokens,long First,long Last);
 public record UsageReplacement(Usage Usage,string Alias){public long Time=>Usage.Time;}
+public record TokenSummary(long? LocalRequests,long? ToolRequests,long? VllmCounters)
+{
+    public static TokenSummary From(IEnumerable<TokenBreakdown> usage,IEnumerable<TokenCounterTotal> counters)
+    {
+        var primary=usage.Where(r=>!r.Instrumented&&r.HasMeasuredUsage).ToArray();
+        var vllm=counters.Where(c=>c.Source=="vLLM counters"&&c.Kind is "input" or "output").ToArray();
+        long? Sum(bool local)
+        {
+            var rows=primary.Where(r=>r.OnPrem==local).ToArray();
+            return rows.Length==0?null:rows.Sum(r=>r.Total);
+        }
+        return new(Sum(true),Sum(false),vllm.Length==0?null:vllm.Sum(c=>c.Tokens));
+    }
+}
 
 public sealed partial class Storage
 {
