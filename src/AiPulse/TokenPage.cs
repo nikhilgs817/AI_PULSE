@@ -17,12 +17,13 @@ public sealed partial class MainWindow
     {
         var stack=new StackPanel{Spacing=18};
         stack.Children.Add(Heading("Token","Observed token usage · on-prem models and tools shown separately"));
+        if(!service.IsRemote)stack.Children.Add(SubscriptionQuotaCard());
         tokenDays=Math.Min(tokenDays,service.Settings.RetentionDays);
         long now=J.Now,since=TokenWindowStart(now);
         var periods=new WrapPanel{Orientation=Orientation.Horizontal};
         foreach(int days in new[]{0,1,7,30,90,180,365}.Where(d=>d<=service.Settings.RetentionDays).Append(service.Settings.RetentionDays).Distinct().Order())
         {
-            var b=Btn(days==0?"Today":days==1?"Last 24 hours":days==service.Settings.RetentionDays?$"All retained · {days} days":$"{days} days");b.Margin=new Thickness(0,0,8,8);if(days==tokenDays)b.Background=Brush.Parse("#443477");
+            var b=Btn(days==0?"Today":days==1?"Last 24 hours":days==service.Settings.RetentionDays?$"All retained · {days} days":$"{days} days");b.Margin=new Thickness(0,0,8,8);if(days==tokenDays)b.Background=Selected;
             Avalonia.Automation.AutomationProperties.SetName(b,"Token range: "+(days==0?"Today":days==service.Settings.RetentionDays?"All retained":days.ToString()));
             b.Click+=(_,_)=>{tokenDays=days;RenderBody();};periods.Children.Add(b);
         }
@@ -88,7 +89,7 @@ public sealed partial class MainWindow
         };
         stack.Children.Add(export);if(tokenNotice!="")stack.Children.Add(Text(tokenNotice,12,"#59dfae"));return stack;
     }
-    static Control TokenSection(string title,List<TokenBreakdown> rows,string coverage,string empty)
+    Control TokenSection(string title,List<TokenBreakdown> rows,string coverage,string empty)
     {
         var section=new StackPanel{Spacing=12};section.Children.Add(Text(title,16,null,true));section.Children.Add(Text(coverage,12,"#9eb1ca"));
         if(rows.Count==0){section.Children.Add(Text(empty,13,"#8da1bd"));return Card(section);}

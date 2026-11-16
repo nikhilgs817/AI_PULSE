@@ -14,8 +14,8 @@ public sealed class App : Application
     public override void Initialize()
     {
         RequestedThemeVariant=ThemeVariant.Dark;Styles.Add(new FluentTheme());
-        Styles.Add(new Style(x=>x.OfType<Button>()){Setters={new Setter(Button.CornerRadiusProperty,new CornerRadius(7)),new Setter(Button.BackgroundProperty,Brush.Parse("#1c283b")),new Setter(Button.BorderThicknessProperty,new Thickness(0)),new Setter(Button.PaddingProperty,new Thickness(12,8))}});
-        Styles.Add(new Style(x=>x.OfType<TextBox>()){Setters={new Setter(TextBox.BackgroundProperty,Brush.Parse("#0b1320")),new Setter(TextBox.BorderBrushProperty,Brush.Parse("#2b3b50")),new Setter(TextBox.CornerRadiusProperty,new CornerRadius(6))}});
+        Styles.Add(new Style(x=>x.OfType<Button>()){Setters={new Setter(Button.CornerRadiusProperty,new CornerRadius(7)),new Setter(Button.BorderThicknessProperty,new Thickness(0)),new Setter(Button.PaddingProperty,new Thickness(12,8))}});
+        Styles.Add(new Style(x=>x.OfType<TextBox>()){Setters={new Setter(TextBox.CornerRadiusProperty,new CornerRadius(6))}});
     }
     public override void OnFrameworkInitializationCompleted()
     {

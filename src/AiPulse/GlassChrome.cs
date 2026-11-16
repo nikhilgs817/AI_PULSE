@@ -15,13 +15,14 @@ public sealed partial class MainWindow
     {
         // Use the live desktop blur, not an opaque gradient pretending to be glass.
         // Passive reflection layers leave the existing drag and control interactions intact.
-        var surface=new Grid();surface.Children.Add(glassTint);surface.Children.Add(glassSheen);surface.Children.Add(shell);surface.Children.Add(glassEdge);surface.Children.Add(glassInnerEdge);Content=surface;
+        var surface=new Grid();surface.Children.Add(glassTint);surface.Children.Add(glassSheen);surface.Children.Add(shell);surface.Children.Add(glassEdge);surface.Children.Add(glassInnerEdge);InitializeChatLauncher(surface);Content=surface;
         TransparencyBackgroundFallback=Canvas;
     }
 
     void ApplyGlassChrome(bool compact)
     {
         Background=compact?Brushes.Transparent:Canvas;
+        TransparencyBackgroundFallback=Canvas;
         WindowDecorations=compact?WindowDecorations.None:WindowDecorations.BorderOnly;
         // Prefer clear glass over strongly tinted acrylic when the compositor lacks a plain blur.
         TransparencyLevelHint=compact?[WindowTransparencyLevel.Blur,WindowTransparencyLevel.Transparent,WindowTransparencyLevel.AcrylicBlur,WindowTransparencyLevel.None]:[WindowTransparencyLevel.None];
@@ -30,7 +31,9 @@ public sealed partial class MainWindow
         glassTint.Background=new LinearGradientBrush
         {
             StartPoint=new RelativePoint(0,0,RelativeUnit.Relative),EndPoint=new RelativePoint(1,1,RelativeUnit.Relative),
-            GradientStops=[new GradientStop(Color.Parse("#98121f2b"),0),new GradientStop(Color.Parse("#a0111923"),0.5),new GradientStop(Color.Parse("#981c1b2b"),1)]
+            GradientStops=LightTheme
+                ?[new GradientStop(Color.Parse("#eef8fcff"),0),new GradientStop(Color.Parse("#e5ecf3ff"),0.5),new GradientStop(Color.Parse("#ebf6f0ff"),1)]
+                :[new GradientStop(Color.Parse("#98121f2b"),0),new GradientStop(Color.Parse("#a0111923"),0.5),new GradientStop(Color.Parse("#981c1b2b"),1)]
         };
         glassSheen.Background=new LinearGradientBrush
         {
@@ -49,8 +52,8 @@ public sealed partial class MainWindow
         };
     }
 
-    static void StyleGlassButton(Button button)
+    void StyleGlassButton(Button button)
     {
-        button.Background=Brush.Parse("#20ffffff");button.BorderBrush=Brush.Parse("#60e7f1ff");button.BorderThickness=new Thickness(1);button.CornerRadius=new CornerRadius(12);
+        button.Background=Paint("#20ffffff","#158094bb");button.BorderBrush=Paint("#60e7f1ff","#5291a5c2");button.BorderThickness=new Thickness(1);button.CornerRadius=new CornerRadius(12);
     }
 }

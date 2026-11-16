@@ -1,0 +1,207 @@
+using System.Globalization;
+using System.Text.Json;
+
+namespace AiPulse;
+
+/// <summary>Accepts Claude Code's status-line JSON and keeps only quota percentages and reset times.</summary>
+internal static class ClaudeQuotaStatusLine
+{
+    internal sealed record Window(double UsedPercentage, long ResetsAt, long ObservedAt);
+    internal sealed record Snapshot(long ObservedAt, Window? FiveHour, Window? SevenDay);
+
+    internal static string CachePath()
+    {
+        var configured = Environment.GetEnvironmentVariable("AIPULSE_QUOTA_FILE");
+        return string.IsNullOrWhiteSpace(configured)
+            ? Path.Combine(Paths.DefaultRoot, "claude-quota.json")
+            : Path.GetFullPath(configured);
+    }
+
+    internal static int Run()
+    {
+        try
+        {
+            using var input = JsonDocument.Parse(Console.In.ReadToEnd());
+            var path = CachePath();
+            var current = ReadCache(path);
+
+            // Claude Code can invoke a status-line command during startup before limits are known.
+            // Keep the last useful sample in that case and continue displaying it.
+            var updated = ParseStatusLine(input.RootElement, current, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            if (!ReferenceEquals(updated, current))
+            {
+                current = updated;
+                if (current is not null) WriteCache(path, current);
+            }
+
+            Console.Out.WriteLine(Format(current));
+            return 0;
+        }
+        catch
+        {
+            // This command runs in Claude Code's status-line pipeline. Never surface parsing or
+            // disk errors as a prompt or diagnostic that could disrupt the user's session.
+            Console.Out.WriteLine("Claude usage unavailable");
+            return 0;
+        }
+    }
+
+    internal static Snapshot? ParseCache(string json, long? now = null)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.ValueKind != JsonValueKind.Object || !TryLong(root, "observed_at", out var observedAt) ||
+            !ValidUnixTime(observedAt) || !root.TryGetProperty("rate_limits", out var limits) || limits.ValueKind != JsonValueKind.Object)
+            return null;
+        var time = now ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var fiveHour = ReadWindow(limits, "five_hour", observedAt, time);
+        var sevenDay = ReadWindow(limits, "seven_day", observedAt, time);
+        return fiveHour is null && sevenDay is null ? null : new(observedAt, fiveHour, sevenDay);
+    }
+
+    internal static Snapshot? ParseStatusLine(string json, Snapshot? previous, long observedAt)
+    {
+        using var document = JsonDocument.Parse(json);
+        return ParseStatusLine(document.RootElement, previous, observedAt);
+    }
+
+    private static Snapshot? ParseStatusLine(JsonElement root, Snapshot? previous, long observedAt)
+    {
+        var usablePrevious = Expire(previous, observedAt);
+        if (!ValidUnixTime(observedAt)) return usablePrevious;
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("rate_limits", out var limits) || limits.ValueKind != JsonValueKind.Object)
+            return usablePrevious;
+        var fiveHour = ReadWindow(limits, "five_hour", observedAt, observedAt);
+        var sevenDay = ReadWindow(limits, "seven_day", observedAt, observedAt);
+        if (fiveHour is null && sevenDay is null) return usablePrevious;
+        return new(observedAt, fiveHour ?? usablePrevious?.FiveHour, sevenDay ?? usablePrevious?.SevenDay);
+    }
+
+    internal static string Format(Snapshot? snapshot, long? now = null)
+    {
+        if (snapshot is null) return "Claude usage unavailable";
+        var time = now ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        snapshot = Expire(snapshot, time);
+        if (snapshot is null) return "Claude usage unavailable";
+        var parts = new List<string>(2);
+        if (snapshot.FiveHour is { } fiveHour) parts.Add(FormatWindow("5h", fiveHour, time));
+        if (snapshot.SevenDay is { } sevenDay) parts.Add(FormatWindow("7d", sevenDay, time));
+        return parts.Count == 0 ? "Claude usage unavailable" : "Claude " + string.Join(" · ", parts);
+    }
+
+    private static string FormatWindow(string label, Window window, long now)
+    {
+        var remaining = Math.Clamp((int)Math.Round(100 - window.UsedPercentage, MidpointRounding.AwayFromZero), 0, 100);
+        var reset = window.ResetsAt is { } resetAt ? $" · resets {FormatEta(resetAt - now)}" : "";
+        return $"{label} {remaining}% left{reset}";
+    }
+
+    private static string FormatEta(long seconds)
+    {
+        if (seconds <= 0) return "now";
+        var duration = TimeSpan.FromSeconds(seconds);
+        if (duration.TotalDays >= 1) return $"in {(int)duration.TotalDays}d {duration.Hours}h";
+        if (duration.TotalHours >= 1) return $"in {(int)duration.TotalHours}h {duration.Minutes:D2}m";
+        return $"in {Math.Max(1, duration.Minutes)}m";
+    }
+
+    private static Window? ReadWindow(JsonElement limits, string name, long observedAt, long now)
+    {
+        if (!limits.TryGetProperty(name, out var element) || element.ValueKind != JsonValueKind.Object ||
+            !TryDouble(element, "used_percentage", out var percentage) || percentage < 0)
+            return null;
+        if (!TryResetTime(element, out var resetsAt) || resetsAt <= now)
+            return null;
+        var windowObservedAt = element.TryGetProperty("observed_at", out var observed) && observed.ValueKind == JsonValueKind.Number &&
+                               observed.TryGetInt64(out var ownObserved) && ValidUnixTime(ownObserved)
+            ? ownObserved : observedAt;
+        return new(Math.Min(100, percentage), resetsAt, windowObservedAt);
+    }
+
+    private static bool TryResetTime(JsonElement element, out long resetsAt)
+    {
+        resetsAt = 0;
+        if (!element.TryGetProperty("resets_at", out var reset)) return false;
+        if (reset.ValueKind == JsonValueKind.Number && reset.TryGetInt64(out resetsAt)) return ValidUnixTime(resetsAt);
+        if (reset.ValueKind == JsonValueKind.String &&
+            DateTimeOffset.TryParse(reset.GetString(), CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+        {
+            resetsAt = parsed.ToUnixTimeSeconds();
+            return ValidUnixTime(resetsAt);
+        }
+        return false;
+    }
+
+    private static bool ValidUnixTime(long value) => value > 0 && value <= DateTimeOffset.MaxValue.ToUnixTimeSeconds();
+
+    private static Snapshot? Expire(Snapshot? snapshot, long now)
+    {
+        if (snapshot is null) return null;
+        var fiveHour = snapshot.FiveHour is { } five && five.ResetsAt > now ? five : null;
+        var sevenDay = snapshot.SevenDay is { } seven && seven.ResetsAt > now ? seven : null;
+        return fiveHour is null && sevenDay is null ? null :
+            ReferenceEquals(fiveHour, snapshot.FiveHour) && ReferenceEquals(sevenDay, snapshot.SevenDay)
+                ? snapshot : new(snapshot.ObservedAt, fiveHour, sevenDay);
+    }
+
+    private static bool TryDouble(JsonElement element, string name, out double value)
+    {
+        value = 0;
+        return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
+               property.TryGetDouble(out value) && double.IsFinite(value);
+    }
+
+    private static bool TryLong(JsonElement element, string name, out long value)
+    {
+        value = 0;
+        return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
+               property.TryGetInt64(out value);
+    }
+
+    internal static Snapshot? ReadCache(string path)
+    {
+        try { return File.Exists(path) ? ParseCache(File.ReadAllText(path)) : null; }
+        catch { return null; }
+    }
+
+    private static void WriteCache(string path, Snapshot snapshot)
+    {
+        var directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(directory)) throw new InvalidOperationException("Cache path needs a directory.");
+        Directory.CreateDirectory(directory);
+        var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+                {
+                    writer.WriteStartObject();
+                    writer.WriteNumber("observed_at", snapshot.ObservedAt);
+                    writer.WritePropertyName("rate_limits"); writer.WriteStartObject();
+                    WriteWindow(writer, "five_hour", snapshot.FiveHour);
+                    WriteWindow(writer, "seven_day", snapshot.SevenDay);
+                    writer.WriteEndObject(); writer.WriteEndObject(); writer.Flush();
+                }
+                stream.Flush(true);
+            }
+            File.Move(temporary, path, true);
+        }
+        finally
+        {
+            try { if (File.Exists(temporary)) File.Delete(temporary); } catch { }
+        }
+    }
+
+    private static void WriteWindow(Utf8JsonWriter writer, string name, Window? window)
+    {
+        if (window is null) return;
+        writer.WritePropertyName(name); writer.WriteStartObject();
+        writer.WriteNumber("used_percentage", window.UsedPercentage);
+        writer.WriteNumber("resets_at", window.ResetsAt);
+        writer.WriteNumber("observed_at", window.ObservedAt);
+        writer.WriteEndObject();
+    }
+}

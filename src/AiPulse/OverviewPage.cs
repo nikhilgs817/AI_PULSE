@@ -31,10 +31,6 @@ public sealed partial class MainWindow
     {
         var button=Btn(label+" ↗");AutomationProperties.SetName(button,"Overview: open "+target);button.Click+=(_,_)=>Navigate(target);return button;
     }
-    static Grid Columns(Control a,Control b)
-    {
-        var grid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,*")};a.Margin=new Thickness(0,0,6,0);b.Margin=new Thickness(6,0,0,0);grid.Children.Add(a);Grid.SetColumn(b,1);grid.Children.Add(b);return grid;
-    }
     Control Overview()
     {
         long now=J.Now,start=now-overviewSeconds;bool fresh=service.Fresh;
@@ -44,22 +40,25 @@ public sealed partial class MainWindow
         var tokens=TokenSummary.From(service.Store.TokenBreakdown(today,now),service.Store.CounterTotals(today,now));
         var spawns=service.Store.AgentSpawns(today,now);
         var alerts=service.Store.Alerts().Where(a=>a.Active).ToList();
-        var stack=new StackPanel{Spacing=14};
-        stack.Children.Add(Heading("Overview",service.HostName+" · "+service.HostPlatform+" · "+(service.CpuName??"Discovering CPU")));
-        var status=new StackPanel{Orientation=Orientation.Horizontal,Spacing=16};
-        status.Children.Add(Text(fresh?"LIVE":"WAITING / STALE",12,fresh?"#59dfae":"#e8b65f",true));
-        status.Children.Add(Text(service.LastSample>0?"Sampled "+DateTimeOffset.FromUnixTimeSeconds(service.LastSample).ToLocalTime().ToString("MMM d HH:mm:ss zzz"):"Starting collectors…",11,"#8ba0bd"));
-        status.Children.Add(Text($"{alerts.Count} active alerts · {service.Settings.RetentionDays}-day history",11,alerts.Count>0?"#e8b65f":"#8ba0bd"));stack.Children.Add(status);
-        var explain=Btn("Explain this");AutomationProperties.SetName(explain,"Explain this host");
-        explain.Click+=(_,_)=>ShowMeasuredExplanation();
-        stack.Children.Add(explain);
-        foreach(var alert in alerts.Take(2))stack.Children.Add(Message(alert.Title,alert.Detail));
+        var stack=new StackPanel{Spacing=4};
 
-        var tiles=new UniformGrid{Columns=Bounds.Width-(localService.Settings.SidebarCollapsed?60:174)-52>=900?4:2};
+        var tiles=new List<OverviewTile>();
         void Tile(string label,string value,string caption)
         {
-            var card=Metric(label,value,caption);card.Margin=new Thickness(0,0,10,10);card.MinHeight=125;card.Padding=new Thickness(15);tiles.Children.Add(card);
+            tiles.Add(new(label,label,1,()=>Metric(label,value,caption,MetricLevel(label))));
         }
+        double? Percent(string used,string total)=>service.Value(total) is double capacity&&capacity>0&&service.Value(used) is double amount?100*amount/capacity:null;
+        string? MetricLevel(string label)=>!fresh?null:label switch
+        {
+            "CPU UTILIZATION"=>Level(service.Value("cpu.load")),
+            "GPU UTILIZATION"=>Level(service.Value("gpu.load")??service.Value("gpu.engine")),
+            "SYSTEM MEMORY"=>Level(Percent("ram.used","ram.total"),80,95),
+            "GPU LOCAL MEMORY"=>Level(Percent("gpu.local","gpu.local.total"),80,95),
+            "CPU TEMPERATURE"=>TemperatureLevel("cpu.temperature"),
+            "GPU TEMPERATURE"=>TemperatureLevel("gpu.temperature"),
+            _=>null
+        };
+        string? TemperatureLevel(string id)=>fresh?Level(service.Value(id),service.Settings.TemperatureWarning-10,service.Settings.TemperatureWarning):null;
         Tile("CPU UTILIZATION",Live("cpu.load"),$"{service.LogicalProcessors} logical processors · whole host");
         Tile("GPU UTILIZATION",Live("gpu.load"),service.GpuName??"Graphics / compute adapter");
         Tile("SYSTEM MEMORY",Live("ram.used"),"of "+Live("ram.total")+" · "+Live("ram.available")+" available");
@@ -67,36 +66,77 @@ public sealed partial class MainWindow
         Tile("CPU TEMPERATURE",Live("cpu.temperature"),service.SensorBridge.Connected?"Deep sensor helper connected":"Exposed CPU sensor · see Sensors for coverage");
         Tile("GPU TEMPERATURE",Live("gpu.temperature"),"GPU core sensor · unavailable shows —");
         Tile("LOADED MODELS",service.IsRemote&&!fresh?"—":service.Ollama.Models.Count.ToString(),$"{Math.Max(0,service.Ollama.Active.Values.Sum())} observed gateway requests active");
-        Tile("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||fresh)?activity.ActiveAgents.ToString("N0"):"—","Sessions active within 5 min · process use below");stack.Children.Add(tiles);
+        Tile("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||fresh)?activity.ActiveAgents.ToString("N0"):"—","Sessions active within 5 min");
+        Tile("ON-PREM TOKENS · TODAY",CompactCount(tokens.LocalRequests),"Observed model requests · input + output");
+        Tile("TOOL TOKENS · TODAY",CompactCount(tokens.ToolRequests),"Codex / Claude Code · cache included");
+        Tile("vLLM TOKENS · TODAY",CompactCount(tokens.VllmCounters),"Observed server counters");
+        Tile("AGENT SPAWNS · TODAY",spawns.Count==0?"—":J.Count(spawns.Sum(s=>s.Count)),"Distinct reported agent starts");
 
-        var range=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=6,LineSpacing=6};range.Children.Add(Text("TREND WINDOW",12,"#8ba0bd",true));
-        foreach(var item in new[]{(900,"15 min"),(3600,"1 hour"),(21600,"6 hours"),(86400,"24 hours")})
+        tiles.Add(new("utilization","CPU / GPU utilization",2,()=>OverviewChart("CPU / GPU utilization",start,now,"%",100,
+            new("CPU",service.Store.History("cpu.load",start,now),"#40d5ed"),new("GPU",service.Store.History(service.Value("gpu.load").HasValue?"gpu.load":"gpu.engine",start,now),"#ad8bfa"))));
+        tiles.Add(new("memory","System memory trend",2,()=>OverviewChart("System memory",start,now,"GiB",service.Value("ram.total"),new ChartSeries("RAM used",service.Store.History("ram.used",start,now),"#40d5ed"))));
+        tiles.Add(new("temperature","CPU / GPU temperature",2,()=>OverviewChart("CPU / GPU temperature",start,now,"°C",null,
+            new("CPU",service.Store.History("cpu.temperature",start,now),"#40d5ed"),new("GPU core",service.Store.History("gpu.temperature",start,now),"#ad8bfa"))));
+        tiles.Add(new("network","Wi-Fi speed & traffic",2,()=>WifiPanel(NetworkMetrics.From(service.Readings),start,now,fresh)));
+        tiles.Add(new("models","Models",2,OverviewModels));
+        tiles.Add(new("apps","Agent resource consumption",2,OverviewApps));
+        tiles.Add(new("storage","Storage & memory pressure",2,()=>OverviewStorage(fresh)));
+        tiles.Add(new("health","Monitoring health",2,OverviewHealth));
+        tiles.Add(new("alerts","Active alerts",2,()=>Card(new StackPanel{Spacing=8,Children={
+            Text("Active alerts",16,null,true),
+            Text(alerts.Count==0?"No active alerts":string.Join("\n",alerts.Select(a=>a.Title))),
+            OpenPage("Open alerts","Alerts")
+        }}),Optional:true));
+        tiles.Add(new("network-details","Network adapters",2,()=>Card(new StackPanel{Spacing=8,Children={
+            Text("Network adapters",16,null,true),
+            Text(string.Join("\n",NetworkMetrics.From(service.Readings).Select(n=>n.Name).DefaultIfEmpty("No network adapters reported."))),
+            OpenPage("Open hardware","Hardware")
+        }}),Optional:true));
+        tiles.Add(new("requests","Latest observed model requests",4,()=>
         {
-            var b=Btn(item.Item2);if(overviewSeconds==item.Item1)b.Background=Brush.Parse("#443477");AutomationProperties.SetName(b,"Overview range: "+item.Item2);
-            b.Click+=(_,_)=>{overviewSeconds=item.Item1;RenderBody();};range.Children.Add(b);
-        }
-        stack.Children.Add(range);
-        stack.Children.Add(Columns(OverviewChart("CPU / GPU utilization",start,now,"%",100,
-            new("CPU",service.Store.History("cpu.load",start,now),"#40d5ed"),new("GPU",service.Store.History(service.Value("gpu.load").HasValue?"gpu.load":"gpu.engine",start,now),"#ad8bfa")),
-            OverviewChart("System memory",start,now,"GiB",service.Value("ram.total"),new ChartSeries("RAM used",service.Store.History("ram.used",start,now),"#40d5ed"))));
-        stack.Children.Add(Columns(OverviewChart("CPU / GPU temperature",start,now,"°C",null,
-            new("CPU",service.Store.History("cpu.temperature",start,now),"#40d5ed"),new("GPU core",service.Store.History("gpu.temperature",start,now),"#ad8bfa")),WifiPanel(NetworkMetrics.From(service.Readings),start,now,fresh)));
-
-        var onPrem=Metric("ON-PREM TOKENS · TODAY",CompactCount(tokens.LocalRequests),"Observed model requests · input + output since local midnight");
-        var tools=Metric("TOOL TOKENS · TODAY",CompactCount(tokens.ToolRequests),"Codex / Claude Code observations · cache already included");stack.Children.Add(Columns(onPrem,tools));
-        stack.Children.Add(Columns(Metric("vLLM TOKENS · TODAY",CompactCount(tokens.VllmCounters),"Observed server counters · see Token for model and replica details"),
-            Metric("AGENT SPAWNS · TODAY",spawns.Count==0?"—":J.Count(spawns.Sum(s=>s.Count)),"Distinct reported agent starts · see Agents for coverage")));
-        stack.Children.Add(Text("Sources are independent observations and can overlap when a tool uses the Ollama gateway. Open Token for the detailed split.",11,"#8ba0bd"));
-        stack.Children.Add(Columns(OverviewModels(),OverviewApps()));
-        stack.Children.Add(Columns(OverviewStorage(fresh),OverviewHealth()));
-        var requests=service.Store.UsageSince(now-86400,"Ollama",5);
-        if(requests.Count>0)
-        {
+            var requests=service.Store.UsageSince(now-86400,"Ollama",5);
             var recent=new StackPanel{Spacing=10};recent.Children.Add(Text("Latest observed model requests",16,null,true));
-            recent.Children.Add(Table(["Time","Model","Duration","Decode tok/s","Outcome"],requests.Select(u=>new[]{DateTimeOffset.FromUnixTimeSeconds(u.Time).ToLocalTime().ToString("MMM d HH:mm:ss"),u.Model,u.DurationMs.HasValue?$"{u.DurationMs/1000:0.00}s":"—",u.DecodeRate?.ToString("0.0")??"—",u.Status}),"1.5*,2*,*,*,1.5*"));stack.Children.Add(Card(recent));
-        }
+            if(requests.Count==0)recent.Children.Add(Text("No Ollama requests observed in the last 24 hours."));
+            else recent.Children.Add(Table(["Time","Model","Duration","Decode tok/s","Outcome"],requests.Select(u=>new[]{DateTimeOffset.FromUnixTimeSeconds(u.Time).ToLocalTime().ToString("MMM d HH:mm:ss"),u.Model,u.DurationMs.HasValue?$"{u.DurationMs/1000:0.00}s":"—",u.DecodeRate?.ToString("0.0")??"—",u.Status}),"1.5*,2*,*,*,1.5*"));
+            return Card(recent);
+        },Optional:true));
+        foreach(var widget in localService.Settings.CustomMetricWidgets??[])
+            tiles.Add(new(widget.Id,widget.Label,1,()=>Metric(widget.Label,Live(widget.MetricId),"Live sensor · "+widget.MetricId,
+                widget.MetricId.EndsWith(".temperature",StringComparison.Ordinal)?TemperatureLevel(widget.MetricId):
+                fresh&&widget.MetricId.EndsWith(".load",StringComparison.Ordinal)?Level(service.Value(widget.MetricId)):null),Optional:true));
+        stack.Children.Add(OverviewLayout(tiles));
         var actions=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=8,LineSpacing=8};foreach(var target in new[]{"Hardware","Sensors","Models","Agents","Token","History","Alerts"})actions.Children.Add(OpenPage(target,target));stack.Children.Add(actions);
         return stack;
+    }
+    internal static string? Level(double? value,double amber=75,double red=90)=>
+        value is double v&&double.IsFinite(v)?v>=red?"#ff7187":v>=amber?"#e8b65f":"#59dfae":null;
+    Control OverviewFooterActions()
+    {
+        var row=new StackPanel{Orientation=Orientation.Horizontal,Spacing=4};
+        Button Small(string label,string name)
+        {
+            var b=Btn(label);
+            b.FontSize=10;b.Padding=new Thickness(7,2);b.MinHeight=23;
+            AutomationProperties.SetName(b,name);
+            row.Children.Add(b);
+            return b;
+        }
+        row.Children.Add(Text("Trends",10,"#8ba0bd",true));
+        var ranges=new List<(Button Button,int Seconds)>();
+        foreach(var (seconds,label) in new[]{(900,"15 min"),(3600,"1 hour"),(21600,"6 hours"),(86400,"24 hours")})
+        {
+            var b=Small(label,"Overview range: "+label);
+            if(overviewSeconds==seconds)b.Background=Selected;
+            ranges.Add((b,seconds));
+            b.Click+=(_,_)=>{
+                overviewSeconds=seconds;
+                foreach(var item in ranges)item.Button.Background=item.Seconds==seconds?Selected:Paint("#1c283b","#e4edf9");
+                RenderBody();
+            };
+        }
+        var explain=Small("Explain","Explain this host");
+        explain.Click+=(_,_)=>ShowMeasuredExplanation();
+        return row;
     }
     Control OverviewChart(string title,long start,long end,string unit,double? maximum,params ChartSeries[] series)
     {

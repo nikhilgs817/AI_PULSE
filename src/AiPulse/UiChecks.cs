@@ -17,14 +17,24 @@ public sealed partial class MainWindow
         Button ButtonNamed(string name)=>this.GetVisualDescendants().OfType<Button>().First(b=>AutomationProperties.GetName(b)==name);
         async Task Click(string name){ButtonNamed(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Task.Delay(200);for(int i=0;i<20&&localService.Settings.Compact&&Math.Abs(Height-CompactHeight())>0.1;i++)await Task.Delay(50);}
         async Task Shot(string name){await Task.Delay(250);using var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96));bitmap.Render(this);bitmap.Save(Path.Combine(Paths.Root,name+".png"));}
+        bool CompactQuotasFit()
+        {
+            var rings = this.GetVisualDescendants().OfType<QuotaRing>().ToArray();
+            var origins = rings.Select(r => r.TranslatePoint(default, this)).ToArray();
+            return rings.Length == 4 && rings.All(r => r.Bounds.Width == 36 && r.Bounds.Height == 36) &&
+                origins.All(p => p is { } origin && origin.Y == origins[0]?.Y && origin.X >= 0 && origin.X + 36 <= Width) &&
+                origins.Zip(origins.Skip(1)).All(pair => pair.Second!.Value.X >= pair.First!.Value.X + 36);
+        }
         try
         {
             int expectedIndex=Array.IndexOf(Program.Arguments,"--expect-models");
             var readyDeadline=DateTime.UtcNow.AddSeconds(30);
             while(DateTime.UtcNow<readyDeadline&&(service.Hardware?.Inventory.Count is null or 0||expectedIndex>=0&&service.Ollama.Models.Count!=int.Parse(Program.Arguments[expectedIndex+1])))await Task.Delay(250);
             service.Settings.Compact=true;service.Settings.CompactVertical=false;modelsExpanded=false;ApplyWindowLayout();RenderBody();await Shot("compact-horizontal");
-            Check(Width==560&&Height==172&&header.Bounds.Height==34,"Horizontal compact layout fits the two workload rows within a bounded footprint");
-            Check(new[]{"GPU LOAD","GPU LOCAL GiB","RAM FREE","LAST DECODE"}.All(label=>this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text==label))&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("HOTTEST")==true||t.Text=="GPU VR SOC"),"Compact shows resource headroom, temperature and explicitly historical decode speed");
+            Check(Width==560&&Height==224&&header.Bounds.Height==34,"Horizontal compact layout fits the workload rows and quota row within a bounded footprint");
+            Check(CompactQuotasFit() && !this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "LAST DECODE"),
+                "Horizontal compact layout keeps four quota rings in one row without Last Decode");
+            Check(new[]{"GPU LOAD","GPU LOCAL GiB","RAM FREE"}.All(label=>this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text==label))&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("HOTTEST")==true||t.Text=="GPU VR SOC"),"Compact shows resource headroom and temperature");
             Check(Background==Avalonia.Media.Brushes.Transparent&&TransparencyLevelHint.Contains(WindowTransparencyLevel.AcrylicBlur)&&WindowDecorations==WindowDecorations.None,"Compact mode requests native desktop blur with a transparent window background");
             Check(new[]{glassTint,glassSheen,glassEdge,glassInnerEdge}.All(layer=>layer.IsVisible&&!layer.IsHitTestVisible)&&TransparencyBackgroundFallback==Canvas,"Glass tint, reflections and edges preserve input routing and provide a dark compositor fallback");
             results.Add("INFO: Native compact backdrop on this desktop: "+ActualTransparencyLevel);
@@ -38,8 +48,10 @@ public sealed partial class MainWindow
                 scroll.Offset=new Vector(0,scroll.Extent.Height);await Task.Delay(150);Refresh();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<ScrollViewer>().Single().Offset.Y>0,"Loaded-model scroll position survives live refresh");
             }
             await Click("Toggle loaded models");Check(!modelsExpanded&&Height==CompactBaseHeight,"Closing loaded-model dropdown restores compact height");
-            await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==286&&Height==305,"Vertical compact layout fits the token and spawn rows");await Shot("compact-vertical");
-            await Click("Expand dashboard");Check(!service.Settings.Compact&&header.Bounds.Height==64,"Expanded dashboard restores full-size branding");
+            await Click("Switch compact orientation");Check(service.Settings.CompactVertical&&Width==286&&Height==333,"Vertical compact layout fits the workload rows and quota row");await Shot("compact-vertical");
+            Check(CompactQuotasFit() && !this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "LAST DECODE"),
+                "Vertical compact layout keeps four quota rings in one row without Last Decode");
+            await Click("Expand dashboard");Check(!service.Settings.Compact&&header.Bounds.Height==52,"Expanded dashboard uses a shorter header");
             Check(Background==Canvas&&TransparencyLevelHint.SequenceEqual(new[]{WindowTransparencyLevel.None})&&!glassTint.IsVisible&&!glassEdge.IsVisible&&WindowDecorations==WindowDecorations.BorderOnly,"Expanding restores the opaque dashboard and normal window border");
             var pressedHeader=header.Content;ButtonNamed("Maximize window").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Check(ReferenceEquals(pressedHeader,header.Content),"Window-state changes keep the active header attached until input completes");
@@ -50,6 +62,58 @@ public sealed partial class MainWindow
             await Click("Overview");await Click("Overview");Check(scroller!=null&&page=="Overview","Clicking the current navigation tab repeatedly preserves its content");
             Check(this.GetVisualDescendants().OfType<TextBlock>().First(t=>t.Text=="GPU TEMPERATURE").FontSize==15,"Overview metric headings match the other card headings");
             Check(new[]{"CPU UTILIZATION","ACTIVE AGENTS","ON-PREM TOKENS · TODAY","TOOL TOKENS · TODAY","Agent resource consumption","Monitoring health","Storage & memory pressure","Wi-Fi speed & traffic"}.All(label=>this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text==label)),"Overview includes hardware, workloads, independent daily token totals, Wi-Fi and collection health");
+            Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>AutomationProperties.GetName(b)=="Toggle compact theme"),"The expanded header only offers the dashboard theme");
+            await Click("Show compact dashboard");await Click("Toggle compact theme");
+            Check(localService.Settings.CompactLightTheme&&LightTheme,"Compact theme remains available in compact mode");
+            await Click("Expand dashboard");
+            Check(!LightTheme,"Compact theme leaves the dashboard theme independent");
+            ToggleSwitch ThemeSwitch()=>this.GetVisualDescendants().OfType<ToggleSwitch>().Single(t=>AutomationProperties.GetName(t)=="Toggle dashboard theme");
+            ThemeSwitch().IsChecked=true;await Task.Delay(200);
+            Check(LightTheme&&RequestedThemeVariant==Avalonia.Styling.ThemeVariant.Light,"Dashboard header switches the dashboard palette");
+            await Click("Edit layout");
+            Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>AutomationProperties.GetName(b)=="Assistant")&&
+                ButtonNamed("Ask Pulse")!=null,"Chat launcher replaces the Assistant navigation tab");
+            Check(TryCreateWidget("Build a 2×2 widget for GPU temperature",out var added)&&added.Contains("Widget shelf")&&
+                TryCreateWidget("Create a widget for an unmonitored fixture value",out var rejected)&&rejected.Contains("couldn't match")&&
+                TryCreateWidget("Build a 45×2 widget for CPU usage",out var invalid)&&invalid.Contains("Choose a widget size"),
+                "Chat creates only recognized telemetry widgets with bounded grid dimensions");
+            var widgetPrefs=Paths.Load();
+            var created=widgetPrefs.CustomMetricWidgets.Single();
+            Check(created.MetricId=="gpu.temperature"&&widgetPrefs.OverviewTileSizes[created.Id]==new OverviewTileSize(2,2),
+                "Custom widget and its requested size persist across settings reload");
+            Check(Level(null)==null&&Level(50)=="#59dfae"&&Level(78)=="#e8b65f"&&Level(95)=="#ff7187",
+                "Threshold colors distinguish normal, warning, high and unavailable");
+            await Click("Ask Pulse");
+            Check(chatWindow?.IsVisible==true&&chatScroll?.Content is StackPanel,"Ask Pulse opens an independent chat window");
+            chatWindow!.Close();
+            async Task AddTile(string name)
+            {
+                var button=ButtonNamed("Widget shelf");
+                var flyout=(Flyout)button.Flyout!;
+                var shelf=(StackPanel)((ScrollViewer)flyout.Content!).Content!;
+                flyout.ShowAt(button);
+                await Task.Delay(100);
+                shelf.Children.OfType<Button>().Single(b=>AutomationProperties.GetName(b)=="Add "+name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                flyout.Hide();
+                await Task.Delay(100);
+            }
+            await AddTile("Active alerts");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Active alerts"),"Widget shelf adds optional panels");
+            await Click("Remove CPU UTILIZATION");
+            Check(!this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="Drag CPU UTILIZATION"),"Removing a tile hides it from the grid");
+            await Click("Undo");
+            Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="Drag CPU UTILIZATION"),"Undo returns a removed tile to its prior slot");
+            await Click("Remove CPU UTILIZATION");
+            await AddTile("CPU UTILIZATION");
+            await Click("Move CPU UTILIZATION later");
+            var savedLayout=Paths.Load();
+            Check(savedLayout.OverviewTileOrder.IndexOf("CPU UTILIZATION")>savedLayout.OverviewTileOrder.IndexOf("GPU UTILIZATION")&&
+                !savedLayout.HiddenOverviewTiles.Contains("CPU UTILIZATION")&&savedLayout.CompactLightTheme&&savedLayout.DashboardLightTheme,
+                "Reordering and both theme preferences survive reloading settings");
+            await Shot("overview-widget-grid-light");
+            await Click("Reset layout");await Click("Done editing");
+            ThemeSwitch().IsChecked=false;await Task.Delay(200);
+            await Click("Show compact dashboard");await Click("Toggle compact theme");await Click("Expand dashboard");
             Check(this.GetVisualDescendants().OfType<TrendChart>().Count()>=3&&this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==900),"Overview trend panels share an explicit 15-minute dated time window");
             await Click("Overview range: 1 hour");Check(this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==3600),"Overview time-range selection updates every trend together");
             await Click("Overview: open Agents");Check(page=="Agents","Overview resource drill-down opens the Agents page");await Click("Overview");
@@ -102,16 +166,37 @@ public sealed partial class MainWindow
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="1,500")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="1,950"),"Token displays exact independent totals for both sections");await Shot("token-split");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="vLLM server tokens")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="48"),"Token exposes vLLM server counters separately from observed requests");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("Codex · last recorded")==true)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.Contains("Import disabled")==true),"Token page exposes last-recorded times and collection status separately from saved totals");
+            var quotaNow = DateTimeOffset.UtcNow;
+            nextQuotaRead = quotaNow.AddMinutes(5);
+            codexQuota = new(new(32, quotaNow.AddHours(1)), new(63, quotaNow.AddDays(2)), quotaNow);
+            claudeQuota = new(new(84, quotaNow.AddHours(2)), new(50, quotaNow.AddDays(4)), quotaNow);
+            localService.Settings.ReadAgentUsage = true;
+            RenderBody();
+            await Shot("token-subscription-quotas");
+            var quotaRings = this.GetVisualDescendants().OfType<QuotaRing>().ToArray();
+            Check(quotaRings.Length == 4 && quotaRings.All(r => r.TranslatePoint(new Point(0, 0), this)?.Y == quotaRings[0].TranslatePoint(new Point(0, 0), this)?.Y)
+                && new[] { "68%", "37%", "16%", "50%" }.All(percent => this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == percent)),
+                "Token displays the four remaining percentages in one row");
+            localService.Settings.ReadAgentUsage = false;
             tokenDays=7;RenderBody();await Task.Delay(150);Check(tokenDays==7&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Cache write¹"),"Token supports period selection and detailed cache/reasoning columns");
             await Click("Show compact dashboard");Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="LOCAL TOKENS TODAY: "+J.Count(1500)),"Compact daily token value updates from stored input/output observations");
             Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="ACTIVE AGENTS: —"),"Disabled agent import is shown as unavailable rather than zero active agents");
             Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="vLLM TOKENS TODAY: 48"),"Compact shows vLLM tokens in the same local-day window");
             Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="AGENT SPAWNS TODAY: 1"),"Compact shows distinct observed starts independently of recent session activity");
-            await Shot("compact-activity");await Click("Expand dashboard");
+            await Shot("compact-activity");
+            localService.Settings.ReadAgentUsage = true;
+            RenderBody();
+            await Shot("compact-subscription-quotas");
+            Check(CompactQuotasFit() && new[] { "68%", "37%", "16%", "50%" }.All(percent => this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == percent)),
+                "Compact quota rings show the same remaining percentages as Token");
+            localService.Settings.ReadAgentUsage = false;
+            await Click("Expand dashboard");
             await Click("History");Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"Default 90-day history does not offer unavailable year ranges");
             service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
             await Shot("history-year");
             await Click("Settings");
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="AI")&&
+                this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Download selected model")),"Settings contains the optional AI setup");
             Check(this.GetVisualDescendants().OfType<NumericUpDown>().Any(c=>AutomationProperties.GetName(c)=="Backup storage budget in MiB"&&c.Value==512)&&this.GetVisualDescendants().OfType<NumericUpDown>().Any(c=>AutomationProperties.GetName(c)=="Daily backup restore points"&&c.Value==3)&&this.GetVisualDescendants().OfType<NumericUpDown>().Any(c=>AutomationProperties.GetName(c)=="Weekly backup restore points"&&c.Value==4)&&this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Optimize existing backups")),"Settings exposes independent compressed-backup retention and storage limits without reducing monitoring history");
             await Shot("settings");
             await RunFleetUiChecks(results);

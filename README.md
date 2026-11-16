@@ -81,7 +81,8 @@ The app does not install model weights or change Ollama's existing server config
 - **Last request tok/s** is completed-request decode speed, not an instantaneous throughput measurement.
 - **Cached input** is already included in input totals; reasoning tokens are already included in output totals. Claude cache-write input is normalized into total input.
 - **Unknown is not zero.** Missing sensors and unavailable request counts show a dash or an explicit availability message.
-- **Tokens are not your subscription bill.** AI Pulse does not infer ChatGPT/Claude subscription limits or invoiced cost.
+- **Subscription usage.** The Token page and local compact window show the last provider-reported 5-hour and weekly percentages for ChatGPT plan usage reported by Codex and for Claude Code. The center shows the percentage left. The arc shows usage and turns amber above 50% and red above 75%. Missing or expired readings show a dash. Local usage metadata must be enabled in Settings.
+- **Claude Code setup.** If you do not already use a status line, add a `statusLine` command to your Claude Code user settings. Set its `type` to `command` and its `command` to the quoted absolute path of the AI Pulse executable followed by `--claude-quota-statusline`. On Windows, use forward slashes in the executable path. Start a new Claude Code session and wait for a response. The command stores only percentages and reset/observation times. [Claude Code status line](https://code.claude.com/docs/en/statusline)
 
 See the [user guide](docs/USER-GUIDE.md) and [metric definitions](docs/METRICS.md).
 

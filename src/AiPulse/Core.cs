@@ -32,6 +32,14 @@ public sealed class AppSettings
     public bool Compact { get; set; } = true;
     public bool Pinned { get; set; } = true;
     public bool CompactVertical { get; set; }
+    public bool CompactLightTheme { get; set; }
+    public bool DashboardLightTheme { get; set; }
+    public List<string> OverviewTileOrder { get; set; } = [];
+    public List<string> HiddenOverviewTiles { get; set; } = [];
+    public Dictionary<string,OverviewTileSize> OverviewTileSizes { get; set; } = [];
+    public List<CustomMetricWidget> CustomMetricWidgets { get; set; } = [];
+    public double? ChatLauncherRight { get; set; }
+    public double? ChatLauncherBottom { get; set; }
     public bool SidebarCollapsed { get; set; }
     public bool RequestSensorsAtLaunch { get; set; }
     public int RetentionDays { get; set; } = 90;
@@ -63,6 +71,9 @@ public static class Paths
 {
     static readonly object settingsGate=new();
     public static string Root { get; private set; } = "";
+    internal static string DefaultRoot => OperatingSystem.IsWindows()
+        ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AI Pulse")
+        : Path.Combine(Environment.GetEnvironmentVariable("XDG_DATA_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share"), "ai-pulse");
     public static string Database => Path.Combine(Root,"data","pulse.db");
     public static string Settings => Path.Combine(Root,"settings.json");
     public static string Backups(AppSettings s) => string.IsNullOrWhiteSpace(s.BackupDirectory) ? Path.Combine(Root,"backups") : s.BackupDirectory;
@@ -73,9 +84,7 @@ public static class Paths
                   args[ix+1].StartsWith("--",StringComparison.Ordinal)||
                   ix+2<args.Length&&!args[ix+2].StartsWith("--",StringComparison.Ordinal)))
             throw new ArgumentException("Pass --data-dir followed by one quoted path.");
-        Root=ix>=0 ? Path.GetFullPath(args[ix+1]) :
-            OperatingSystem.IsWindows() ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"AI Pulse") :
-            Path.Combine(Environment.GetEnvironmentVariable("XDG_DATA_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".local","share"),"ai-pulse");
+        Root=ix>=0 ? Path.GetFullPath(args[ix+1]) : DefaultRoot;
         foreach(var sub in new[]{"data","backups","logs","exports"}) Directory.CreateDirectory(Path.Combine(Root,sub));
     }
     public static AppSettings Load()

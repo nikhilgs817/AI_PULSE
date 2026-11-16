@@ -21,39 +21,86 @@ public sealed partial class MainWindow : Window
     MonitorService service=>fleet?.SelectedMonitor??localService;
     readonly Grid shell=new();
     readonly ContentControl header=new(),body=new();
-    readonly TextBlock footer=Text("Starting collectors…",11,"#91a4be");
+    readonly TextBlock footer=new(){Text="Starting collectors…",FontSize=10,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
+    readonly ContentControl footerActions=new(){VerticalAlignment=VerticalAlignment.Center};
+    readonly Border footerBar=new();
     readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromSeconds(2)};
     readonly Dictionary<string,string> searches=[];
     string page="Overview",notice="";
     string? layoutPage;
     bool firstPosition=true,modelsExpanded,rebuilding;
+    IPointer? compactMovePointer;
+    PixelPoint compactMoveOrigin,compactWindowOrigin;
     int updates;
     ScrollViewer? scroller;
     Vector compactOffset;
     TextBlock? settingsSensorStatus;
-    static readonly IBrush Canvas=Brush.Parse("#0b111c"),Panel=Brush.Parse("#121c2b"),Line=Brush.Parse("#26344a");
     public MainWindow(MonitorService monitor)
     {
         localService=monitor;InitializeFleet();Title="AI Pulse";Background=Canvas;Foreground=Brush.Parse("#e9effa");FontFamily="Segoe UI";
         int pi=Array.IndexOf(Program.Arguments,"--page");if(pi>=0&&Program.Arguments.Length>pi+1)page=Program.Arguments[pi+1];
+        if(page=="Assistant")page="Settings";
         Topmost=localService.Settings.Pinned;ExtendClientAreaToDecorationsHint=true;WindowDecorations=WindowDecorations.BorderOnly;ExtendClientAreaTitleBarHeightHint=0;
         try{Icon=new WindowIcon(AssetLoader.Open(new Uri("avares://AiPulse/Assets/pulse.ico")));}catch{}
-        shell.Children.Add(header);Grid.SetRow(body,1);shell.Children.Add(body);Grid.SetRow(footer,2);footer.Margin=new Thickness(18,7);shell.Children.Add(footer);InitializeGlassChrome();
+        shell.Children.Add(header);Grid.SetRow(body,1);shell.Children.Add(body);
+        var footerGrid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),ColumnSpacing=8,Children={footer,footerActions}};
+        Grid.SetColumn(footerActions,1);
+        footerBar.Child=footerGrid;footerBar.Padding=new Thickness(14,0);
+        footerBar.BorderThickness=new Thickness(0,1,0,0);
+        Grid.SetRow(footerBar,2);shell.Children.Add(footerBar);InitializeGlassChrome();
+        // A transparent hit surface lets gaps in the glass move the window too.
+        shell.Background=Brushes.Transparent;
         // Handle the entire non-interactive surface; routed button/input events retain their normal behavior.
         AddHandler(PointerPressedEvent,(_,e)=>
         {
             if(!e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)return;
             for(var v=e.Source as Visual;v!=null&&v!=this;v=v.GetVisualParent())
-                if(v is Button or TextBox or ComboBox or Slider or ScrollBar or NumericUpDown or ToggleSwitch or MenuItem)return;
+                if(v is Button or TextBox or ComboBox or Slider or ScrollBar or NumericUpDown or ToggleSwitch or MenuItem||
+                    v is Control control&&ReferenceEquals(control.Tag,LayoutHandle))return;
             if(!localService.Settings.Compact&&e.ClickCount==2&&e.GetPosition(this).Y<header.Bounds.Bottom){e.Handled=true;Dispatcher.UIThread.Post(ToggleMaximize);return;}
-            BeginMoveDrag(e);
+            if(!localService.Settings.Compact||!OperatingSystem.IsWindows()){BeginMoveDrag(e);return;}
+            if(compactMovePointer!=null)return;
+            compactMovePointer=e.Pointer;
+            compactMoveOrigin=this.PointToScreen(e.GetPosition(this));
+            compactWindowOrigin=Position;
+            e.Pointer.Capture(this);
+            e.Handled=true;
         },RoutingStrategies.Bubble);
+        PointerMoved+=(_,e)=>
+        {
+            if(e.Pointer!=compactMovePointer)return;
+            var point=this.PointToScreen(e.GetPosition(this));
+            var destination=new PixelPoint(compactWindowOrigin.X+point.X-compactMoveOrigin.X,
+                compactWindowOrigin.Y+point.Y-compactMoveOrigin.Y);
+            if(Position!=destination)Position=destination;
+            e.Handled=true;
+        };
+        PointerReleased+=(_,e)=>
+        {
+            if(e.Pointer!=compactMovePointer)return;
+            FinishCompactMove();
+            e.Pointer.Capture(null);
+            e.Handled=true;
+        };
+        PointerCaptureLost+=(_,e)=>{if(e.Pointer==compactMovePointer)FinishCompactMove();};
         // Keep the pressed visual attached until native pointer processing finishes.
         PropertyChanged+=(_,e)=>{if(e.Property==WindowStateProperty)Dispatcher.UIThread.Post(BuildHeader);};
         Closing+=(_,e)=>{if(Application.Current is App a&&!a.Quitting){SavePosition();if(OperatingSystem.IsWindows()){e.Cancel=true;Hide();}else{a.Quitting=true;(a.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();}}};
         Opened+=async(_,_)=>
         {
-            if(firstPosition){firstPosition=false;var screen=Screens.Primary??Screens.All.FirstOrDefault();if(screen!=null){var area=screen.WorkingArea;Position=new PixelPoint((int)(localService.Settings.X??(area.Right-Width*screen.Scaling-20)),(int)(localService.Settings.Y??(area.Bottom-Height*screen.Scaling-48)));KeepOnScreen();}}
+            if(firstPosition)
+            {
+                firstPosition=false;
+                var screen=Screens.Primary??Screens.All.FirstOrDefault();
+                if(screen!=null)
+                {
+                    var area=screen.WorkingArea;
+                    var position=new PixelPoint((int)(localService.Settings.X??(area.Right-Width*screen.Scaling-20)),
+                        (int)(localService.Settings.Y??(area.Bottom-Height*screen.Scaling-48)));
+                    // Restore using the saved coordinate's monitor, before the native position update.
+                    Position=ConstrainPosition(position);
+                }
+            }
             if(!localService.Settings.FleetDashboard&&(Program.Arguments.Contains("--enable-sensors")||service.Settings.RequestSensorsAtLaunch))service.SensorBridge.Enable();
             if(Program.Arguments.Contains("--ui-test")){await Task.Delay(5000);await RunUiChecks();return;}
             if(Program.Arguments.Contains("--capture")){await Task.Delay(12000);Capture();}
@@ -62,34 +109,61 @@ public sealed partial class MainWindow : Window
         KeyDown+=(_,e)=>{if(e.Key==Key.D&&e.KeyModifiers.HasFlag(KeyModifiers.Control))ToggleMode();if(e.Key==Key.Q&&e.KeyModifiers.HasFlag(KeyModifiers.Control))Quit();};
         ApplyWindowLayout();timer.Tick+=(_,_)=>Refresh();timer.Start();Closed+=(_,_)=>{fleet?.Dispose();assistantRequest?.Cancel();assistant.Dispose();};Refresh();
     }
-    void SavePosition(){localService.Settings.X=Position.X;localService.Settings.Y=Position.Y;Paths.Save(localService.Settings);}
-    void Quit(){SavePosition();if(Application.Current is App app){app.Quitting=true;(app.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();}}
-    void KeepOnScreen()
+    void FinishCompactMove()
     {
-        var screen=Screens.ScreenFromWindow(this)??Screens.Primary;if(screen==null)return;var area=screen.WorkingArea;
-        Position=new PixelPoint(Math.Clamp(Position.X,area.X,Math.Max(area.X,area.Right-(int)(Width*screen.Scaling))),Math.Clamp(Position.Y,area.Y,Math.Max(area.Y,area.Bottom-(int)(Height*screen.Scaling))));
+        compactMovePointer=null;
+        if(Position!=compactWindowOrigin)SavePosition();
     }
+    void SavePosition()
+    {
+        if(WindowState!=WindowState.Normal)return;
+        localService.Settings.X=Position.X;localService.Settings.Y=Position.Y;
+        Paths.Save(localService.Settings);
+    }
+    void Quit(){SavePosition();if(Application.Current is App app){app.Quitting=true;(app.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();}}
+    void KeepOnScreen()=>Position=ConstrainPosition(Position);
+    PixelPoint ConstrainPosition(PixelPoint position)
+    {
+        var screen=Screens.All.FirstOrDefault(s=>s.Bounds.Contains(position))
+            ??Screens.ScreenFromWindow(this)??Screens.Primary;
+        return screen==null?position:FitPosition(position,screen.WorkingArea,(int)(Width*screen.Scaling),(int)(Height*screen.Scaling));
+    }
+    internal static PixelPoint FitPosition(PixelPoint position,PixelRect area,int width,int height)=>new(
+        Math.Clamp(position.X,area.X,Math.Max(area.X,area.Right-width)),
+        Math.Clamp(position.Y,area.Y,Math.Max(area.Y,area.Bottom-height)));
     void ApplyWindowLayout()
     {
         bool compact=localService.Settings.Compact,vertical=localService.Settings.CompactVertical;
-        ApplyGlassChrome(compact);
+        ApplyPalette();
         if(compact&&WindowState==WindowState.Maximized)WindowState=WindowState.Normal;
         MinWidth=compact?(vertical?240:560):850;MinHeight=compact?100:520;CanResize=!compact;CanMaximize=!compact;
-        shell.RowDefinitions=new RowDefinitions(compact?(fleet!=null?"62,*,0":"34,*,0"):"64,*,34");footer.IsVisible=!compact;
+        shell.RowDefinitions=new RowDefinitions(compact?(fleet!=null?"62,*,0":"34,*,0"):"52,*,34");footerBar.IsVisible=!compact;
         Width=compact?(vertical?286:560):1280;
         Height=compact?CompactHeight():820;
         BuildHeader();layoutPage=null;
     }
-    double CompactBaseHeight=>(localService.Settings.CompactVertical?305:172)+(fleet!=null?28:0);
+    const int CompactQuotaRowHeight = 52;
+    bool ShowCompactQuotas => fleet is null && !service.IsRemote;
+    double CompactBaseHeight=>(localService.Settings.CompactVertical?281:172)+(fleet!=null?28:0)+(ShowCompactQuotas?CompactQuotaRowHeight:0);
     double CompactHeight()=>CompactBaseHeight+(modelsExpanded?Math.Min(300,Math.Max(66,service.Ollama.Models.Count*(localService.Settings.CompactVertical?94:76)+12)):0);
     void BuildHeader()
     {
         bool compact=localService.Settings.Compact;
         var title=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};
-        var brand=new Border{Width=compact?(localService.Settings.CompactVertical?88:124):240,Height=compact?22:42,HorizontalAlignment=HorizontalAlignment.Left,ClipToBounds=true,Child=new Image{Source=new Bitmap(AssetLoader.Open(new Uri("avares://AiPulse/Assets/wordmark.png"))),Stretch=Stretch.UniformToFill}};
+        var brand=new Border{Width=compact?(localService.Settings.CompactVertical?88:124):195,Height=compact?22:34,HorizontalAlignment=HorizontalAlignment.Left,ClipToBounds=true,Child=new Image{Source=new Bitmap(AssetLoader.Open(new Uri("avares://AiPulse/Assets/wordmark.png"))),Stretch=Stretch.UniformToFill}};
         Avalonia.Automation.AutomationProperties.SetName(brand,"AIPULSE · drag to move");title.Children.Add(brand);
         var controls=new StackPanel{Orientation=Orientation.Horizontal,Spacing=compact?3:6,VerticalAlignment=VerticalAlignment.Center};
         Button Action(string label,string help,Action action){var b=Btn(label);b.FontSize=compact?11:13;b.Padding=compact?new Thickness(5,2):new Thickness(10,7);b.MinHeight=compact?24:34;if(compact)StyleGlassButton(b);ToolTip.SetTip(b,help);Avalonia.Automation.AutomationProperties.SetName(b,help);b.Click+=(_,_)=>action();controls.Children.Add(b);return b;}
+        if(compact)Action(LightTheme?"☀":"☾","Toggle compact theme",()=>TogglePalette(true));
+        else
+        {
+            var theme=new ToggleSwitch{IsChecked=LightTheme,OnContent="Light",OffContent="Dark",FontSize=11,
+                VerticalAlignment=VerticalAlignment.Center};
+            Avalonia.Automation.AutomationProperties.SetName(theme,"Toggle dashboard theme");
+            ToolTip.SetTip(theme,"Dashboard appearance");
+            theme.IsCheckedChanged+=(_,_)=>TogglePalette(false);
+            controls.Children.Add(theme);
+        }
         Action(Topmost?"●":"○",Topmost?"Unpin window":"Pin window on top",()=>{Topmost=!Topmost;localService.Settings.Pinned=Topmost;Paths.Save(localService.Settings);BuildHeader();});
         if(compact)Action(localService.Settings.CompactVertical?"↔":"↕","Switch compact orientation",()=>{localService.Settings.CompactVertical=!localService.Settings.CompactVertical;Paths.Save(localService.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();});
         Action(compact?"↗":"Compact ↙",compact?"Expand dashboard":"Show compact dashboard",ToggleMode);
@@ -98,19 +172,18 @@ public sealed partial class MainWindow : Window
         Action("×",OperatingSystem.IsWindows()?"Close to tray":"Close window",Close);
         Grid.SetColumn(controls,1);title.Children.Add(controls);
         AddFleetHeader(title,compact);
-        header.Content=new Border{Child=title,Padding=compact?new Thickness(8,3):new Thickness(18,10),Background=compact?Brush.Parse("#0dffffff"):Brushes.Transparent,BorderBrush=compact?Brush.Parse("#22d4eaff"):Line,BorderThickness=new Thickness(0,0,0,1)};
+        header.Content=new Border{Child=title,Padding=compact?new Thickness(8,3):new Thickness(14,6),Background=compact?Brush.Parse("#0dffffff"):Brushes.Transparent,BorderBrush=compact?Brush.Parse("#22d4eaff"):Line,BorderThickness=new Thickness(0,0,0,1)};
     }
     void ToggleMaximize(){if(!localService.Settings.Compact)WindowState=WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized;}
     public void ToggleMode(){SavePosition();localService.Settings.Compact=!localService.Settings.Compact;Paths.Save(localService.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();}
     void Refresh()
     {
-        if(!IsVisible&&updates++>0)return;
-        if(fleet!=null){footer.Text=fleet.Status+" · "+SelectedHostLabel();if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;RefreshHostMenu();if(layoutPage==null||page is not ("Settings" or "Assistant"))RenderBody();return;}
+        if(overviewDragPending||overviewShelfOpen||!IsVisible&&updates++>0)return;
+        if(fleet!=null){UpdateFooter(fleet.Status+" · "+SelectedHostLabel());if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;RefreshHostMenu();if(layoutPage==null||page is not ("Settings" or "Assistant"))RenderBody();return;}
         int alerts;
         try{alerts=service.Store.Alerts().Count(a=>a.Active);}
         catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();return;}
-        string fresh=service.LastSample==0?"Starting":J.Now-service.LastSample>8?"STALE readings":"Live · 2s";
-        footer.Text=$"{fresh}   ·   {alerts} alerts   ·   {service.Settings.RetentionDays}-day history   ·   "+(service.Settings.LastBackupError!=null?"Backup needs attention":service.Settings.LastBackup!=null?"Backup verified":"Backup pending");
+        UpdateFooter($"{alerts} alerts · "+(service.Settings.LastBackupError!=null?"Backup needs attention":service.Settings.LastBackup!=null?"Backup verified":"Backup pending"));
         if(settingsSensorStatus!=null)settingsSensorStatus.Text=SensorDescription();
         if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;
         if(layoutPage==null||page is not ("Settings" or "Assistant")||localService.Settings.Compact)RenderBody();
@@ -122,22 +195,29 @@ public sealed partial class MainWindow : Window
         if(rebuilding)return;rebuilding=true;
         try
         {
-            if(localService.Settings.Compact){body.Content=fleet!=null&&fleet.SelectedHost==""?FleetCompact():fleet!=null&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):Compact();Height=CompactHeight();return;}
+            if(localService.Settings.Compact)
+            {
+                if(compactMovePointer!=null)return;
+                body.Content=fleet!=null&&fleet.SelectedHost==""?FleetCompact():fleet!=null&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):Compact();
+                double height=CompactHeight();
+                if(Height!=height)Height=height;
+                return;
+            }
             var offset=scroller?.Offset??default;
             if(layoutPage!=page)
             {
                 bool collapsed=localService.Settings.SidebarCollapsed;
                 var layout=new Grid{ColumnDefinitions=new ColumnDefinitions(collapsed?"60,*":"174,*")};var nav=new StackPanel{Spacing=6,Margin=new Thickness(8,14)};
                 var collapse=Btn(collapsed?"»":"«  Collapse menu");ToolTip.SetTip(collapse,collapsed?"Expand menu":"Collapse menu");Avalonia.Automation.AutomationProperties.SetName(collapse,collapsed?"Expand menu":"Collapse menu");collapse.Click+=(_,_)=>{localService.Settings.SidebarCollapsed=!collapsed;Paths.Save(localService.Settings);layoutPage=null;RenderBody();};nav.Children.Add(collapse);
-                foreach(var item in new[]{"Overview","Hardware","Sensors","Models","Agents","Token","History","Alerts","Assistant","Settings"})
+                foreach(var item in new[]{"Overview","Hardware","Sensors","Models","Agents","Token","History","Alerts","Settings"})
                 {
                     var contents=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12};contents.Children.Add(NavIcon(item));if(!collapsed)contents.Children.Add(Text(item,13));
-                    var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand)};
-                    ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{if(page==item)return;page=item;scroller=null;layoutPage=null;RenderBody();};nav.Children.Add(b);
+                    var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand),Background=Paint("#1c283b","#e4edf9")};
+                    ToolTip.SetTip(b,item);Avalonia.Automation.AutomationProperties.SetName(b,item);if(item==page)b.Background=Selected;b.Click+=(_,_)=>{if(page==item)return;page=item;scroller=null;layoutPage=null;RenderBody();};nav.Children.Add(b);
                 }
                 if(!collapsed){var host=Text((fleet!=null?SelectedHostLabel():"This PC")+"\n"+(fleet!=null?"Central dashboard":service.HostPlatform)+" · v"+typeof(MainWindow).Assembly.GetName().Version?.ToString(3),11,"#7f93af");host.Margin=new Thickness(12,26,0,0);nav.Children.Add(host);}
                 layout.Children.Add(new Border{Child=new ScrollViewer{Content=nav},BorderBrush=Line,BorderThickness=new Thickness(0,0,1,0)});
-                var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=new Thickness(26,20)};
+                var main=new Grid{RowDefinitions=new RowDefinitions("Auto,*"),Margin=page=="Overview"?new Thickness(22,8,22,8):new Thickness(26,20)};
                 if(page is "Hardware" or "Sensors" or "Agents")
                 {
                     var search=new TextBox{Text=Query,PlaceholderText=page=="Agents"?"Search app, process, PID, model, session or status…":page=="Hardware"?"Search hardware, device or specification…":"Search device, sensor, unit, source or process…",Margin=new Thickness(0,0,0,16)};
@@ -146,10 +226,22 @@ public sealed partial class MainWindow : Window
                 }
                 scroller=new ScrollViewer{HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled};Grid.SetRow(scroller,1);main.Children.Add(scroller);Grid.SetColumn(main,1);layout.Children.Add(main);body.Content=layout;layoutPage=page;
             }
-            scroller!.Content=fleet!=null&&page is not ("Settings" or "Assistant")&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page is not ("Settings" or "Assistant")&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),"Assistant"=>AssistantPage(),_=>SettingsPage()};scroller.Offset=offset;
+            bool overview=page=="Overview"&&(fleet==null||fleet.SelectedMonitor?.RemoteSnapshot!=null);
+            if(overview!=(footerActions.Content!=null)||overview&&!Equals(footerActions.Tag,RequestedThemeVariant))
+            {
+                footerActions.Content=overview?OverviewFooterActions():null;
+                footerActions.Tag=RequestedThemeVariant;
+            }
+            scroller!.Content=fleet!=null&&page!="Settings"&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page!="Settings"&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()};scroller.Offset=offset;
         }
         catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();}
         finally{rebuilding=false;}
+    }
+    void UpdateFooter(string status)
+    {
+        string sample=service.LastSample>0?DateTimeOffset.FromUnixTimeSeconds(service.LastSample).ToLocalTime().ToString("MMM d HH:mm:ss zzz"):"Waiting for first sample";
+        footer.Text=$"{(service.Fresh?"Live":"Waiting / stale")} · {service.HostName} · {service.HostPlatform} · {sample} · {service.Settings.RetentionDays}-day history · {status}";
+        ToolTip.SetTip(footer,footer.Text+" · "+service.CpuName);
     }
     void ShowDatabaseError()
     {
@@ -158,7 +250,7 @@ public sealed partial class MainWindow : Window
         else body.Content=error;
         footer.Text="Database integrity error";
     }
-    static Control NavIcon(string name)
+    Control NavIcon(string name)
     {
         string data=name switch{
             "Overview"=>"M2,2 H8 V8 H2 Z M12,2 H18 V8 H12 Z M2,12 H8 V18 H2 Z M12,12 H18 V18 H12 Z",
@@ -171,13 +263,16 @@ public sealed partial class MainWindow : Window
             "History"=>"M3,6 A8,8 0 1 1 2,12 M3,1 V6 H8 M10,5 V10 L14,12",
             "Alerts"=>"M10,2 L19,18 H1 Z M10,7 V12 M10,14 V16",
             _=>"M10,1 L13,4 L17,4 L17,8 L19,10 L17,13 L17,17 L13,17 L10,19 L7,17 L3,17 L3,13 L1,10 L3,7 L3,3 L7,3 Z M10,7 A3,3 0 1 0 10,13 A3,3 0 1 0 10,7"};
-        return new Avalonia.Controls.Shapes.Path{Data=Geometry.Parse(data),Stroke=Brush.Parse("#b8c7df"),StrokeThickness=1.4,Width=20,Height=20,Stretch=Stretch.Uniform};
+        return new Avalonia.Controls.Shapes.Path{Data=Geometry.Parse(data),Stroke=Ink("#b8c7df"),StrokeThickness=1.4,Width=20,Height=20,Stretch=Stretch.Uniform};
     }
     Control Compact()
     {
         bool vertical=localService.Settings.CompactVertical;
-        var grid=new Grid{RowDefinitions=new RowDefinitions(vertical?"245,26,Auto":"52,60,26,Auto"),Margin=new Thickness(8,0)};
-        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?string.Join(",",Enumerable.Repeat("24.5",10)):"*")};
+        int toggleRow = vertical ? 1 : 2;
+        var rowSizes = vertical ? "221" : "52,60";
+        if (ShowCompactQuotas) rowSizes += $",{CompactQuotaRowHeight}";
+        var grid=new Grid{RowDefinitions=new RowDefinitions(rowSizes + ",26,Auto"),Margin=new Thickness(8,0)};
+        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?string.Join(",",Enumerable.Repeat("24.5",9)):"*")};
         bool fresh=service.Fresh;
         string freshness=!fresh?(service.LastSample==0?"Waiting":"Stale"):service.IsRemote?"Live":$"Live {Math.Max(0,J.Now-service.LastSample)}s";
         string Live(string id)=>fresh?Format(id):"—";
@@ -189,13 +284,11 @@ public sealed partial class MainWindow : Window
         bool hot=hottest?.Value>=service.Settings.TemperatureWarning;
         double? localUsed=fresh?service.Value("gpu.local"):null,localTotal=fresh?service.Value("gpu.local.total"):null;
         string gpuMemory=localUsed is double used&&localTotal is double total&&total>0?$"{used:0.#}/{total:0.#}":J.Size(localUsed);
-        var decode=service.Store.LatestOllamaDecode(J.Now-3600,J.Now);
         (string Label,string Value,string Help,bool Warn)[] fields=[
             ("GPU LOAD",Live("gpu.load"),"Current GPU utilization. "+freshness,false),
             ("GPU LOCAL GiB",gpuMemory,$"Local allocation: {J.Size(localUsed)} of {J.Size(localTotal)} reported local capacity. Shared allocation: {Live("gpu.shared")}; reported shared limit: {Live("gpu.shared.total")}. Shared GPU memory overlaps system RAM. These numbers do not predict model fit.",false),
             ("RAM FREE",Live("ram.available"),"Available physical memory, including reclaimable memory reported by the OS. "+freshness,false),
-            (hottest==null?(soc==null?"HOTTEST":"GPU VR SOC"):$"HOTTEST · {hotSource}",hottest==null?(soc==null?"—":Format(soc.Id)):Format(hottest.Id),hottest==null?(soc==null?"No fresh CPU or GPU core temperature. "+SensorDescription():"Fallback sensor only: GPU VR SoC is not GPU core temperature."):$"{hottest.Name}: {Format(hottest.Id)}. Warning threshold: {service.Settings.TemperatureWarning:0}°C.",hot),
-            ("LAST DECODE",decode is {} observed?$"{observed.Rate:0.#} t/s":"—",decode is {} last?$"{last.Model}: {last.Rate:0.#} tokens/s on the last observed completed Ollama request with a decode rate, {DateTimeOffset.FromUnixTimeSeconds(last.Time).ToLocalTime():HH:mm:ss}. This is not live throughput.":"No observed completed Ollama request with a decode rate in the last hour.",false)
+            (hottest==null?(soc==null?"HOTTEST":"GPU VR SOC"):$"HOTTEST · {hotSource}",hottest==null?(soc==null?"—":Format(soc.Id)):Format(hottest.Id),hottest==null?(soc==null?"No fresh CPU or GPU core temperature. "+SensorDescription():"Fallback sensor only: GPU VR SoC is not GPU core temperature."):$"{hottest.Name}: {Format(hottest.Id)}. Warning threshold: {service.Settings.TemperatureWarning:0}°C.",hot)
         ];
         for(int i=0;i<fields.Length;i++)
         {
@@ -227,7 +320,7 @@ public sealed partial class MainWindow : Window
         Control[] activityCells=[agents,local,tools,spawned,vllm];
         if(vertical)
         {
-            for(int i=0;i<activityCells.Length;i++){Grid.SetRow(activityCells[i],5+i);metrics.Children.Add(activityCells[i]);}
+            for(int i=0;i<activityCells.Length;i++){Grid.SetRow(activityCells[i],fields.Length+i);metrics.Children.Add(activityCells[i]);}
         }
         else
         {
@@ -235,9 +328,15 @@ public sealed partial class MainWindow : Window
             foreach(var cell in activityCells)activityRows.Children.Add(cell);
             Grid.SetRow(activityRows,1);grid.Children.Add(activityRows);
         }
+        if (ShowCompactQuotas)
+        {
+            var quotas = SubscriptionQuotaRow(compact: true);
+            Grid.SetRow(quotas, toggleRow++);
+            grid.Children.Add(quotas);
+        }
         string modelStatus=fresh?$"{service.Ollama.Active.Values.Sum(n=>(long)n)} requests · {service.Ollama.Models.Count} loaded":"Models unavailable";
         var toggle=Btn((modelsExpanded?"▴":"▾")+"  "+modelStatus+" · "+freshness);ToolTip.SetTip(toggle,"Observed active gateway requests and resident models. Direct inference may not be counted. Select to show the model list.");toggle.Padding=new Thickness(6,2);toggle.MinHeight=24;toggle.FontSize=11;toggle.HorizontalAlignment=HorizontalAlignment.Stretch;toggle.HorizontalContentAlignment=HorizontalAlignment.Left;toggle.Background=Brush.Parse("#0cffffff");toggle.CornerRadius=new CornerRadius(12);
-        Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,vertical?1:2);grid.Children.Add(toggle);
+        Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,toggleRow);grid.Children.Add(toggle);
         if(modelsExpanded)
         {
             var list=new StackPanel{Spacing=5,Margin=new Thickness(0,3,0,6)};
@@ -250,7 +349,7 @@ public sealed partial class MainWindow : Window
                 row.Children.Add(Text(m.Host=="This PC"&&rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} tok/s · last observed request":"Decode rate unavailable",10,"#55cee5"));
                 list.Children.Add(new Border{Child=row,Background=Brush.Parse("#16ffffff"),BorderBrush=Brush.Parse("#38e1edff"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(14)});
             }
-            var scroll=new ScrollViewer{Content=list,Height=CompactHeight()-CompactBaseHeight,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Offset=compactOffset};scroll.ScrollChanged+=(_,_)=>compactOffset=scroll.Offset;Grid.SetRow(scroll,vertical?2:3);grid.Children.Add(scroll);
+            var scroll=new ScrollViewer{Content=list,Height=CompactHeight()-CompactBaseHeight,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Offset=compactOffset};scroll.ScrollChanged+=(_,_)=>compactOffset=scroll.Offset;Grid.SetRow(scroll,toggleRow+1);grid.Children.Add(scroll);
         }
         return grid;
     }
@@ -373,6 +472,7 @@ public sealed partial class MainWindow : Window
     {
         var service=localService;
         var stack=new StackPanel{Spacing=15};stack.Children.Add(Heading("Settings","Local collection and central monitoring connections"));stack.Children.Add(FleetSettingsPanel());stack.Children.Add(Text("Standalone settings below apply to this desktop. Central history retention is configured in the hub service; host policies remain explicit.",12,"#8ba0bd"));
+        stack.Children.Add(Card(AssistantSettingsPanel()));
         if(OperatingSystem.IsWindows()){var sensors=Btn("Connect deep sensors");sensors.Click+=(_,_)=>{service.SensorBridge.Enable();notice=service.SensorBridge.Status;RenderBody();};stack.Children.Add(sensors);settingsSensorStatus=Text(SensorDescription(),12,"#8ea3c0");stack.Children.Add(settingsSensorStatus);}
         var sensorStartup=new CheckBox{Content="Ask for deep-sensor permission when AIPULSE starts",IsChecked=service.Settings.RequestSensorsAtLaunch,IsVisible=OperatingSystem.IsWindows()};stack.Children.Add(sensorStartup);
         stack.Children.Add(Text("The isolated helper requires Windows administrator approval each session. GPU VR SoC and GPU core temperature are different measurements.",11,"#8ea3c0"));
@@ -423,17 +523,17 @@ public sealed partial class MainWindow : Window
         try{var file=Path.Combine(Paths.Root,localService.Settings.Compact?"compact-live.png":"dashboard-live.png");var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96));bitmap.Render(this);bitmap.Save(file);}catch(Exception e){Paths.Log("capture",e);}
     }
     static void OpenFolder(string folder){try{Process.Start(new ProcessStartInfo(OperatingSystem.IsWindows()?"explorer.exe":"xdg-open"){ArgumentList={folder},UseShellExecute=true});}catch{}}
-    static TextBlock Text(string text,double size=13,string? color=null,bool bold=false)=>new(){Text=text,FontSize=size,Foreground=Brush.Parse(color??"#e1e9f7"),FontWeight=bold?FontWeight.SemiBold:FontWeight.Normal,TextWrapping=TextWrapping.Wrap,VerticalAlignment=VerticalAlignment.Center};
-    static Button Btn(string label)=>new(){Content=label,Cursor=new Cursor(StandardCursorType.Hand)};
-    static Control Heading(string title,string sub){var s=new StackPanel{Spacing=7};s.Children.Add(Text(title,27,"#f0f4ff",true));s.Children.Add(Text(sub,12,"#8ba0bd"));return s;}
-    static Border Card(Control child)=>new(){Child=child,Padding=new Thickness(18),Background=Panel,CornerRadius=new CornerRadius(10),BorderBrush=Line,BorderThickness=new Thickness(1)};
-    static Border Metric(string label,string value,string caption){var s=new StackPanel{Spacing=10};s.Children.Add(Text(label,15,"#e1e9f7",true));s.Children.Add(Text(value,29,"#e9f0ff",true));s.Children.Add(Text(caption,10,"#7f93af"));return Card(s);}
-    static Control Pair(string label,string value){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};grid.Children.Add(Text(label,12,"#9eb1ca"));var v=Text(value,16,"#72d4e8",true);Grid.SetColumn(v,1);grid.Children.Add(v);return grid;}
-    static Control Message(string title,string detail){var s=new StackPanel{Spacing=6};s.Children.Add(Text(title,13,"#bba3ff",true));s.Children.Add(Text(detail,12,"#9eb1ca"));return Card(s);}
-    static Control Table(string[] headers,IEnumerable<string[]> data,string columns)
+    TextBlock Text(string text,double size=13,string? color=null,bool bold=false)=>new(){Text=text,FontSize=size,Foreground=Ink(color),FontWeight=bold?FontWeight.SemiBold:FontWeight.Normal,TextWrapping=TextWrapping.Wrap,VerticalAlignment=VerticalAlignment.Center};
+    Button Btn(string label)=>new(){Content=label,Cursor=new Cursor(StandardCursorType.Hand),Background=Paint("#1c283b","#e4edf9")};
+    Control Heading(string title,string sub){var s=new StackPanel{Spacing=7};s.Children.Add(Text(title,27,"#f0f4ff",true));s.Children.Add(Text(sub,12,"#8ba0bd"));return s;}
+    Border Card(Control child)=>new(){Child=child,Padding=new Thickness(18),Background=Panel,CornerRadius=new CornerRadius(10),BorderBrush=Line,BorderThickness=new Thickness(1)};
+    Border Metric(string label,string value,string caption,string? color=null){var s=new StackPanel{Spacing=10};s.Children.Add(Text(label,15,"#e1e9f7",true));s.Children.Add(Text(value,29,color??"#e9f0ff",true));s.Children.Add(Text(caption,10,"#7f93af"));return Card(s);}
+    Control Pair(string label,string value){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};grid.Children.Add(Text(label,12,"#9eb1ca"));var v=Text(value,16,"#72d4e8",true);Grid.SetColumn(v,1);grid.Children.Add(v);return grid;}
+    Control Message(string title,string detail){var s=new StackPanel{Spacing=6};s.Children.Add(Text(title,13,"#bba3ff",true));s.Children.Add(Text(detail,12,"#9eb1ca"));return Card(s);}
+    Control Table(string[] headers,IEnumerable<string[]> data,string columns)
     {
         var stack=new StackPanel();int index=0;
-        void Row(string[] values,bool header){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions(columns),Margin=new Thickness(12,header?9:12)};for(int i=0;i<values.Length;i++){var text=Text(values[i],header?10:12,header?"#8298b7":"#dbe5f4",header);text.Margin=new Thickness(0,0,10,0);Grid.SetColumn(text,i);grid.Children.Add(text);}stack.Children.Add(new Border{Child=grid,Background=header?Brush.Parse("#182438"):index++%2==0?Panel:Brush.Parse("#101927"),BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1)});}
+        void Row(string[] values,bool header){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions(columns),Margin=new Thickness(12,header?9:12)};for(int i=0;i<values.Length;i++){var text=Text(values[i],header?10:12,header?"#8298b7":"#dbe5f4",header);text.Margin=new Thickness(0,0,10,0);Grid.SetColumn(text,i);grid.Children.Add(text);}stack.Children.Add(new Border{Child=grid,Background=header?Paint("#182438","#e5edf9"):index++%2==0?Panel:Paint("#101927","#f6f8fc"),BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1)});}
         Row(headers,true);foreach(var row in data)Row(row,false);return new Border{Child=stack,CornerRadius=new CornerRadius(7),ClipToBounds=true};
     }
 }

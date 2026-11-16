@@ -41,7 +41,8 @@ public sealed class TrendChart : Control
     {
         base.Render(ctx);double width=Bounds.Width,height=Bounds.Height;if(width<140||height<100)return;
         double left=48,right=width-16,top=25,bottom=height-64;
-        var muted=Brush.Parse("#8ea3bf");var pen=new Pen(Brush.Parse("#28364b"),1);var lines=Lines;
+        bool light=ActualThemeVariant==Avalonia.Styling.ThemeVariant.Light;
+        var muted=Brush.Parse(light?"#435974":"#8ea3bf");var pen=new Pen(Brush.Parse(light?"#ccd8e8":"#28364b"),1);var lines=Lines;
         var points=lines.SelectMany(s=>s.Points).Where(p=>double.IsFinite(p.Average)).ToList();
         double max=MaxValue??Math.Max(1,points.Count==0?1:points.Max(p=>p.Maximum)*1.15);
         void Label(string value,double x,double y,bool centered=false)
@@ -63,7 +64,7 @@ public sealed class TrendChart : Control
         foreach(var series in lines)
         {
             var values=series.Points.Where(p=>p.Time>=first&&p.Time<=last&&double.IsFinite(p.Average)).OrderBy(p=>p.Time).ToList();
-            var brush=Brush.Parse(series.Color);var linePen=new Pen(brush,2);
+            var brush=Brush.Parse(MainWindow.ThemeInk(series.Color,light));var linePen=new Pen(brush,2);
             Point XY(MetricPoint p)=>new(left+(double)(p.Time-first)/(last-first)*(right-left),bottom-Math.Clamp(p.Average/max,0,1)*(bottom-top));
             using(ctx.PushClip(new Rect(left,top,right-left,bottom-top)))
             {
