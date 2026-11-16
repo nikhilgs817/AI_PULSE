@@ -6,7 +6,8 @@ namespace AiPulse;
 /// <summary>Accepts Claude Code's status-line JSON and keeps only quota percentages and reset times.</summary>
 internal static class ClaudeQuotaStatusLine
 {
-    internal sealed record Window(double UsedPercentage, long ResetsAt, long ObservedAt);
+    // ResetsAt is null for a window that has not started yet (no usage in it so far).
+    internal sealed record Window(double UsedPercentage, long? ResetsAt, long ObservedAt);
     internal sealed record Snapshot(long ObservedAt, Window? FiveHour, Window? SevenDay);
 
     internal static string CachePath()
@@ -111,8 +112,12 @@ internal static class ClaudeQuotaStatusLine
         if (!limits.TryGetProperty(name, out var element) || element.ValueKind != JsonValueKind.Object ||
             !TryDouble(element, "used_percentage", out var percentage) || percentage < 0)
             return null;
-        if (!TryResetTime(element, out var resetsAt) || resetsAt <= now)
-            return null;
+        long? resetsAt = null;
+        if (element.TryGetProperty("resets_at", out var resetValue) && resetValue.ValueKind != JsonValueKind.Null)
+        {
+            if (!TryResetTime(element, out var parsedReset) || parsedReset <= now) return null;
+            resetsAt = parsedReset;
+        }
         var windowObservedAt = element.TryGetProperty("observed_at", out var observed) && observed.ValueKind == JsonValueKind.Number &&
                                observed.TryGetInt64(out var ownObserved) && ValidUnixTime(ownObserved)
             ? ownObserved : observedAt;
@@ -139,8 +144,8 @@ internal static class ClaudeQuotaStatusLine
     private static Snapshot? Expire(Snapshot? snapshot, long now)
     {
         if (snapshot is null) return null;
-        var fiveHour = snapshot.FiveHour is { } five && five.ResetsAt > now ? five : null;
-        var sevenDay = snapshot.SevenDay is { } seven && seven.ResetsAt > now ? seven : null;
+        var fiveHour = snapshot.FiveHour is { } five && (five.ResetsAt is null || five.ResetsAt > now) ? five : null;
+        var sevenDay = snapshot.SevenDay is { } seven && (seven.ResetsAt is null || seven.ResetsAt > now) ? seven : null;
         return fiveHour is null && sevenDay is null ? null :
             ReferenceEquals(fiveHour, snapshot.FiveHour) && ReferenceEquals(sevenDay, snapshot.SevenDay)
                 ? snapshot : new(snapshot.ObservedAt, fiveHour, sevenDay);
@@ -158,6 +163,27 @@ internal static class ClaudeQuotaStatusLine
         value = 0;
         return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
                property.TryGetInt64(out value);
+    }
+
+    /// <summary>Saves a live usage-endpoint reading so it survives restarts and merges with status-line readings.</summary>
+    internal static void Store(ProviderQuota reading)
+    {
+        Window? Convert(QuotaWindow? window, DateTimeOffset? fallbackObserved)
+        {
+            if (window is null || (window.ObservedAt ?? fallbackObserved) is not { } observed) return null;
+            return new(window.UsedPercent, window.ResetsAt?.ToUnixTimeSeconds(), observed.ToUnixTimeSeconds());
+        }
+        var fiveHour = Convert(reading.FiveHour, reading.ObservedAt);
+        var sevenDay = Convert(reading.Weekly, reading.ObservedAt);
+        if (fiveHour is null && sevenDay is null) return;
+        var path = CachePath();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var previous = Expire(ReadCache(path), now);
+        Window? Newer(Window? incoming, Window? existing) =>
+            incoming is null ? existing : existing is null || incoming.ObservedAt >= existing.ObservedAt ? incoming : existing;
+        fiveHour = Newer(fiveHour, previous?.FiveHour);
+        sevenDay = Newer(sevenDay, previous?.SevenDay);
+        WriteCache(path, new(Math.Max(fiveHour?.ObservedAt ?? 0, sevenDay?.ObservedAt ?? 0), fiveHour, sevenDay));
     }
 
     internal static Snapshot? ReadCache(string path)
@@ -200,7 +226,8 @@ internal static class ClaudeQuotaStatusLine
         if (window is null) return;
         writer.WritePropertyName(name); writer.WriteStartObject();
         writer.WriteNumber("used_percentage", window.UsedPercentage);
-        writer.WriteNumber("resets_at", window.ResetsAt);
+        if (window.ResetsAt is { } resetsAt) writer.WriteNumber("resets_at", resetsAt);
+        else writer.WriteNull("resets_at");
         writer.WriteNumber("observed_at", window.ObservedAt);
         writer.WriteEndObject();
     }
