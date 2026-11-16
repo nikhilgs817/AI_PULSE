@@ -21,7 +21,7 @@ internal sealed record ProviderQuota(QuotaWindow? FiveHour, QuotaWindow? Weekly,
             return snapshots.OfType<ProviderQuota>()
                 .Select(q => select(q) is { } w ? w with { ObservedAt = w.ObservedAt ?? q.ObservedAt } : null)
                 .OfType<QuotaWindow>()
-                .Where(w => w.ResetsAt > now && w.ObservedAt is { } at && at <= now.AddMinutes(5))
+                .Where(w => NotReset(w, now) && w.ObservedAt is { } at && at <= now.AddMinutes(5))
                 .OrderByDescending(w => w.ObservedAt)
                 .FirstOrDefault();
         }
@@ -30,11 +30,14 @@ internal sealed record ProviderQuota(QuotaWindow? FiveHour, QuotaWindow? Weekly,
         return new(shortWindow, longWindow, new[] { shortWindow?.ObservedAt, longWindow?.ObservedAt }.Max());
     }
 
+    // A window with no reset time has not started yet (0% used); its age alone decides freshness.
+    internal static bool NotReset(QuotaWindow window, DateTimeOffset now) => window.ResetsAt is not { } reset || reset > now;
+
     internal static bool IsLastReported(QuotaWindow? window, DateTimeOffset now) =>
         window?.ObservedAt is { } seen && now - seen > TimeSpan.FromMinutes(15);
 
     internal static QuotaWindow? FreshWindow(QuotaWindow? window, DateTimeOffset now) =>
-        window?.ObservedAt is { } at && at <= now.AddMinutes(5) && window.ResetsAt > now && !IsLastReported(window, now)
+        window?.ObservedAt is { } at && at <= now.AddMinutes(5) && NotReset(window, now) && !IsLastReported(window, now)
             ? window
             : null;
 
@@ -48,7 +51,6 @@ public sealed partial class MainWindow
     ProviderQuota claudeQuota = new(null, null, null);
     DateTimeOffset nextQuotaRead;
     bool quotaReadPending;
-    DateTimeOffset nextClaudePoll;
     DateTimeOffset nextManualQuotaRead;
     string codexQuotaStatus = "Waiting for live Codex usage.";
 
@@ -56,7 +58,6 @@ public sealed partial class MainWindow
     {
         if (quotaReadPending || !localService.Settings.ReadAgentUsage) return;
         if (manual) nextManualQuotaRead = now.AddSeconds(15);
-        bool pollClaude = manual || now >= nextClaudePoll;
         nextQuotaRead = now.AddMinutes(1);
         quotaReadPending = true;
         try
@@ -70,9 +71,15 @@ public sealed partial class MainWindow
                 try { codex = await CodexLiveQuota.Read(); codexQuotaStatus = "Live Codex account usage."; }
                 catch (Exception e) { codex = new(null, null, null); codexQuotaStatus = e is OperationCanceledException ? "Codex usage request timed out. Retrying automatically." : "Codex usage unavailable. Check Codex installation and sign-in. Retrying automatically."; Paths.Log("codex-quota", e); }
                 var cached = ReadClaudeQuota(now);
-                ProviderQuota? remote = null;
-                if (pollClaude) remote = await ClaudeQuotaReader.Read(now);
-                var bestClaude = ProviderQuota.Merge(now, remote, cached, pollClaude ? null : claudeQuota);
+                // The reader throttles itself (normal interval, back-off, Retry-After), so asking every
+                // minute is safe. A skipped or failed call keeps the previous and cached readings.
+                var remote = await ClaudeQuotaReader.Read(now, manual);
+                if (remote is not null)
+                {
+                    try { ClaudeQuotaStatusLine.Store(remote); }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException) { Paths.Log("claude-quota-cache", e); }
+                }
+                var bestClaude = ProviderQuota.Merge(now, remote, cached, claudeQuota);
                 return (codex, bestClaude);
             });
             (codexQuota, claudeQuota) = results;
@@ -80,7 +87,6 @@ public sealed partial class MainWindow
         catch (Exception e) { Paths.Log("subscription-refresh", e); }
         finally
         {
-            if (pollClaude) nextClaudePoll = DateTimeOffset.UtcNow.AddMinutes(claudeQuota.NeedsRefresh(now) ? 1 : 5);
             quotaReadPending = false;
             if (IsVisible && (localService.Settings.Compact ? ShowCompactQuotas : page == "Token" && !service.IsRemote))
                 RenderBody();
@@ -99,7 +105,7 @@ public sealed partial class MainWindow
             {
                 if (window is null) return null;
                 var observed = DateTimeOffset.FromUnixTimeSeconds(window.ObservedAt);
-                var reset = DateTimeOffset.FromUnixTimeSeconds(window.ResetsAt);
+                DateTimeOffset? reset = window.ResetsAt is { } r ? DateTimeOffset.FromUnixTimeSeconds(r) : null;
                 if (reset <= now || observed > now.AddMinutes(5)) return null;
                 return new(window.UsedPercentage, reset, observed);
             }
