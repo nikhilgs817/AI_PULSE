@@ -8,26 +8,143 @@ using System.Text.Json.Nodes;
 namespace AiPulse;
 
 // Claude Code's usage endpoint is not publicly documented and may change or refuse access.
-// It is also heavily rate limited, so every call is throttled here: one call per NormalInterval,
-// exponential back-off after failures, and Retry-After is always honoured after HTTP 429.
+// Both it and the sign-in renewal endpoint are rate limited, so every call is throttled here:
+// one usage call per NormalInterval, exponential back-off after failures, and after HTTP 429/403
+// no call at all until Retry-After (or a growing default) has passed. The wait is saved to disk so
+// restarting AI Pulse cannot cause a burst of requests. Requests match what Claude Code sends.
 internal static class ClaudeQuotaReader
 {
     internal static readonly TimeSpan NormalInterval = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(30);
+    internal static readonly TimeSpan RateLimitBase = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan MaxRateLimitWait = TimeSpan.FromHours(1);
     // Claude Code renews its own token shortly before expiry while it runs. Renew only once the
     // token is clearly past expiry, so AI Pulse and a running Claude Code do not renew together.
     internal static readonly TimeSpan RenewGrace = TimeSpan.FromMinutes(1);
 
-    const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
-    const string DefaultTokenUrl = "https://console.anthropic.com/v1/oauth/token";
+    // Same endpoints, client id and body shape as Claude Code 2.1.x. The renewal endpoint moved from
+    // console.anthropic.com to platform.claude.com; the old host answers 429.
+    const string UsageUrl = "https://api.anthropic.com/api/oauth/usage?skip_spend=1";
+    const string DefaultTokenUrl = "https://platform.claude.com/v1/oauth/token";
     const string ClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+    const string ClaudeCodeVersion = "2.1.325";
+    const string UserAgent = "claude-cli/" + ClaudeCodeVersion + " (external, cli)";
 
     internal static string Status { get; private set; } = "Waiting for usage.";
-    internal static DateTimeOffset NextAttempt { get; private set; } = DateTimeOffset.MinValue;
-    static bool rateLimited;
-    static int failures;
-    static string? deadRefreshToken;
-    static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(15) };
+    static HttpClient Client = NewClient(new HttpClientHandler { AllowAutoRedirect = false });
+
+    static HttpClient NewClient(HttpMessageHandler handler) => new(handler) { Timeout = TimeSpan.FromSeconds(15) };
+
+    /// <summary>Self-tests only: route requests to a fake server and forget in-memory state.</summary>
+    internal static void UseForTests(HttpMessageHandler handler)
+    {
+        Client = NewClient(handler);
+        throttle = null;
+        Status = "Waiting for usage.";
+    }
+
+    // ---- Throttle state (persisted) -------------------------------------------------------
+
+    internal sealed class Throttle
+    {
+        public long NextAttempt { get; set; }
+        public int Failures { get; set; }
+        public int RateLimitStrikes { get; set; }
+        public bool RateLimited { get; set; }
+        public string? DeadRefreshTokenHash { get; set; }
+    }
+
+    static Throttle? throttle;
+    static Throttle State => throttle ??= LoadThrottle();
+    internal static DateTimeOffset NextAttempt => DateTimeOffset.FromUnixTimeSeconds(Math.Max(0, State.NextAttempt));
+    /// <summary>True while Anthropic has asked AI Pulse to wait; a manual refresh cannot skip this.</summary>
+    internal static bool WaitingForProvider(DateTimeOffset now) => State.RateLimited && now < NextAttempt;
+
+    static string ThrottlePath()
+    {
+        var configured = Environment.GetEnvironmentVariable("AIPULSE_QUOTA_FILE");
+        var directory = string.IsNullOrWhiteSpace(configured) ? Paths.DefaultRoot : Path.GetDirectoryName(Path.GetFullPath(configured))!;
+        return Path.Combine(directory, "claude-usage-throttle.json");
+    }
+
+    static Throttle LoadThrottle()
+    {
+        try
+        {
+            var path = ThrottlePath();
+            var loaded = File.Exists(path) ? JsonSerializer.Deserialize<Throttle>(File.ReadAllText(path)) : null;
+            if (loaded is null) return new();
+            // Never trust a wait longer than the maximum (e.g. after a clock change).
+            var latest = DateTimeOffset.UtcNow + MaxRateLimitWait;
+            if (loaded.NextAttempt > latest.ToUnixTimeSeconds()) loaded.NextAttempt = latest.ToUnixTimeSeconds();
+            return loaded;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException) { return new(); }
+    }
+
+    static void SaveThrottle()
+    {
+        try
+        {
+            var path = ThrottlePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var temporary = path + ".tmp-" + Guid.NewGuid().ToString("N");
+            File.WriteAllText(temporary, JsonSerializer.Serialize(State));
+            File.Move(temporary, path, true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Paths.Log("claude-quota-throttle", e); }
+    }
+
+    static void Succeeded(DateTimeOffset observed)
+    {
+        State.Failures = 0; State.RateLimitStrikes = 0; State.RateLimited = false;
+        State.NextAttempt = (observed + NormalInterval).ToUnixTimeSeconds();
+        SaveThrottle();
+    }
+
+    static void Failed(DateTimeOffset now)
+    {
+        State.Failures = Math.Min(State.Failures + 1, 10);
+        State.RateLimited = false;
+        State.NextAttempt = (now + BackoffDelay(State.Failures, null)).ToUnixTimeSeconds();
+        SaveThrottle();
+    }
+
+    static void RateLimitedFor(DateTimeOffset now, TimeSpan? retryAfter)
+    {
+        State.RateLimitStrikes = Math.Min(State.RateLimitStrikes + 1, 10);
+        State.RateLimited = true;
+        State.NextAttempt = (now + RateLimitDelay(State.RateLimitStrikes, retryAfter)).ToUnixTimeSeconds();
+        SaveThrottle();
+    }
+
+    internal static TimeSpan BackoffDelay(int failures, TimeSpan? retryAfter)
+    {
+        var exponential = TimeSpan.FromMinutes(Math.Min(MaxBackoff.TotalMinutes, Math.Pow(2, Math.Max(0, failures))));
+        if (retryAfter is { } requested && requested > exponential)
+            return requested > MaxRateLimitWait ? MaxRateLimitWait : requested;
+        return exponential;
+    }
+
+    /// <summary>Wait after HTTP 429/403: Retry-After when given (0 is ignored, as the endpoint sends it
+    /// misleadingly), otherwise 5, 10, 20, 40 minutes, never more than one hour.</summary>
+    internal static TimeSpan RateLimitDelay(int strikes, TimeSpan? retryAfter)
+    {
+        var grown = TimeSpan.FromMinutes(Math.Min(MaxRateLimitWait.TotalMinutes,
+            RateLimitBase.TotalMinutes * Math.Pow(2, Math.Max(0, strikes - 1))));
+        var wait = retryAfter is { } requested && requested > TimeSpan.Zero ? requested : grown;
+        if (wait < TimeSpan.FromMinutes(1)) wait = TimeSpan.FromMinutes(1);
+        return wait > MaxRateLimitWait ? MaxRateLimitWait : wait;
+    }
+
+    internal static TimeSpan? RetryAfter(RetryConditionHeaderValue? header, DateTimeOffset now) =>
+        header?.Delta is { } delta ? delta :
+        header?.Date is { } date ? (date > now ? date - now : TimeSpan.Zero) : null;
+
+    static string Hash(string value) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+
+    // ---- Usage reading --------------------------------------------------------------------
 
     internal static string ConfigDirectory()
     {
@@ -41,12 +158,12 @@ internal static class ClaudeQuotaReader
     internal static async Task<ProviderQuota?> Read(DateTimeOffset now, bool manual = false)
     {
         // A manual refresh may skip the normal interval, but never a provider-requested wait.
-        if (now < NextAttempt && (!manual || rateLimited)) return null;
+        if (now < NextAttempt && (!manual || State.RateLimited)) return null;
         try
         {
             var credentialsPath = Path.Combine(ConfigDirectory(), ".credentials.json");
             var token = await AccessToken(credentialsPath, now, staleToken: null);
-            if (token is null) { Backoff(now, null); return null; }
+            if (token is null) return null;
 
             using var response = await SendUsage(token);
             HttpResponseMessage? retried = null;
@@ -57,19 +174,19 @@ internal static class ClaudeQuotaReader
                 {
                     // The token was revoked or expired early. Renew once and retry.
                     token = await AccessToken(credentialsPath, now, staleToken: token);
-                    if (token is null) { Backoff(now, null); return null; }
+                    if (token is null) return null;
                     final = retried = await SendUsage(token);
                 }
-                if (final.StatusCode == HttpStatusCode.TooManyRequests)
+                if (final.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
                 {
-                    Backoff(now, RetryAfter(final.Headers.RetryAfter, now));
-                    rateLimited = true;
-                    Status = $"Anthropic rate-limited usage requests. Next attempt {NextAttempt.ToLocalTime():h:mm tt}.";
+                    RateLimitedFor(now, RetryAfter(final.Headers.RetryAfter, now));
+                    Status = $"Anthropic is limiting usage requests (HTTP {(int)final.StatusCode}). " +
+                             $"AI Pulse waits and retries at {NextAttempt.ToLocalTime():h:mm tt}; the last reading stays visible meanwhile.";
                     return null;
                 }
                 if (!final.IsSuccessStatusCode)
                 {
-                    Backoff(now, null);
+                    Failed(now);
                     Status = final.StatusCode == HttpStatusCode.Unauthorized
                         ? "Claude rejected the sign-in. Run /login in Claude Code to reconnect usage."
                         : $"Usage endpoint returned HTTP {(int)final.StatusCode}. Next attempt {NextAttempt.ToLocalTime():h:mm tt}.";
@@ -78,8 +195,7 @@ internal static class ClaudeQuotaReader
                 using var document = JsonDocument.Parse(await final.Content.ReadAsStreamAsync());
                 var observed = DateTimeOffset.UtcNow;
                 var reading = Parse(document.RootElement, observed);
-                failures = 0; rateLimited = false;
-                NextAttempt = observed + NormalInterval;
+                Succeeded(observed);
                 Status = reading is null ? "Provider returned no current usage windows." : "Live account usage.";
                 return reading;
             }
@@ -88,7 +204,7 @@ internal static class ClaudeQuotaReader
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or
             InvalidOperationException or KeyNotFoundException or HttpRequestException or TaskCanceledException or FormatException)
         {
-            Backoff(now, null);
+            Failed(now);
             Status = e is TaskCanceledException ? "Usage request timed out. Retrying automatically." :
                 e is FileNotFoundException or DirectoryNotFoundException ? "Claude Code sign-in not found. Sign in to Claude Code to show usage." :
                 "Usage connection unavailable. Retrying automatically.";
@@ -102,49 +218,30 @@ internal static class ClaudeQuotaReader
         using var request = new HttpRequestMessage(HttpMethod.Get, UsageUrl);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Add("anthropic-beta", "oauth-2025-04-20");
-        request.Headers.UserAgent.ParseAdd("claude-code/2.1.307");
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.UserAgent.ParseAdd(UserAgent);
         return await Client.SendAsync(request);
     }
 
-    /// <summary>Schedules the next attempt after a failure and returns the chosen wait.</summary>
-    static TimeSpan Backoff(DateTimeOffset now, TimeSpan? requested)
-    {
-        failures = Math.Min(failures + 1, 10);
-        var wait = BackoffDelay(failures, requested);
-        NextAttempt = now + wait;
-        rateLimited = false;
-        return wait;
-    }
-
-    internal static TimeSpan BackoffDelay(int failures, TimeSpan? retryAfter)
-    {
-        var exponential = TimeSpan.FromMinutes(Math.Min(MaxBackoff.TotalMinutes, Math.Pow(2, Math.Max(0, failures))));
-        if (retryAfter is { } requested && requested > exponential)
-            return requested > TimeSpan.FromHours(6) ? TimeSpan.FromHours(6) : requested;
-        return exponential;
-    }
-
-    internal static TimeSpan? RetryAfter(RetryConditionHeaderValue? header, DateTimeOffset now) =>
-        header?.Delta is { } delta ? delta :
-        header?.Date is { } date ? (date > now ? date - now : TimeSpan.Zero) : null;
-
     // ---- OAuth token handling -------------------------------------------------------------
 
+    /// <summary>Returns a usable access token, or null after setting Status and the throttle.</summary>
     /// <param name="staleToken">A token the provider just rejected; renew even if it looks unexpired.</param>
     static async Task<string?> AccessToken(string credentialsPath, DateTimeOffset now, string? staleToken)
     {
         var current = ReadCredentials(await File.ReadAllTextAsync(credentialsPath));
-        if (current is null) { Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
+        if (current is null) { Failed(now); Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
         if (current.AccessToken != staleToken && current.ExpiresAt > now) return current.AccessToken;
         if (staleToken is null && current.ExpiresAt > now - RenewGrace)
         {
+            Failed(now);
             Status = "Claude Code sign-in is renewing. Retrying automatically.";
             return null;
         }
         return await Renew(credentialsPath, now, staleToken);
     }
 
-    internal sealed record Credentials(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt);
+    internal sealed record Credentials(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt, IReadOnlyList<string> Scopes);
 
     internal static Credentials? ReadCredentials(string json)
     {
@@ -159,7 +256,24 @@ internal static class ClaudeQuotaReader
         var expires = oauth.TryGetProperty("expiresAt", out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var ms)
             ? DateTimeOffset.FromUnixTimeMilliseconds(Math.Clamp(ms, 0, DateTimeOffset.MaxValue.ToUnixTimeMilliseconds()))
             : DateTimeOffset.MaxValue;
-        return new(access.GetString()!, string.IsNullOrWhiteSpace(refresh) ? null : refresh, expires);
+        var scopes = oauth.TryGetProperty("scopes", out var sc) && sc.ValueKind == JsonValueKind.Array
+            ? sc.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!)
+                .Where(x => !string.IsNullOrWhiteSpace(x)).ToArray()
+            : Array.Empty<string>();
+        return new(access.GetString()!, string.IsNullOrWhiteSpace(refresh) ? null : refresh, expires, scopes);
+    }
+
+    /// <summary>The renewal request body, identical in shape to Claude Code's.</summary>
+    internal static string RenewalBody(Credentials credentials)
+    {
+        var body = new Dictionary<string, string>
+        {
+            ["grant_type"] = "refresh_token",
+            ["refresh_token"] = credentials.RefreshToken ?? throw new InvalidOperationException("No refresh token."),
+            ["client_id"] = ClientId,
+        };
+        if (credentials.Scopes.Count > 0) body["scope"] = string.Join(' ', credentials.Scopes);
+        return JsonSerializer.Serialize(body);
     }
 
     static async Task<string?> Renew(string credentialsPath, DateTimeOffset now, string? staleToken)
@@ -168,35 +282,44 @@ internal static class ClaudeQuotaReader
         // Re-read under the lock: Claude Code or another AI Pulse process may already have renewed.
         var original = await File.ReadAllTextAsync(credentialsPath);
         var current = ReadCredentials(original);
-        if (current is null) { Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
+        if (current is null) { Failed(now); Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
         if (current.AccessToken != staleToken && current.ExpiresAt > now) return current.AccessToken;
-        if (current.RefreshToken is null || current.RefreshToken == deadRefreshToken)
+        if (current.RefreshToken is null || Hash(current.RefreshToken) == State.DeadRefreshTokenHash)
         {
-            Status = "Claude Code sign-in expired. Run /login in Claude Code to reconnect usage.";
+            Failed(now);
+            Status = "Claude Code sign-in expired. Open Claude Code (or run /login) once to reconnect usage.";
             return null;
         }
 
         var tokenUrl = Environment.GetEnvironmentVariable("AIPULSE_CLAUDE_TOKEN_URL");
         if (string.IsNullOrWhiteSpace(tokenUrl)) tokenUrl = DefaultTokenUrl;
-        var body = JsonSerializer.Serialize(new Dictionary<string, string>
+        using var request = new HttpRequestMessage(HttpMethod.Post, tokenUrl)
         {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = current.RefreshToken,
-            ["client_id"] = ClientId,
-        });
-        using var request = new HttpRequestMessage(HttpMethod.Post, tokenUrl) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-        request.Headers.UserAgent.ParseAdd("claude-code/2.1.307");
+            Content = new StringContent(RenewalBody(current), Encoding.UTF8, "application/json")
+        };
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.UserAgent.ParseAdd(UserAgent);
         using var response = await Client.SendAsync(request);
+        if (response.StatusCode is HttpStatusCode.TooManyRequests or HttpStatusCode.Forbidden)
+        {
+            // Throttled before the token was looked at: the refresh token is still valid. Do not retry soon.
+            RateLimitedFor(now, RetryAfter(response.Headers.RetryAfter, now));
+            Status = $"Anthropic is limiting sign-in renewal (HTTP {(int)response.StatusCode}). Opening Claude Code once renews the sign-in " +
+                     $"immediately; otherwise AI Pulse retries at {NextAttempt.ToLocalTime():h:mm tt}.";
+            return null;
+        }
         if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
         {
             // The refresh token was revoked or already rotated. Never retry it.
-            deadRefreshToken = current.RefreshToken;
-            Status = "Claude Code sign-in expired. Run /login in Claude Code to reconnect usage.";
+            State.DeadRefreshTokenHash = Hash(current.RefreshToken);
+            Failed(now);
+            Status = "Claude Code sign-in expired. Open Claude Code (or run /login) once to reconnect usage.";
             return null;
         }
         if (!response.IsSuccessStatusCode)
         {
-            Status = $"Claude sign-in renewal returned HTTP {(int)response.StatusCode}. Retrying automatically.";
+            Failed(now);
+            Status = $"Claude sign-in renewal returned HTTP {(int)response.StatusCode}. Next attempt {NextAttempt.ToLocalTime():h:mm tt}.";
             return null;
         }
         using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
@@ -250,8 +373,9 @@ internal static class ClaudeQuotaReader
 
     static async Task<IDisposable> AcquireLock()
     {
-        Directory.CreateDirectory(Paths.DefaultRoot);
-        var path = Path.Combine(Paths.DefaultRoot, "claude-oauth.lock");
+        var directory = Path.GetDirectoryName(ThrottlePath())!;
+        Directory.CreateDirectory(directory);
+        var path = Path.Combine(directory, "claude-oauth.lock");
         for (int attempt = 0; ; attempt++)
         {
             try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }

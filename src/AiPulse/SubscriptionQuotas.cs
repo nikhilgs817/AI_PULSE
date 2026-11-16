@@ -127,6 +127,9 @@ public sealed partial class MainWindow
         var row = SubscriptionQuotaRow(compact: false);
         var refresh = Btn(quotaReadPending ? "Refreshing…" : "Refresh usage");
         refresh.IsEnabled = localService.Settings.ReadAgentUsage && !quotaReadPending && DateTimeOffset.UtcNow >= nextManualQuotaRead;
+        // Codex still refreshes while Claude waits; the Claude reader itself never skips Anthropic's requested wait.
+        if (ClaudeQuotaReader.WaitingForProvider(DateTimeOffset.UtcNow))
+            ToolTip.SetTip(refresh, $"Claude usage resumes at {ClaudeQuotaReader.NextAttempt.ToLocalTime():h:mm tt} because Anthropic asked AI Pulse to wait.");
         refresh.Click += (_, _) =>
         {
             if (quotaReadPending || DateTimeOffset.UtcNow < nextManualQuotaRead) return;
