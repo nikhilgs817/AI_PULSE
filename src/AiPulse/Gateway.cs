@@ -11,6 +11,9 @@ namespace AiPulse;
 public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool fullPassthrough=false,int? relayPort=null) : IAsyncDisposable
 {
     const string ObservationHeader="X-AIPULSE-Observation";
+    public const string AgentHeader="X-Agent-Name",RunHeader="X-Agent-Run";
+    // Requests currently streaming through this gateway, for live "agents working now".
+    public System.Collections.Concurrent.ConcurrentDictionary<string,InFlightRequest> InFlight {get;}=new();
     public Action<WebApplication>? Configure {get;set;}
     WebApplication? app;
     readonly HttpClient client=new(new SocketsHttpHandler{AllowAutoRedirect=false}){Timeout=Timeout.InfiniteTimeSpan};
@@ -36,8 +39,10 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
         var allowed=inference.Concat(new[]{"/api/tags","/api/ps","/api/show","/api/version","/v1/models"});
         if(!fullPassthrough&&(!allowed.Contains(path)||context.Request.Method is not ("GET" or "POST"))){context.Response.StatusCode=404;return;}
         if(generation&&!(context.Request.ContentType??"").StartsWith("application/json",StringComparison.OrdinalIgnoreCase)){context.Response.StatusCode=415;return;}
-        string model="",id=Guid.NewGuid().ToString("N"),outcome="Usage unavailable";long start=J.Now;
-        var watch=System.Diagnostics.Stopwatch.StartNew();var usage=new InferenceUsageObserver();bool active=false,observe=true;
+        string model="",id=Guid.NewGuid().ToString("N"),outcome="Usage unavailable";long start=J.Now,startMs=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var watch=System.Diagnostics.Stopwatch.StartNew();var usage=new InferenceUsageObserver();bool active=false,observe=true,streaming=false;double? firstChunk=null;int httpStatus=0;
+        // Optional attribution from agent frameworks: identifiers only, never content.
+        string agent=AgentLabel.Clean(context.Request.Headers[AgentHeader].FirstOrDefault()??context.Request.Headers["X-AIPULSE-Agent"].FirstOrDefault()),run=AgentLabel.Clean(context.Request.Headers[RunHeader].FirstOrDefault()??context.Request.Headers["X-AIPULSE-Run"].FirstOrDefault());
         try
         {
             using var request=new HttpRequestMessage(new HttpMethod(context.Request.Method),Ollama.Validate(settings.OllamaUrl)+path+context.Request.QueryString);
@@ -49,15 +54,17 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
                 try
                 {
                     var node=JsonNode.Parse(body);model=node?["model"]?.GetValue<string>()??"";
+                    // Ollama-native endpoints stream by default; OpenAI-compatible ones only on request.
+                    streaming=node?["stream"] is JsonValue s&&s.TryGetValue<bool>(out bool requested)?requested:path is "/api/chat" or "/api/generate";
                     if(path is "/v1/chat/completions" or "/v1/completions"&&node?["stream"]?.GetValue<bool>()==true)
                     {var options=node["stream_options"] as JsonObject??new();options["include_usage"]=true;node["stream_options"]=options;body=System.Text.Encoding.UTF8.GetBytes(node.ToJsonString());}
                 }catch(Exception e)when(e is JsonException or InvalidOperationException){}
                 request.Content=new ByteArrayContent(body);
-                ollama.Active.AddOrUpdate(model,1,(_,n)=>n+1);active=true;
+                ollama.Active.AddOrUpdate(model,1,(_,n)=>n+1);active=true;InFlight[id]=new(agent,run,model,startMs);
             }
             else if(context.Request.ContentLength>0||context.Request.Headers.ContainsKey("Transfer-Encoding"))request.Content=new StreamContent(context.Request.Body);
             if(request.Content!=null)request.Content.Headers.TryAddWithoutValidation("Content-Type",context.Request.ContentType??"application/json");
-            foreach(string name in new[]{"Range","If-None-Match","Accept"})if(context.Request.Headers.TryGetValue(name,out var h))request.Headers.TryAddWithoutValidation(name,h.ToArray());
+            foreach(string name in new[]{"Range","If-None-Match","Accept",AgentHeader,RunHeader})if(context.Request.Headers.TryGetValue(name,out var h))request.Headers.TryAddWithoutValidation(name,h.ToArray());
             // Configured Ollama only. Never forward client account credentials or cookies.
             using var response=await client.SendAsync(request,HttpCompletionOption.ResponseHeadersRead,context.RequestAborted);
             // Only the configured loopback relay can take ownership from this gateway.
@@ -65,13 +72,13 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
             if(generation&&request.RequestUri is {IsLoopback:true,Scheme:"http"} upstream&&upstream.Port==relayPort&&
                response.Headers.TryGetValues(ObservationHeader,out var markers)&&markers.Contains("relay"))observe=false;
             if(generation&&fullPassthrough)context.Response.Headers[ObservationHeader]="relay";
-            context.Response.StatusCode=(int)response.StatusCode;context.Response.ContentType=response.Content.Headers.ContentType?.ToString()??"application/json";
+            context.Response.StatusCode=httpStatus=(int)response.StatusCode;context.Response.ContentType=response.Content.Headers.ContentType?.ToString()??"application/json";
             foreach(string name in new[]{"Content-Range","ETag","Location"})if(response.Headers.TryGetValues(name,out var v)||response.Content.Headers.TryGetValues(name,out v))context.Response.Headers[name]=v.ToArray();
             outcome=response.IsSuccessStatusCode?"Usage unavailable":"HTTP "+(int)response.StatusCode;
             using var incoming=await response.Content.ReadAsStreamAsync(context.RequestAborted);var chunk=new byte[16384];int read;
             while((read=await incoming.ReadAsync(chunk,context.RequestAborted))>0)
             {
-                if(generation&&observe)usage.Feed(chunk.AsSpan(0,read));
+                if(generation&&observe){firstChunk??=watch.Elapsed.TotalSeconds;usage.Feed(chunk.AsSpan(0,read));}
                 await context.Response.Body.WriteAsync(chunk.AsMemory(0,read),context.RequestAborted);await context.Response.Body.FlushAsync(context.RequestAborted);
             }
             if(generation&&observe){usage.Finish();if(response.IsSuccessStatusCode&&usage.HasInput&&(usage.HasOutput||path.Contains("embed")))outcome="Completed";else if(usage.HasInput||usage.HasOutput)outcome="Partial usage";}
@@ -80,13 +87,18 @@ public sealed class Gateway(Storage db,Ollama ollama,AppSettings settings,bool f
         catch(Exception e){Paths.Log("gateway-request",e);outcome="Failed · usage unavailable";if(!context.Response.HasStarted){context.Response.StatusCode=502;await context.Response.WriteAsJsonAsync(new{error="AI Pulse could not reach the configured Ollama server."});}}
         finally
         {
-            if(active)ollama.Active.AddOrUpdate(model,0,(_,n)=>Math.Max(0,n-1));
+            if(active){ollama.Active.AddOrUpdate(model,0,(_,n)=>Math.Max(0,n-1));InFlight.TryRemove(id,out _);}
             if(generation&&observe&&active)
             {
                 db.PutUsage(new("ollama:"+id,"Ollama",usage.Model==""?model:usage.Model,"",start,usage.Input,usage.Output,usage.Cached,usage.CacheWrite,usage.Reasoning,watch.Elapsed.TotalMilliseconds,usage.Rate,outcome));
+                // Streaming: first body chunk is the first token. Otherwise use server-reported load + prompt time.
+                double? ttft=streaming?firstChunk:usage.PromptSeconds is double ps?ps+(usage.LoadSeconds??0):null;
+                db.PutTrace(new("ollama:"+id,"Ollama",usage.Model==""?model:usage.Model,agent,run,startMs,DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),ttft,usage.PromptSeconds,usage.GenerateSeconds,usage.LoadSeconds,usage.Input,usage.Output,httpStatus,outcome));
                 db.SourceState("Ollama gateway",outcome=="Completed"?"Receiving":"Incomplete",outcome=="Completed"?"Provider-reported request counts captured. Unrouted requests remain invisible.":outcome,J.Now);
             }
         }
     }
     public async ValueTask DisposeAsync(){if(app!=null){await app.StopAsync();await app.DisposeAsync();}client.Dispose();}
 }
+
+public record InFlightRequest(string Agent,string Run,string Model,long StartMs);

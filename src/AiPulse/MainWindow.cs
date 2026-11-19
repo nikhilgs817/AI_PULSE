@@ -311,7 +311,7 @@ public sealed partial class MainWindow : Window
             var label=Text(title,vertical?12:11,"#a9bdd9",true);label.FontWeight=FontWeight.Bold;cell.Children.Add(label);
             var number=Text(value,vertical?19:16,"#e9f0ff",true);Grid.SetColumn(number,1);cell.Children.Add(number);ToolTip.SetTip(cell,help);Avalonia.Automation.AutomationProperties.SetName(cell,title+": "+value);return cell;
         }
-        var agents=ActivityCell("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||service.Fresh)?activity.ActiveAgents.ToString("N0"):"—",service.Settings.ReadAgentUsage?"Sessions reporting Working or Recent activity within the last 5 minutes. Completed, interrupted and quiet sessions are excluded. This does not prove the model is generating right now.":"Agent usage import is disabled. Enable Read local usage metadata in Settings to count recent active sessions.");
+        var agents=ActivityCell("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||service.Fresh)?activity.ActiveAgents.ToString("N0"):"—",service.Settings.ReadAgentUsage?"Sessions reporting Working or Recent activity, plus agents named in model requests or agent spans, within the last 5 minutes. Completed, interrupted and quiet sessions are excluded. This does not prove the model is generating right now.":"Agent usage import is disabled. Enable Read local usage metadata in Settings to count recent active sessions.");
         const string overlap="Observed input and output since local midnight. Local and agent sources may overlap; do not add them. Open Token for details.";
         var local=ActivityCell("LOCAL TOKENS TODAY",CompactCount(tokens.LocalRequests),overlap+" Includes observed Ollama and AIPULSE Assistant requests.");
         var tools=ActivityCell("AGENT TOKENS TODAY",CompactCount(tokens.ToolRequests),overlap);
@@ -430,7 +430,8 @@ public sealed partial class MainWindow : Window
     }
     Control ModelsPage()
     {
-        var stack=new StackPanel{Spacing=18};stack.Children.Add(Heading("Models","Installed is different from loaded. Generating is confirmed only for observed requests."));stack.Children.Add(ModelsList(true));
+        var stack=new StackPanel{Spacing=18};stack.Children.Add(Heading("Models","Installed is different from loaded. Generating is confirmed only for observed requests."));stack.Children.Add(ModelsList(false));stack.Children.Add(ModelInsights());
+        var inventory=new StackPanel{Spacing=12};inventory.Children.Add(Text("Installed inventory",15,null,true));inventory.Children.Add(Table(["Model","Host","Quantization","Disk size"],service.Ollama.Installed.Select(m=>new[]{m.Name,ModelHost(m),m.Quantization,J.Size(m.MemoryGiB)}),"2*,*,*,*"));stack.Children.Add(Card(inventory));
         stack.Children.Add(Text("Recent observed requests",16,null,true));stack.Children.Add(Table(["Model","Input","Output","Decode tok/s","Duration","Outcome"],service.Store.UsageSince(J.Now-86400).Where(u=>u.Source=="Ollama").Take(100).Select(u=>new[]{u.Model,u.Status!="Completed"?"—":J.Count(u.Input),u.Status!="Completed"?"—":J.Count(u.Output),u.DecodeRate?.ToString("0.0")??"—",u.DurationMs.HasValue?$"{u.DurationMs/1000:0.0}s":"—",u.Status}),"2*,*,*,*,*,2*"));return stack;
     }
     Control ModelsList(bool inventory)
@@ -444,7 +445,7 @@ public sealed partial class MainWindow : Window
     }
     Control AgentsPage()
     {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Agents","Live app resources and retained session activity"));
+        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Agents","Live app resources and retained session activity"));stack.Children.Add(AgentActivity());
         stack.Children.Add(AgentResourcePanel(service.AgentApps,service.ProcessSampleTime,service.UnreadableProcesses));
         long now=J.Now;
         var spawns=service.Store.AgentSpawns(J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local),now);
@@ -466,7 +467,7 @@ public sealed partial class MainWindow : Window
     }
     Control AlertsPage()
     {
-        var stack=new StackPanel{Spacing=14};stack.Children.Add(Heading("Alerts","Sustained thresholds · no automatic model termination"));var alerts=service.Store.Alerts();foreach(var a in alerts.Where(a=>a.Active))stack.Children.Add(Message(a.Title,a.Detail));if(!alerts.Any(a=>a.Active))stack.Children.Add(Message("No active alerts","Monitoring temperature, memory pressure, storage and backup health."));stack.Children.Add(Text("Recent checks",15,null,true));stack.Children.Add(Table(["Check","State","Changed"],alerts.Select(a=>new[]{a.Title,a.Active?"Attention":"Clear",DateTimeOffset.FromUnixTimeSeconds(a.Time).ToLocalTime().ToString("MMM d HH:mm")}),"2*,*,*"));return stack;
+        var stack=new StackPanel{Spacing=14};stack.Children.Add(Heading("Alerts","Sustained thresholds · no automatic model termination"));stack.Children.Add(HealthCard());var alerts=service.Store.Alerts();foreach(var a in alerts.Where(a=>a.Active))stack.Children.Add(Message(a.Title,a.Detail));if(!alerts.Any(a=>a.Active))stack.Children.Add(Message("No active alerts","Monitoring temperature, memory pressure, storage and backup health."));stack.Children.Add(Text("Recent checks",15,null,true));stack.Children.Add(Table(["Check","State","Changed"],alerts.Select(a=>new[]{a.Title,a.Active?"Attention":"Clear",DateTimeOffset.FromUnixTimeSeconds(a.Time).ToLocalTime().ToString("MMM d HH:mm")}),"2*,*,*"));return stack;
     }
     Control SettingsPage()
     {

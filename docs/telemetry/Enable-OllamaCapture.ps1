@@ -3,9 +3,28 @@ param(
   [string]$DataDir=(Join-Path $env:LOCALAPPDATA 'AI Pulse'),
   [string]$OllamaExecutable=(Join-Path $env:LOCALAPPDATA 'Programs/Ollama/ollama.exe'),
   [switch]$RestartOllama,
-  [switch]$Disable
+  [switch]$Disable,
+  # Re-applies an existing capture setup after an Ollama update restored its own startup entry or the relay stopped.
+  [switch]$Repair
 )
 $ErrorActionPreference='Stop'
+$taskName='AIPULSE Usage Relay Watchdog'
+function Register-RelayWatchdog([string]$Command,[string]$Arguments){
+  # Per-user time trigger (no administrator rights). A relay that is already running makes the
+  # repeated launch exit immediately, so this only restarts capture after a crash or port loss.
+  $action=New-ScheduledTaskAction -Execute $Command -Argument $Arguments
+  $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 5)
+  $settings=New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Settings $settings -Description 'Restarts the AI Pulse usage relay if it stopped, so Ollama capture recovers without a sign-in.' -Force | Out-Null
+}
+function Start-RelayAndWait([string]$Command,[string]$Arguments){
+  Start-Process -FilePath $Command -ArgumentList $Arguments -WindowStyle Hidden
+  for($attempt=0;$attempt -lt 20;$attempt++){
+    Start-Sleep -Milliseconds 500
+    try{if((Invoke-RestMethod 'http://127.0.0.1:11434/health' -TimeoutSec 2).service -eq 'AI Pulse observation gateway' -and (Invoke-RestMethod 'http://127.0.0.1:11434/api/version' -TimeoutSec 2).version){return $true}}catch{}
+  }
+  return $false
+}
 $App=(Resolve-Path -LiteralPath $App).Path
 $DataDir=[IO.Path]::GetFullPath($DataDir)
 $configFile=Join-Path $DataDir 'usage-relay.json'
@@ -14,13 +33,15 @@ $runPath='HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $startupLink=Join-Path ([Environment]::GetFolderPath('Startup')) 'Ollama.lnk'
 $savedStartupLink=Join-Path $DataDir 'relay/Ollama-startup.lnk'
 if(!$RestartOllama){throw 'This change restarts Ollama and unloads its running models. Re-run with -RestartOllama when your jobs are idle. Close AIPULSE first. No model files will be removed.'}
-if(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'AiPulse.exe' -and $_.ExecutablePath -eq $App -and $_.CommandLine -notmatch '--usage-relay' }){throw 'Quit AIPULSE with Ctrl+Q before changing its capture configuration.'}
+if(!$Repair -and (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'AiPulse.exe' -and $_.ExecutablePath -eq $App -and $_.CommandLine -notmatch '--usage-relay' })){throw 'Quit AIPULSE with Ctrl+Q before changing its capture configuration.'}
 $OllamaExecutable=(Resolve-Path -LiteralPath $OllamaExecutable).Path
 $ollamaFolder=Split-Path -Parent $OllamaExecutable
 $config=$null
 if($Disable){
   if(!(Test-Path -LiteralPath $rollbackFile)){throw 'No setup rollback file exists; no settings changed.'}
   $rollback=Get-Content -LiteralPath $rollbackFile -Raw | ConvertFrom-Json
+}elseif($Repair){
+  if(!(Test-Path -LiteralPath $configFile)){throw 'Capture is not configured; run this script without -Repair to enable it.'}
 }else{
   if(Test-Path -LiteralPath $configFile){throw 'Capture is already configured. Disable it before changing ports.'}
   foreach($port in 11436){if(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue){throw "Private backend port $port is occupied; no changes made."}}
@@ -38,7 +59,18 @@ foreach($p in $relay){Stop-Process -Id $p.ProcessId -ErrorAction SilentlyContinu
 $ollamaProcesses=Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('ollama.exe','ollama app.exe','ollama_llama_server.exe') -and $_.ExecutablePath -and [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($ollamaFolder+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase) }
 foreach($p in $ollamaProcesses){Stop-Process -Id $p.ProcessId -ErrorAction SilentlyContinue}
 Start-Sleep -Seconds 2
-if($Disable){
+$arguments='--usage-relay --data-dir "'+$DataDir+'"'
+if($Repair){
+  # Ollama updates can restore its startup entries; park them again so the relay keeps port 11434.
+  # The originals from the first setup stay in relay/setup-rollback.json for -Disable.
+  Remove-ItemProperty -LiteralPath $runPath -Name 'Ollama' -ErrorAction SilentlyContinue
+  if(Test-Path -LiteralPath $startupLink){Move-Item -LiteralPath $startupLink -Destination (Join-Path $DataDir ('relay/Ollama-startup-restored-'+[DateTime]::UtcNow.ToString('yyyyMMddHHmmss')+'.lnk'))}
+  Set-ItemProperty -LiteralPath $runPath -Name 'AIPULSE Usage Relay' -Value ('"'+$App+'" '+$arguments)
+  Register-RelayWatchdog $App $arguments
+  if(!(Start-RelayAndWait $App $arguments)){throw 'Capture did not become ready. Check logs/app.log in the local data folder, or run with -Disable -RestartOllama to restore Ollama.'}
+  Write-Host 'Capture repaired: the relay owns 11434 again and the watchdog task restarts it if it stops.'
+}elseif($Disable){
+  Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
   Remove-ItemProperty -LiteralPath $runPath -Name 'AIPULSE Usage Relay' -ErrorAction SilentlyContinue
   if($rollback.OllamaRun){Set-ItemProperty -LiteralPath $runPath -Name 'Ollama' -Value $rollback.OllamaRun}
   if($rollback.StartupLink -and (Test-Path -LiteralPath $savedStartupLink)){
@@ -58,15 +90,9 @@ if($Disable){
     # BOM-free JSON is shared with the cross-platform .NET reader.
     [IO.File]::WriteAllText($configFile,($config | ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     Remove-ItemProperty -LiteralPath $runPath -Name 'Ollama' -ErrorAction SilentlyContinue
-    $arguments='--usage-relay --data-dir "'+$DataDir+'"'
     Set-ItemProperty -LiteralPath $runPath -Name 'AIPULSE Usage Relay' -Value ('"'+$App+'" '+$arguments)
-    Start-Process -FilePath $App -ArgumentList $arguments -WindowStyle Hidden
-    $ready=$false
-    for($attempt=0;$attempt -lt 20;$attempt++){
-      Start-Sleep -Milliseconds 500
-      try{if((Invoke-RestMethod 'http://127.0.0.1:11434/health' -TimeoutSec 2).service -eq 'AI Pulse observation gateway' -and (Invoke-RestMethod 'http://127.0.0.1:11434/api/version' -TimeoutSec 2).version){$ready=$true;break}}catch{}
-    }
-    if(!$ready){throw 'Capture did not become ready. Run this script with -Disable -RestartOllama to restore the saved configuration.'}
+    Register-RelayWatchdog $App $arguments
+    if(!(Start-RelayAndWait $App $arguments)){throw 'Capture did not become ready. Run this script with -Disable -RestartOllama to restore the saved configuration.'}
     Write-Host 'Persistent capture is ready on the normal Ollama port 11434. Launch AIPULSE. Clients must keep using 11434; 11436 is private and bypasses capture. Models reload on their next request.'
   }catch{
     $failure=$_

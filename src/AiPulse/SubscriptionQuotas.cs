@@ -53,6 +53,46 @@ public sealed partial class MainWindow
     bool quotaReadPending;
     DateTimeOffset nextManualQuotaRead;
     string codexQuotaStatus = "Waiting for live Codex usage.";
+    readonly QuotaForecast forecasts = new();
+    readonly Dictionary<string, bool> quotaAlerts = [];
+    readonly HashSet<string> quotaNotified = [];
+    Avalonia.Controls.Notifications.WindowNotificationManager? notifications;
+
+    IEnumerable<(string Key, string Provider, string Period, QuotaWindow? Window)> QuotaWindows() =>
+    [
+        ("codex-5h", "ChatGPT", "5-hour", codexQuota.FiveHour), ("codex-week", "ChatGPT", "weekly", codexQuota.Weekly),
+        ("claude-5h", "Claude", "5-hour", claudeQuota.FiveHour), ("claude-week", "Claude", "weekly", claudeQuota.Weekly),
+    ];
+
+    // Burn-rate projection per window; warns at 80% used or when the limit is under an hour away.
+    void TrackQuotaForecasts(DateTimeOffset now)
+    {
+        foreach (var (key, provider, period, window) in QuotaWindows())
+        {
+            if (window is null) continue;
+            forecasts.Add(key, window, now);
+            var projection = forecasts.Project(key, now);
+            bool soon = projection?.LimitAt is { } hit && (projection.ResetsAt is null || hit < projection.ResetsAt) && hit - now < TimeSpan.FromHours(1);
+            bool active = window.UsedPercent >= 80 || soon;
+            string title = $"{provider} {period} usage at {window.UsedPercent:0}%";
+            string detail = $"{provider} {period} window: {window.UsedPercent:0}% used" + (projection is null ? "" : "; " + projection.Describe(now)) +
+                (window.ResetsAt is { } reset ? $". Resets {reset.ToLocalTime():MMM d, h:mm tt}." : ".");
+            // Store only transitions and active updates; quiet windows do not write every minute.
+            if (active || quotaAlerts.GetValueOrDefault(key))
+            {
+                try { localService.Store.Alert("quota:" + key, title, detail, active); } catch (Exception e) { Paths.Log("quota-alert", e); }
+                quotaAlerts[key] = active;
+            }
+            if (active && quotaNotified.Add(key + ":" + (window.ResetsAt?.ToUnixTimeSeconds() ?? 0)))
+            {
+                notifications ??= new(this) { Position = Avalonia.Controls.Notifications.NotificationPosition.TopRight, MaxItems = 2 };
+                notifications.Show(new Avalonia.Controls.Notifications.Notification(title, detail, Avalonia.Controls.Notifications.NotificationType.Warning, TimeSpan.FromSeconds(20)));
+            }
+        }
+    }
+    DateTimeOffset nextCodexLiveRead;
+    TimeSpan codexLiveDelay = TimeSpan.FromMinutes(1);
+    string codexLiveStatus = "Waiting for live Codex usage.";
 
     async Task RefreshSubscriptionQuotas(DateTimeOffset now, bool manual = false)
     {
@@ -67,9 +107,30 @@ public sealed partial class MainWindow
                 var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 var codexHome = Environment.GetEnvironmentVariable("CODEX_HOME");
                 if (string.IsNullOrWhiteSpace(codexHome)) codexHome = Path.Combine(home, ".codex");
-                ProviderQuota codex;
-                try { codex = await CodexLiveQuota.Read(); codexQuotaStatus = "Live Codex account usage."; }
-                catch (Exception e) { codex = new(null, null, null); codexQuotaStatus = e is OperationCanceledException ? "Codex usage request timed out. Retrying automatically." : "Codex usage unavailable. Check Codex installation and sign-in. Retrying automatically."; Paths.Log("codex-quota", e); }
+                // Session logs carry the same provider-reported windows for CLI, IDE and desktop Codex.
+                // They are the primary source; the live CLI call only refreshes them when available.
+                ProviderQuota? fromSessions = null;
+                try { fromSessions = CodexQuotaReader.Read(codexHome, now); }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException) { Paths.Log("codex-quota-sessions", e); }
+                ProviderQuota? live = null;
+                string liveStatus;
+                if (now < nextCodexLiveRead) liveStatus = codexLiveStatus;
+                else
+                {
+                    try { live = await CodexLiveQuota.Read(); liveStatus = "Live Codex account usage."; codexLiveDelay = TimeSpan.FromMinutes(1); }
+                    catch (FileNotFoundException) { liveStatus = "From Codex session logs (no codex command on PATH; set AIPULSE_CODEX for live reads)."; codexLiveDelay = TimeSpan.FromMinutes(30); }
+                    catch (Exception e)
+                    {
+                        liveStatus = e is OperationCanceledException ? "Live Codex read timed out; showing session-log readings." : "Live Codex read failed; showing session-log readings.";
+                        codexLiveDelay = TimeSpan.FromMinutes(Math.Min(30, codexLiveDelay.TotalMinutes * 2)); Paths.Log("codex-quota", e);
+                    }
+                    nextCodexLiveRead = now + codexLiveDelay; codexLiveStatus = liveStatus;
+                }
+                var codex = ProviderQuota.Merge(now, live, fromSessions, codexQuota);
+                codexQuotaStatus = live != null ? liveStatus
+                    : fromSessions?.ObservedAt == null ? "No Codex usage reading yet. Readings appear after your next Codex turn."
+                    : liveStatus.StartsWith("Live Codex account") ? "From Codex session logs."
+                    : liveStatus;
                 var cached = ReadClaudeQuota(now);
                 // The reader throttles itself (normal interval, back-off, Retry-After), so asking every
                 // minute is safe. A skipped or failed call keeps the previous and cached readings.
@@ -83,6 +144,7 @@ public sealed partial class MainWindow
                 return (codex, bestClaude);
             });
             (codexQuota, claudeQuota) = results;
+            TrackQuotaForecasts(DateTimeOffset.UtcNow);
         }
         catch (Exception e) { Paths.Log("subscription-refresh", e); }
         finally
@@ -134,7 +196,12 @@ public sealed partial class MainWindow
             RenderBody();
         };
         heading.Children.Add(refresh);
-        var content = new StackPanel { Spacing = 8, Children = { heading, row, Text(codexQuotaStatus + " Claude: " + ClaudeQuotaReader.Status, 11, "#9eb1ca") } };
+        var content = new StackPanel { Spacing = 8, Children = { heading, row } };
+        var now = DateTimeOffset.UtcNow;
+        foreach (var (key, provider, period, window) in QuotaWindows())
+            if (window is not null && forecasts.Project(key, now) is { } projection)
+                content.Children.Add(Text($"{provider} {period}: {projection.Describe(now)}", 12, projection.LimitAt is { } hit && (projection.ResetsAt is null || hit < projection.ResetsAt) ? "#e8b65f" : "#b3c8e2"));
+        content.Children.Add(Text(codexQuotaStatus + " Claude: " + ClaudeQuotaReader.Status, 11, "#9eb1ca"));
         if (localService.Settings.ReadAgentUsage && (codexQuota.NeedsRefresh(DateTimeOffset.UtcNow) || claudeQuota.NeedsRefresh(DateTimeOffset.UtcNow)))
             content.Children.Add(Text("A dash means a current reading is unavailable. Hover over a meter for details.", 11, "#9eb1ca"));
         return new Border { Child = content, Padding = new Thickness(14, 10), Background = Panel,

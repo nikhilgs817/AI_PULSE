@@ -17,6 +17,7 @@ public sealed partial class MainWindow
     {
         var stack=new StackPanel{Spacing=18};
         stack.Children.Add(Heading("Token","Observed token usage · on-prem models and tools shown separately"));
+        stack.Children.Add(HealthCard());
         if(!service.IsRemote)stack.Children.Add(SubscriptionQuotaCard());
         tokenDays=Math.Min(tokenDays,service.Settings.RetentionDays);
         long now=J.Now,since=TokenWindowStart(now);

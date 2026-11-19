@@ -23,7 +23,7 @@ public sealed partial class Storage
     }
     public void ResetReplica()
     {
-            lock(gate){using var tx=db.BeginTransaction();Execute("DELETE FROM metrics;DELETE FROM minute_metrics;DELETE FROM sensors;DELETE FROM usage;DELETE FROM sessions;DELETE FROM alerts;DELETE FROM checkpoints;DELETE FROM usage_sources;DELETE FROM token_intervals;DELETE FROM token_counter_state;DELETE FROM agent_spawns;DELETE FROM sync_state WHERE key<>'last-snapshot';");tx.Commit();}
+            lock(gate){using var tx=db.BeginTransaction();Execute("DELETE FROM metrics;DELETE FROM minute_metrics;DELETE FROM sensors;DELETE FROM usage;DELETE FROM sessions;DELETE FROM alerts;DELETE FROM checkpoints;DELETE FROM usage_sources;DELETE FROM token_intervals;DELETE FROM token_counter_state;DELETE FROM agent_spawns;DELETE FROM request_traces;DELETE FROM sync_state WHERE key<>'last-snapshot';");tx.Commit();}
     }
     public BaselinePage Baseline(BaselineCursor cursor)
     {

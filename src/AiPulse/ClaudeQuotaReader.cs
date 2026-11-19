@@ -14,19 +14,16 @@ internal static class ClaudeQuotaReader
 {
     internal static readonly TimeSpan NormalInterval = TimeSpan.FromMinutes(5);
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(30);
-    // Claude Code renews its own token shortly before expiry while it runs. Renew only once the
-    // token is clearly past expiry, so AI Pulse and a running Claude Code do not renew together.
-    internal static readonly TimeSpan RenewGrace = TimeSpan.FromMinutes(1);
+    // Read-only by design: AI Pulse never renews or rewrites Claude Code's sign-in. Refresh tokens
+    // rotate, so a second renewer can invalidate Claude Code's own session. An expired token simply
+    // waits until Claude Code renews it on its next use; the status-line feed covers the gap.
 
     const string UsageUrl = "https://api.anthropic.com/api/oauth/usage";
-    const string DefaultTokenUrl = "https://console.anthropic.com/v1/oauth/token";
-    const string ClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 
     internal static string Status { get; private set; } = "Waiting for usage.";
     internal static DateTimeOffset NextAttempt { get; private set; } = DateTimeOffset.MinValue;
     static bool rateLimited;
     static int failures;
-    static string? deadRefreshToken;
     static readonly HttpClient Client = new() { Timeout = TimeSpan.FromSeconds(15) };
 
     internal static string ConfigDirectory()
@@ -55,7 +52,7 @@ internal static class ClaudeQuotaReader
                 var final = response;
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    // The token was revoked or expired early. Renew once and retry.
+                    // The token was revoked or expired early. Re-read once in case Claude Code just renewed it.
                     token = await AccessToken(credentialsPath, now, staleToken: token);
                     if (token is null) { Backoff(now, null); return null; }
                     final = retried = await SendUsage(token);
@@ -136,12 +133,8 @@ internal static class ClaudeQuotaReader
         var current = ReadCredentials(await File.ReadAllTextAsync(credentialsPath));
         if (current is null) { Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
         if (current.AccessToken != staleToken && current.ExpiresAt > now) return current.AccessToken;
-        if (staleToken is null && current.ExpiresAt > now - RenewGrace)
-        {
-            Status = "Claude Code sign-in is renewing. Retrying automatically.";
-            return null;
-        }
-        return await Renew(credentialsPath, now, staleToken);
+        Status = "Waiting for Claude Code to renew its sign-in (it does on next use). Status-line readings still update.";
+        return null;
     }
 
     internal sealed record Credentials(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresAt);
@@ -160,103 +153,6 @@ internal static class ClaudeQuotaReader
             ? DateTimeOffset.FromUnixTimeMilliseconds(Math.Clamp(ms, 0, DateTimeOffset.MaxValue.ToUnixTimeMilliseconds()))
             : DateTimeOffset.MaxValue;
         return new(access.GetString()!, string.IsNullOrWhiteSpace(refresh) ? null : refresh, expires);
-    }
-
-    static async Task<string?> Renew(string credentialsPath, DateTimeOffset now, string? staleToken)
-    {
-        using var guard = await AcquireLock();
-        // Re-read under the lock: Claude Code or another AI Pulse process may already have renewed.
-        var original = await File.ReadAllTextAsync(credentialsPath);
-        var current = ReadCredentials(original);
-        if (current is null) { Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
-        if (current.AccessToken != staleToken && current.ExpiresAt > now) return current.AccessToken;
-        if (current.RefreshToken is null || current.RefreshToken == deadRefreshToken)
-        {
-            Status = "Claude Code sign-in expired. Run /login in Claude Code to reconnect usage.";
-            return null;
-        }
-
-        var tokenUrl = Environment.GetEnvironmentVariable("AIPULSE_CLAUDE_TOKEN_URL");
-        if (string.IsNullOrWhiteSpace(tokenUrl)) tokenUrl = DefaultTokenUrl;
-        var body = JsonSerializer.Serialize(new Dictionary<string, string>
-        {
-            ["grant_type"] = "refresh_token",
-            ["refresh_token"] = current.RefreshToken,
-            ["client_id"] = ClientId,
-        });
-        using var request = new HttpRequestMessage(HttpMethod.Post, tokenUrl) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
-        request.Headers.UserAgent.ParseAdd("claude-code/2.1.307");
-        using var response = await Client.SendAsync(request);
-        if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized)
-        {
-            // The refresh token was revoked or already rotated. Never retry it.
-            deadRefreshToken = current.RefreshToken;
-            Status = "Claude Code sign-in expired. Run /login in Claude Code to reconnect usage.";
-            return null;
-        }
-        if (!response.IsSuccessStatusCode)
-        {
-            Status = $"Claude sign-in renewal returned HTTP {(int)response.StatusCode}. Retrying automatically.";
-            return null;
-        }
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
-        var updated = ApplyRenewal(original, document.RootElement, DateTimeOffset.UtcNow);
-        var renewed = ReadCredentials(updated)!;
-
-        // Only replace the file if nobody changed it while the request was in flight.
-        if (await File.ReadAllTextAsync(credentialsPath) == original) WriteAtomically(credentialsPath, updated);
-        else Paths.Log("claude-quota", new IOException("Credentials changed during renewal; kept the newer file."));
-        return renewed.AccessToken;
-    }
-
-    /// <summary>Applies an OAuth token response to Claude Code's credentials JSON, keeping every other field.</summary>
-    internal static string ApplyRenewal(string credentialsJson, JsonElement tokenResponse, DateTimeOffset now)
-    {
-        var root = JsonNode.Parse(credentialsJson)?.AsObject() ?? throw new JsonException("Credentials are not an object.");
-        var oauth = root["claudeAiOauth"]?.AsObject() ?? throw new JsonException("Credentials have no OAuth entry.");
-        if (!tokenResponse.TryGetProperty("access_token", out var access) || access.ValueKind != JsonValueKind.String ||
-            string.IsNullOrWhiteSpace(access.GetString()))
-            throw new JsonException("Token response has no access token.");
-        oauth["accessToken"] = access.GetString();
-        if (tokenResponse.TryGetProperty("refresh_token", out var refresh) && refresh.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(refresh.GetString()))
-            oauth["refreshToken"] = refresh.GetString();
-        long seconds = tokenResponse.TryGetProperty("expires_in", out var expires) && expires.ValueKind == JsonValueKind.Number &&
-                       expires.TryGetInt64(out var s) && s > 0 ? s : 3600;
-        oauth["expiresAt"] = now.AddSeconds(seconds).ToUnixTimeMilliseconds();
-        if (tokenResponse.TryGetProperty("scope", out var scope) && scope.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(scope.GetString()))
-            oauth["scopes"] = new JsonArray(scope.GetString()!.Split(' ', StringSplitOptions.RemoveEmptyEntries)
-                .Select(x => (JsonNode?)JsonValue.Create(x)).ToArray());
-        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
-    }
-
-    static void WriteAtomically(string path, string content)
-    {
-        var temporary = path + ".aipulse-" + Guid.NewGuid().ToString("N");
-        try
-        {
-            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-                var bytes = Encoding.UTF8.GetBytes(content);
-                stream.Write(bytes);
-                stream.Flush(true);
-            }
-            File.Move(temporary, path, true);
-        }
-        finally { try { if (File.Exists(temporary)) File.Delete(temporary); } catch { } }
-    }
-
-    static async Task<IDisposable> AcquireLock()
-    {
-        Directory.CreateDirectory(Paths.DefaultRoot);
-        var path = Path.Combine(Paths.DefaultRoot, "claude-oauth.lock");
-        for (int attempt = 0; ; attempt++)
-        {
-            try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose); }
-            catch (IOException) when (attempt < 40) { await Task.Delay(250); }
-        }
     }
 
     // ---- Response parsing -----------------------------------------------------------------

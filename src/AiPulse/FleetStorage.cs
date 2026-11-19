@@ -83,6 +83,7 @@ public sealed partial class Storage
                     case "usage-source":SourceStateCore(JsonSerializer.Deserialize<UsageSourceState>(e.Payload)!);break;
                     case "token-interval":CounterCore(JsonSerializer.Deserialize<TokenCounterInterval>(e.Payload)!);break;
                     case "agent-spawn":AgentSpawnCore(JsonSerializer.Deserialize<AgentSpawn>(e.Payload)!);break;
+                    case "request-trace":TraceCore(JsonSerializer.Deserialize<RequestTrace>(e.Payload)!);break;
                     case "session":SessionCore(JsonSerializer.Deserialize<SessionPayload>(e.Payload)!);break;
                     case "alert":AlertCore(JsonSerializer.Deserialize<AlertInfo>(e.Payload)!);break;
                     case "rollup":
@@ -118,6 +119,7 @@ public sealed partial class Storage
             case "session":var p=JsonSerializer.Deserialize<SessionPayload>(e.Payload)??throw new InvalidDataException();Time(p.Time);Text(p.Id);Text(p.Source);Text(p.Model);Text(p.State);break;
             case "alert":var a=JsonSerializer.Deserialize<AlertInfo>(e.Payload)??throw new InvalidDataException();Time(a.Time);Text(a.Key);Text(a.Title);Text(a.Detail,2048);break;
             case "rollup":var v=JsonSerializer.Deserialize<RollupPayload>(e.Payload)??throw new InvalidDataException();Time(v.Time);Sensor(v.Sensor);if(v.Count<=0||!double.IsFinite(v.Total)||!double.IsFinite(v.Minimum)||!double.IsFinite(v.Maximum))throw new InvalidDataException();break;
+            case "request-trace":ValidateTrace(JsonSerializer.Deserialize<RequestTrace>(e.Payload)??throw new InvalidDataException());break;
             default:throw new InvalidDataException("Unsupported telemetry kind");
         }
     }

@@ -5,10 +5,34 @@ namespace AiPulse;
 
 internal static class CodexLiveQuota
 {
+    // Store/desktop Codex installs do not put a `codex` command on PATH. Spawning the bare name then
+    // failed every minute; resolve it explicitly (AIPULSE_CODEX overrides) and report absence instead.
+    internal static string? Resolve(string? path = null, string? pathExt = null, string? overrideFile = null)
+    {
+        overrideFile ??= Environment.GetEnvironmentVariable("AIPULSE_CODEX");
+        if (!string.IsNullOrWhiteSpace(overrideFile) && Path.IsPathFullyQualified(overrideFile) && File.Exists(overrideFile)) return overrideFile;
+        string[] extensions = OperatingSystem.IsWindows()
+            ? (pathExt ?? Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD").Split(';', StringSplitOptions.RemoveEmptyEntries)
+                .Where(e => e.Equals(".exe", StringComparison.OrdinalIgnoreCase) || e.Equals(".cmd", StringComparison.OrdinalIgnoreCase)).ToArray()
+            : [""];
+        foreach (var directory in (path ?? Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string folder = directory.Trim().Trim('"');
+            if (!Path.IsPathFullyQualified(folder)) continue; // never resolve from the working directory
+            foreach (var extension in extensions)
+            {
+                string candidate = Path.Combine(folder, "codex" + extension);
+                if (File.Exists(candidate)) return candidate;
+            }
+        }
+        return null;
+    }
+
     internal static async Task<ProviderQuota> Read()
     {
+        string executable = Resolve() ?? throw new FileNotFoundException("No codex command on PATH.");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-        using var process = new Process { StartInfo = new ProcessStartInfo("codex", "app-server")
+        using var process = new Process { StartInfo = new ProcessStartInfo(executable, "app-server")
         {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true

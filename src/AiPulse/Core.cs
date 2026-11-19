@@ -52,6 +52,8 @@ public sealed class AppSettings
     public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";
     public string WifiInterfaceId { get; set; } = "";
     public List<Endpoint> RemoteEndpoints { get; set; } = [];
+    // vLLM servers read directly from /metrics. 8000 is vLLM's default port; non-vLLM servers are ignored.
+    public List<string> VllmEndpoints { get; set; } = ["http://127.0.0.1:8000"];
     public double? X { get; set; }
     public double? Y { get; set; }
     public double CompactWidth { get; set; } = 650;
@@ -110,6 +112,12 @@ public static class Paths
         // Exception bodies can contain request content. Persist only safe diagnostic classifications.
         try {var path=Path.Combine(Root,"logs","app.log"); if(File.Exists(path)&&new FileInfo(path).Length>2_000_000) File.Move(path,path+".previous",true);
         File.AppendAllText(path,$"{DateTimeOffset.UtcNow:O} {component}: {e.GetType().Name} (0x{e.HResult:X})\n");} catch { }
+    }
+    // For fixed, application-authored messages only (never request content or exception text).
+    public static void Note(string component, string message)
+    {
+        try {var path=Path.Combine(Root,"logs","app.log"); Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.AppendAllText(path,$"{DateTimeOffset.UtcNow:O} {component}: {message.ReplaceLineEndings(" ")}\n");} catch { }
     }
 }
 
