@@ -81,7 +81,10 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
         "gen_ai.provider.name","gen_ai.system","gen_ai.request.model","gen_ai.response.model","gen_ai.response.id","gen_ai.usage.input_tokens","gen_ai.usage.output_tokens",
         "gen_ai.usage.cache_read.input_tokens","gen_ai.usage.cache_write.input_tokens","gen_ai.usage.cache_creation.input_tokens","gen_ai.usage.reasoning.output_tokens",
         "service.name","service.instance.id","k8s.pod.uid","k8s.namespace.name","k8s.cluster.name","model_name","model.name","gen_ai.token.type","type","instance","job","engine","engine_id","source",
-        "aipulse_pod_uid","aipulse_namespace","aipulse_pod","aipulse_container","aipulse_port","gen_ai.agent.id"
+        "aipulse_pod_uid","aipulse_namespace","aipulse_pod","aipulse_container","aipulse_port","gen_ai.agent.id",
+        // Agent spans (OTel GenAI) and OpenInference (Phoenix/OpenLLMetry-style) attributes: identifiers and counts only.
+        "gen_ai.agent.name","gen_ai.operation.name","gen_ai.usage.prompt_tokens","gen_ai.usage.completion_tokens",
+        "openinference.span.kind","llm.model_name","llm.provider","llm.system","llm.token_count.prompt","llm.token_count.completion","agent.name"
     };
     static Dictionary<string,string> Attributes(IEnumerable<KeyValue>? values)
     {
@@ -98,18 +101,38 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
     static long? N(Dictionary<string,string> d,params string[] names){var s=S(d,names);return long.TryParse(s,NumberStyles.Integer,CultureInfo.InvariantCulture,out long n)&&n is >=0 and <=1_000_000_000_000?n:null;}
     static long Seconds(ulong nano)=>checked((long)(nano/1_000_000_000));
     static string Instance(Dictionary<string,string> a)=>S(a,"aipulse_pod_uid","k8s.pod.uid","service.instance.id","instance");
-    static string Model(Dictionary<string,string> a)=>S(a,"gen_ai.response.model","gen_ai.request.model","model_name","model.name","model");
+    static string Model(Dictionary<string,string> a)=>S(a,"gen_ai.response.model","gen_ai.request.model","llm.model_name","model_name","model.name","model");
+    // Agent runs and model calls for the agent timeline. Spans of one trace share a run id;
+    // the agent span names the run. Only names, timings and counts are kept.
+    void Trace(Dictionary<string,string> a,OpenTelemetry.Proto.Trace.V1.Span span)
+    {
+        string kind=S(a,"openinference.span.kind").ToUpperInvariant(),operation=S(a,"gen_ai.operation.name");
+        bool agentSpan=kind=="AGENT"||operation is "invoke_agent" or "create_agent";
+        long? input=N(a,"gen_ai.usage.input_tokens","gen_ai.usage.prompt_tokens","llm.token_count.prompt"),output=N(a,"gen_ai.usage.output_tokens","gen_ai.usage.completion_tokens","llm.token_count.completion");
+        bool modelSpan=kind=="LLM"||operation is "chat" or "text_completion" or "generate_content"||input!=null||output!=null;
+        if(!agentSpan&&!modelSpan||span.StartTimeUnixNano==0||span.EndTimeUnixNano<span.StartTimeUnixNano)return;
+        string agent=AgentLabel.Clean(S(a,"gen_ai.agent.name","agent.name"));
+        if(agentSpan&&agent=="")agent=AgentLabel.Clean(span.Name.StartsWith("invoke_agent ")?span.Name[13..]:span.Name);
+        string trace=Hex(span.TraceId),service=S(a,"service.name");
+        if(trace=="")return;
+        try
+        {
+            db.PutTrace(new("otlp-span:"+J.Hash(trace+":"+Hex(span.SpanId)),"OTLP · "+(service==""?"app":service),agentSpan?"":Model(a),agent,trace.Length>16?trace[..16]:trace,
+                (long)(span.StartTimeUnixNano/1_000_000),(long)(span.EndTimeUnixNano/1_000_000),null,null,null,null,input??0,output??0,0,agentSpan?"Agent run":"Model call"));
+        }
+        catch(InvalidDataException){}
+    }
     void Request(Dictionary<string,string> a,long time,string eventName,string trace,string span,double? duration=null)
     {
         bool cowork=S(a,"service.name")=="cowork"&&eventName is "api_request" or "claude_code.api_request";
         bool claude=cowork||eventName is "claude_code.api_request" or "claude_code.llm_request";
         if(!claude&&eventName.StartsWith("claude_code.",StringComparison.Ordinal))return;
-        long? input=N(a,claude?"input_tokens":"gen_ai.usage.input_tokens"),output=N(a,claude?"output_tokens":"gen_ai.usage.output_tokens");
+        long? input=claude?N(a,"input_tokens"):N(a,"gen_ai.usage.input_tokens","gen_ai.usage.prompt_tokens","llm.token_count.prompt"),output=claude?N(a,"output_tokens"):N(a,"gen_ai.usage.output_tokens","gen_ai.usage.completion_tokens","llm.token_count.completion");
         if(input==null&&output==null)return;
         if(time<=0||time>J.Now+300||time<J.Now-db.RetentionDays*86400L)throw new InvalidDataException();
         long cache=N(a,claude?"cache_read_tokens":"gen_ai.usage.cache_read.input_tokens")??0,write=N(a,claude?"cache_creation_tokens":"gen_ai.usage.cache_write.input_tokens","gen_ai.usage.cache_creation.input_tokens")??0;
         long normalized=(input??0)+(claude?cache+write:0); // GenAI convention input already includes cache subsets.
-        string provider=S(a,"gen_ai.provider.name","gen_ai.system"),request=S(a,"request_id","gen_ai.response.id","client_request_id"),model=Model(a),session=S(a,"session.id","session_id");
+        string provider=S(a,"gen_ai.provider.name","gen_ai.system","llm.provider","llm.system"),request=S(a,"request_id","gen_ai.response.id","client_request_id"),model=Model(a),session=S(a,"session.id","session_id");
         string source=cowork?"Claude Cowork":claude?"Claude Code":provider.ToLowerInvariant() switch{"ollama"=>"Ollama (OTLP)","vllm"=>"vLLM (OTLP)",_=>"OTLP · "+(provider==""?S(a,"service.name"):provider)};
         if(cowork&&request==""&&session!=""&&S(a,"event.sequence")!="")request="cowork-event:"+session+":"+S(a,"event.sequence")+":"+S(a,"event.timestamp");
         string identity=request!=""?provider+":"+Instance(a)+":"+request:trace!=""&&span!=""?trace+":"+span:"";
@@ -149,7 +172,7 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
     public void Process(ExportTraceServiceRequest request)
     {
         int n=0;foreach(var resource in request.ResourceSpans){var a=Attributes(resource.Resource?.Attributes);foreach(var scope in resource.ScopeSpans)foreach(var span in scope.Spans)
-        {if(++n>10000)throw new InvalidDataException();Request(Merge(a,span.Attributes),Seconds(span.EndTimeUnixNano),span.Name,Hex(span.TraceId),Hex(span.SpanId),span.EndTimeUnixNano>=span.StartTimeUnixNano?(span.EndTimeUnixNano-span.StartTimeUnixNano)/1e6:null);}}
+        {if(++n>10000)throw new InvalidDataException();var attributes=Merge(a,span.Attributes);Request(attributes,Seconds(span.EndTimeUnixNano),span.Name,Hex(span.TraceId),Hex(span.SpanId),span.EndTimeUnixNano>=span.StartTimeUnixNano?(span.EndTimeUnixNano-span.StartTimeUnixNano)/1e6:null);Trace(attributes,span);}}
     }
     public void Process(ExportMetricsServiceRequest request)
     {

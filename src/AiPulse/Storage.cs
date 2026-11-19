@@ -39,6 +39,7 @@ public sealed partial class Storage : IDisposable
         InitializeReplication();
         InitializeAccounting();
         InitializeAgentSpawns();
+        InitializeRequestTraces();
         }
         catch{db.Dispose();throw;}
     }
@@ -107,7 +108,8 @@ public sealed partial class Storage : IDisposable
     public (long ActiveAgents,long Tokens,long OnPrem,long Tools) CompactActivity(long since,long now)
     {
         lock(gate){using var c=Command("""
-            SELECT (SELECT count(*) FROM sessions WHERE state IN ('Working','Recent activity') AND last_seen>=@p1-300 AND last_seen<=@p1),
+            SELECT (SELECT count(*) FROM sessions WHERE state IN ('Working','Recent activity') AND last_seen>=@p1-300 AND last_seen<=@p1)
+                   +(SELECT count(DISTINCT agent||char(10)||run) FROM request_traces WHERE agent<>'' AND end_ms>=(@p1-300)*1000 AND end_ms<=(@p1+300)*1000),
                    coalesce(sum(input+output),0),
                    coalesce(sum(CASE WHEN source IN ('Ollama','AIPULSE Assistant') THEN input+output ELSE 0 END),0),
                    coalesce(sum(CASE WHEN source NOT IN ('Ollama','AIPULSE Assistant') THEN input+output ELSE 0 END),0)
@@ -179,7 +181,7 @@ public sealed partial class Storage : IDisposable
     }
     public void Retain(long now)
     {
-        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM agent_spawns WHERE time<@p0",cutoff);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
+        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM agent_spawns WHERE time<@p0",cutoff);Execute("DELETE FROM request_traces WHERE end_ms<@p0",cutoff*1000);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
     }
     public void Dispose(){lock(gate)db.Dispose();}
 }

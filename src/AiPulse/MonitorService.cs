@@ -8,6 +8,9 @@ public sealed class MonitorService : IDisposable
     public Storage Store {get;}
     public Hardware Hardware {get;private set;}=null!;
     public Ollama Ollama {get;}=new();
+    public OllamaServerLog ServerLog {get;}=new();
+    public ModelResidency Residency {get;}=new();
+    public VllmMetrics Vllm {get;}=new();
     public AgentUsage Agents {get;}
     public Gateway Gateway {get;}
     public TelemetryReceiver Telemetry {get;}
@@ -75,7 +78,18 @@ public sealed class MonitorService : IDisposable
                 try{await Task.Delay(2000,stop.Token);}catch(OperationCanceledException){}
             }
         });
-        modelTask=Task.Run(async()=>{await Gateway.Start(stop.Token);while(!stop.IsCancellationRequested){try{if(!Gateway.Status.StartsWith("Listening"))await Gateway.Start(stop.Token);await Ollama.Poll(Settings,stop.Token);}catch(Exception e){Paths.Log("model-discovery",e);}try{await Task.Delay(4000,stop.Token);}catch(OperationCanceledException){}}});
+        modelTask=Task.Run(async()=>
+        {
+            await Gateway.Start(stop.Token);var gatewayRetry=DateTime.UtcNow.AddSeconds(30);long logReport=0;
+            while(!stop.IsCancellationRequested)
+            {
+                // A held gateway port is usually another AI Pulse window; retry slowly instead of every poll.
+                try{if(!Gateway.Status.StartsWith("Listening")&&DateTime.UtcNow>=gatewayRetry){await Gateway.Start(stop.Token);gatewayRetry=DateTime.UtcNow.AddSeconds(60);}await Ollama.Poll(Settings,stop.Token);if(!IsRemote){Residency.Observe(Ollama.Models,Ollama.Status,J.Now);Residency.Report(Store,Ollama.Models,J.Now);}}catch(Exception e){Paths.Log("model-discovery",e);}
+                if(!IsRemote&&Settings.VllmEndpoints.Count>0)try{await Vllm.Poll(Settings.VllmEndpoints,Store,stop.Token);}catch(OperationCanceledException)when(stop.IsCancellationRequested){}catch(Exception e){Paths.Log("vllm-metrics",e);}
+                if(!IsRemote)try{ServerLog.Poll();if(J.Now-logReport>=30){ServerLog.Report(Store,J.Now);logReport=J.Now;}}catch(Exception e){Paths.Log("ollama-server-log",e);}
+                try{await Task.Delay(4000,stop.Token);}catch(OperationCanceledException){}
+            }
+        });
         agentTask=Task.Run(async()=>{await Telemetry.Start(stop.Token);while(!stop.IsCancellationRequested){try{await Relay.Poll(stop.Token);}catch(Exception e){Paths.Log("relay-poll",e);}try{if(Settings.ReadAgentUsage)Agents.Poll();}catch(Exception e){Paths.Log("agent-import",e);}try{await Task.Delay(8000,stop.Token);}catch(OperationCanceledException){}}});
     }
     public double? Value(string id)=>Readings.FirstOrDefault(r=>r.Id==id)?.Value;
@@ -121,6 +135,6 @@ public sealed class MonitorService : IDisposable
         try{Gateway.DisposeAsync().AsTask().Wait(2000);}catch{}
         try{Telemetry.DisposeAsync().AsTask().Wait(2000);}catch{}
         Relay.Dispose();
-        SensorBridge.Dispose();Hardware?.Dispose();Ollama.Dispose();Store.Dispose();stop.Dispose();
+        SensorBridge.Dispose();Hardware?.Dispose();Ollama.Dispose();Vllm.Dispose();Store.Dispose();stop.Dispose();
     }
 }

@@ -140,7 +140,7 @@ public sealed partial class MainWindow
             this.GetVisualDescendants().OfType<TextBox>().Single().Text="no-sensor-xyz";await Task.Delay(150);Refresh();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="No sensors match your search."),"Sensor search has an explicit empty state");
             this.GetVisualDescendants().OfType<TextBox>().Single().Text="CPU";await Shot("sensors-search");
             await Click("Hardware");Check(this.GetVisualDescendants().OfType<TextBox>().Single().Text=="CPU","Search survives tab changes");
-            await Click("Agents");Check(AutomationProperties.GetName(this.GetVisualDescendants().OfType<TextBox>().Single())=="Search Agents","Agents exposes searchable retained session metadata");
+            await Click("Agents");Check(this.GetVisualDescendants().OfType<TextBox>().Count(t=>AutomationProperties.GetName(t)=="Search Agents")==1,"Agents exposes searchable retained session metadata");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Live app resource consumption")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Working set (sum)"),"Agents displays live app CPU, working-set memory and process counts separately from sessions");
             var resourceFixture=AgentResources.Group([new(801,0,"codex",1,2,100),new(802,801,"fixture-worker",2,3,50)]);
             expandedAgentApps.Add("Codex");scroller!.Content=AgentResourcePanel(resourceFixture,DateTime.UtcNow,0);await Task.Delay(150);

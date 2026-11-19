@@ -85,6 +85,35 @@ For Ollama workloads, run one capture relay per Ollama instance alongside its AI
 
 For custom orchestrators on a host, K3s or Kubernetes, send an OTLP log with event name `aipulse.agent.started`, an event timestamp, resource attribute `service.name`, and log attribute `gen_ai.agent.id`. Use a stable unique ID for each created agent instance across retries. Set `k8s.cluster.name` for multi-cluster exports. The receiver stores a hashed identity, source and timestamp. Export events when the orchestrator creates an agent. A model request, pod start, or loaded model does not establish that an agent was spawned.
 
+## Naming agents on model calls (local models)
+
+Local agent frameworks call Ollama (or vLLM) directly, so nothing tells AI Pulse which agent made a request. Add two headers to each model request that goes through the relay (11434) or the gateway (11435):
+
+- `X-Agent-Name`: the agent's name, for example `planner` (1–80 letters, digits, space or `_ . : / @ # + -`).
+- `X-Agent-Run` (optional): one ID per agent run or task, so the timeline groups that run's calls.
+
+With `httpx` (Phoenix-style clients): `httpx.Client(base_url=..., headers={"X-Agent-Name": "planner", "X-Agent-Run": run_id})`. The headers are forwarded to Ollama and ignored there. AI Pulse stores only the name, run ID, timings and token counts.
+
+Then **Agents → Working now** lists agents with calls in progress, **Agent timeline** shows each run's model calls on a time axis, and the Overview **Active agents** count includes named agents active within 5 minutes.
+
+Frameworks instrumented with OpenTelemetry can send traces instead: export OTLP over **HTTP** (`OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf`, endpoint `http://127.0.0.1:4319`). AI Pulse reads OTel GenAI agent spans (`gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name`) and OpenInference spans (`openinference.span.kind=AGENT|LLM`, `llm.token_count.*`, `llm.model_name`). The gRPC port 4317 is not served.
+
+## Timing, context and VRAM
+
+Every request through the relay or gateway records time to first token (TTFT), and for Ollama-native endpoints also load, prompt-processing and generation time. **Models** shows TTFT p50/p90, prompt and generation tok/s per model, a context-window gauge (last request versus the loaded context length), and VRAM residency events. An *Evicted* model was unloaded so another could load. Three evictions in 30 minutes raise a "models are swapping" alert. A model with part of its weights outside VRAM raises a CPU-offload alert.
+
+## vLLM without a Collector
+
+`VllmEndpoints` in `settings.json` (default `["http://127.0.0.1:8000"]`) lists vLLM servers read directly from `/metrics` and `/v1/models`: running and waiting requests, KV-cache usage, preemptions, TTFT, end-to-end latency and token throughput. Their token counters feed the same **vLLM tokens** ledger as the OTLP path. Use one path per server: do not also export the same server's counters through a Collector. Addresses that are not vLLM are re-checked once a minute. Alerts fire for KV cache ≥ 90%, preemptions, and 4 or more queued requests.
+
+## Coverage health and repair
+
+**Token** and **Alerts** start with a coverage card: each source is *Receiving*, *Waiting for traffic*, *Stale*, *Broken* or *Not available*. **Repair capture** re-runs `Enable-OllamaCapture.ps1 -Repair -RestartOllama`. It stops Ollama's own server and tray (which unloads models), parks a startup entry that an Ollama update restored, and restarts the relay. Both enable and repair register a per-user **AIPULSE Usage Relay Watchdog** task that relaunches the relay every 5 minutes if it stopped. The relay now restarts its Ollama backend with back-off instead of exiting. Backend request and error lines go to `relay/ollama-backend.log`; the **Ollama request log** source compares that log (and Ollama's own `server.log`) with captured usage to show requests that bypassed capture.
+
+## Lab sessions
+
+**Agents → Lab session** records a window: press **Start recording** before a lab and **Stop and build report** after it. The Markdown report in `exports/` lists tokens per model and agent, TTFT and tokens/s, errors, VRAM/GPU/CPU peaks, model evictions, vLLM counters, and what the same local tokens would cost at the API rates in `lab-pricing.json`. Edit that file to add or change reference models, then use **Rebuild**.
+
 The shipped files are validated configuration profiles, not an automatically installed cluster stack. Before deployment, choose the namespace, signed/trusted images, persistent volume, hub reachability, workload target labels and network policy. The user's future cluster has not yet been connected, so pod discovery and real vLLM counters still need validation there.
 
 ## Retention and interruptions

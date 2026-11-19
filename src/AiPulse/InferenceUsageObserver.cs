@@ -18,6 +18,10 @@ public sealed class InferenceUsageObserver
     public bool HasOutput{get;private set;}
     public bool Complete{get;private set;}
     public double? Rate{get;private set;}
+    // Ollama-native server timings (seconds). OpenAI-compatible endpoints do not report them.
+    public double? PromptSeconds{get;private set;}
+    public double? GenerateSeconds{get;private set;}
+    public double? LoadSeconds{get;private set;}
     public void Feed(ReadOnlySpan<byte> bytes){if(!wholeTooLarge){if(whole.Length+bytes.Length<=2*1024*1024)whole.Write(bytes);else{wholeTooLarge=true;whole.SetLength(0);}}foreach(byte b in bytes){if(b==10)Inspect();else if(!discard){if(line.Length<2*1024*1024)line.WriteByte(b);else{discard=true;line.SetLength(0);}}}}
     public void Finish(){if(line.Length>0)Inspect();if(!wholeTooLarge&&whole.Length>0)try{using var doc=JsonDocument.Parse(whole.GetBuffer().AsMemory(0,(int)whole.Length));Observe(doc.RootElement);}catch(JsonException){} }
     void Inspect()
@@ -37,7 +41,9 @@ public sealed class InferenceUsageObserver
         if(Count(r,"eval_count") is long no){Output=no;HasOutput=true;}
         Cached=Count(r,"prompt_eval_cached_count")??Cached;
         if(r.Get("done").ValueKind==JsonValueKind.True)Complete=true;
-        if(r.Num("eval_duration")>0)Rate=Output/(r.Num("eval_duration")/1e9);
+        if(r.Num("eval_duration")>0){Rate=Output/(r.Num("eval_duration")/1e9);GenerateSeconds=r.Num("eval_duration")/1e9;}
+        if(r.Num("prompt_eval_duration")>0)PromptSeconds=r.Num("prompt_eval_duration")/1e9;
+        if(r.Num("load_duration")>0)LoadSeconds=r.Num("load_duration")/1e9;
         var u=r.Get("usage");if(u.ValueKind!=JsonValueKind.Object)return;
         bool anthropic=Count(u,"cache_read_input_tokens")!=null||Count(u,"cache_creation_input_tokens")!=null||r.Str("type") is "message" or "message_delta";
         long cache=Count(u,"cache_read_input_tokens")??Count(u.Get("prompt_tokens_details"),"cached_tokens")??Count(u.Get("input_tokens_details"),"cached_tokens")??Cached;

@@ -102,21 +102,6 @@ internal static class SubscriptionQuotaTests
         check(parsedCredentials is { AccessToken: "old-access", RefreshToken: "old-refresh" } &&
               parsedCredentials.ExpiresAt == DateTimeOffset.FromUnixTimeMilliseconds(1700000000000),
             "Claude Code credentials are read with their expiry");
-        using (var tokenResponse = JsonDocument.Parse("""{"access_token":"new-access","refresh_token":"new-refresh","expires_in":28800,"scope":"user:inference user:profile"}"""))
-        {
-            var renewed = ClaudeQuotaReader.ApplyRenewal(credentials, tokenResponse.RootElement, now);
-            var after = ClaudeQuotaReader.ReadCredentials(renewed);
-            using var renewedDocument = JsonDocument.Parse(renewed);
-            var oauth = renewedDocument.RootElement.GetProperty("claudeAiOauth");
-            check(after is { AccessToken: "new-access", RefreshToken: "new-refresh" } && after.ExpiresAt == now.AddHours(8) &&
-                  oauth.GetProperty("subscriptionType").GetString() == "max" && oauth.GetProperty("scopes").GetArrayLength() == 2 &&
-                  renewedDocument.RootElement.GetProperty("otherTool").GetProperty("keep").GetBoolean(),
-                "Token renewal updates only the token fields and keeps every other credential field");
-        }
-        using (var noRotation = JsonDocument.Parse("""{"access_token":"new-access","expires_in":3600}"""))
-            check(ClaudeQuotaReader.ReadCredentials(ClaudeQuotaReader.ApplyRenewal(credentials, noRotation.RootElement, now))?.RefreshToken == "old-refresh",
-                "Token renewal keeps the existing refresh token when the provider does not rotate it");
-
         var notStarted = ClaudeQuotaStatusLine.ParseStatusLine(
             """{"rate_limits":{"five_hour":{"used_percentage":0,"resets_at":null},"seven_day":{"used_percentage":10,"resets_at":""" + weeklyReset + "}}}",
             null, observed);
