@@ -41,6 +41,11 @@ internal sealed record ProviderQuota(QuotaWindow? FiveHour, QuotaWindow? Weekly,
             ? window
             : null;
 
+    // For display: a provider-reported reading stays valid until its window resets, because only the
+    // user's own usage moves it. Older readings are shown as "last reported", not replaced by a dash.
+    internal static QuotaWindow? ShownWindow(QuotaWindow? window, DateTimeOffset now) =>
+        window?.ObservedAt is { } at && at <= now.AddMinutes(5) && NotReset(window, now) ? window : null;
+
     internal bool NeedsRefresh(DateTimeOffset now) =>
         FreshWindow(FiveHour, now) is null || FreshWindow(Weekly, now) is null;
 }
@@ -228,24 +233,24 @@ public sealed partial class MainWindow
         void Add(string provider, string period, QuotaWindow? window, DateTimeOffset? observedAt, string numberColor, string hint)
         {
             var previous = window is null ? null : window with { ObservedAt = window.ObservedAt ?? observedAt };
-            window = enabled ? ProviderQuota.FreshWindow(previous, now) : null;
+            window = enabled ? ProviderQuota.ShownWindow(previous, now) : null;
             bool stale = ProviderQuota.IsLastReported(previous, now);
             observedAt = window?.ObservedAt;
             var number = window is null ? "—" : window.RemainingPercent.ToString(compact ? "0" : "0.#") + "%";
             double diameter = compact ? 36 : 62;
             var dial = new Grid { Width = diameter, Height = diameter, HorizontalAlignment = HorizontalAlignment.Center };
             dial.Children.Add(new QuotaRing(window?.UsedPercent, compact ? 2.5 : 4));
-            var value = Text(number, compact ? 10.5 : 15, window is null ? "#8da1bd" : numberColor, true);
+            var value = Text(number, compact ? 10.5 : 15, window is null ? "#8da1bd" : stale ? "#9eb1ca" : numberColor, true);
             value.HorizontalAlignment = HorizontalAlignment.Center;
             dial.Children.Add(value);
-            var label = Text($"{provider} · {(compact && period == "Weekly" ? "7d" : period)}", compact ? 9 : 11, "#b7c8df");
+            var label = Text($"{provider} · {(compact && period == "Weekly" ? "7d" : period)}" + (!compact && stale && observedAt is { } asOf ? $"\nas of {asOf.ToLocalTime():h:mm tt}" : ""), compact ? 9 : 11, "#b7c8df");
             label.TextWrapping = TextWrapping.NoWrap;
             label.HorizontalAlignment = HorizontalAlignment.Center;
             var cell = new StackPanel { Spacing = compact ? 1 : 3, Children = { dial, label } };
             if (!compact) cell.Width = 120;
             var description = window is null
                 ? $"{provider} {period} usage unavailable. " + (enabled ? (stale ? "The last reading is too old. " : "") + hint : "Enable local usage metadata in Settings.")
-                : $"{provider} {period}: {number} left, {window.UsedPercent:0.#}% used." +
+                : $"{provider} {period}: {number} left, {window.UsedPercent:0.#}% used" + (stale ? " (last reported; it changes only when you use " + provider + ")." : ".") +
                   (window.ResetsAt is { } reset ? $" Resets {reset.ToLocalTime():MMM d, h:mm tt}." : "") +
                   (observedAt is { } observed ? $" Reported {observed.ToLocalTime():MMM d, h:mm tt}." : "");
             ToolTip.SetTip(cell, description);
