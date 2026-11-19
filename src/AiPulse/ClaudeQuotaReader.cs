@@ -42,13 +42,18 @@ internal static class ClaudeQuotaReader
     /// <summary>Returns a live reading, or null when the call was skipped (throttled) or failed.</summary>
     internal static async Task<ProviderQuota?> Read(DateTimeOffset now, bool manual = false)
     {
+        var credentialsPath = Path.Combine(ConfigDirectory(), ".credentials.json");
+        // A renewal wait only concerns renewing. If Claude Code has since written new credentials, use them now.
+        if (now < NextAttempt && renewalBlockedStamp is { } stamp && CredentialsStamp(credentialsPath) is { } current && current != stamp)
+        {
+            NextAttempt = DateTimeOffset.MinValue; rateLimited = false; failures = 0; renewalBlockedStamp = null;
+        }
         // A manual refresh may skip the normal interval, but never a provider-requested wait.
         if (now < NextAttempt && (!manual || rateLimited)) return null;
         try
         {
-            var credentialsPath = Path.Combine(ConfigDirectory(), ".credentials.json");
             var token = await AccessToken(credentialsPath, now, staleToken: null);
-            if (token is null) return NoToken(now);
+            if (token is null) return NoToken(now, credentialsPath);
 
             using var response = await SendUsage(token);
             HttpResponseMessage? retried = null;
@@ -59,7 +64,7 @@ internal static class ClaudeQuotaReader
                 {
                     // The token was revoked or expired early. Renew once and retry.
                     token = await AccessToken(credentialsPath, now, staleToken: token);
-                    if (token is null) return NoToken(now);
+                    if (token is null) return NoToken(now, credentialsPath);
                     final = retried = await SendUsage(token);
                 }
                 if (final.StatusCode == HttpStatusCode.TooManyRequests)
@@ -111,12 +116,15 @@ internal static class ClaudeQuotaReader
     /// <summary>Schedules the next attempt after a failure and returns the chosen wait.</summary>
     // Renewal refused with HTTP 429: wait as long as the sign-in server asked before trying again.
     static TimeSpan? renewalRetryAfter;
-    static ProviderQuota? NoToken(DateTimeOffset now)
+    static DateTime? renewalBlockedStamp;
+    static DateTime? CredentialsStamp(string path) { try { return File.Exists(path) ? File.GetLastWriteTimeUtc(path) : null; } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; } }
+    static ProviderQuota? NoToken(DateTimeOffset now, string credentialsPath)
     {
         var requested = renewalRetryAfter; renewalRetryAfter = null;
         Backoff(now, requested);
         if (requested is not null)
         {
+            renewalBlockedStamp = CredentialsStamp(credentialsPath);
             rateLimited = true;
             Status = $"Anthropic is rate-limiting sign-in renewal. Next attempt {NextAttempt.ToLocalTime():h:mm tt}. Using Claude Code in a terminal renews the sign-in sooner.";
         }
