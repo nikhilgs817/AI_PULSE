@@ -179,6 +179,45 @@ internal static class ClaudeStatusLineSetup
         }
     }
 
+    /// <summary>Command-line setup: <c>AiPulse --connect-claude-code</c> or <c>--disconnect-claude-code</c>.</summary>
+    internal static int RunCommandLine(bool connect)
+    {
+        try
+        {
+            if (connect)
+            {
+                var executable = ExecutablePath() ?? throw new InvalidOperationException("The AI Pulse program path could not be determined.");
+                Connect(executable);
+                var state = Inspect(executable);
+                WriteLine("Connected: Claude Code's status line now runs " + CommandFor(executable) + "." +
+                          (state.ExistingCommand is null ? "" : " Your existing status line (" + state.ExistingCommand + ") still shows.") +
+                          " Changed " + SettingsPath() + (File.Exists(SettingsPath() + ".before-aipulse") ? "; backup: " + SettingsPath() + ".before-aipulse." : "."));
+            }
+            else
+            {
+                Disconnect();
+                WriteLine("Disconnected: AI Pulse is no longer Claude Code's status line; any previous status line was restored.");
+            }
+            return 0;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            WriteLine("Claude Code settings were not changed: " + e.Message);
+            return 1;
+        }
+    }
+
+    static void WriteLine(string text)
+    {
+        try
+        {
+            using var stdout = Console.OpenStandardOutput();
+            var bytes = new UTF8Encoding(false).GetBytes(text + Environment.NewLine);
+            stdout.Write(bytes, 0, bytes.Length);
+        }
+        catch (IOException) { }
+    }
+
     /// <summary>Points Claude Code's status line at AI Pulse, keeping any existing status line.</summary>
     internal static void Connect(string executable)
     {
@@ -306,7 +345,12 @@ internal static class ClaudeStatusLineSetup
         return candidates.FirstOrDefault(c => !string.IsNullOrWhiteSpace(c) && File.Exists(c));
     }
 
-    static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+    // Readable output for a file people edit by hand: plain quotes and non-ASCII text stay as typed.
+    static readonly JsonSerializerOptions Indented = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
 
     static JsonObject ParseSettings(string? text)
     {

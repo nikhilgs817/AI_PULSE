@@ -11,6 +11,8 @@ public static class Program
         Arguments=args;
         if(args.Contains("--sensor-helper"))return SensorBridge.Run(args);
         if(args.Contains("--claude-quota-statusline"))return ClaudeQuotaStatusLine.Run();
+        if(args.Contains("--connect-claude-code"))return ClaudeStatusLineSetup.RunCommandLine(connect:true);
+        if(args.Contains("--disconnect-claude-code"))return ClaudeStatusLineSetup.RunCommandLine(connect:false);
         try
         {
             Paths.Initialize(args);
