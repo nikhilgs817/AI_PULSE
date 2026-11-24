@@ -111,7 +111,14 @@
     }
 
     Step 'Starting AI Pulse'
-    Start-Process -FilePath $exe
+    # Never leave AI Pulse running as Administrator: Codex and Claude Code run as the normal user.
+    $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        Write-Host 'This PowerShell runs as Administrator; starting AI Pulse as your normal user instead.'
+        Start-Process -FilePath 'explorer.exe' -ArgumentList ('"' + $exe + '"')
+    } else {
+        Start-Process -FilePath $exe
+    }
 
     Write-Host ''
     Write-Host 'Done.' -ForegroundColor Green
