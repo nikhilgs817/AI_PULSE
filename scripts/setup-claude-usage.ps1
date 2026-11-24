@@ -67,7 +67,15 @@
     $running = @(Get-Process -Name AiPulse -ErrorAction SilentlyContinue)
     $install = $DefaultInstall
     $withPath = $running | Where-Object { $_.Path } | Select-Object -First 1
+    $connectedExe = $null
+    $settingsFile = Join-Path $claudeDir 'settings.json'
+    if (Test-Path -LiteralPath $settingsFile) {
+        try { $connected = (Get-Content -Raw -LiteralPath $settingsFile | ConvertFrom-Json).statusLine.command } catch { $connected = $null }
+        if ($connected -match '^"([^"]*AiPulse\.exe)"\s+--claude-quota-statusline') { $connectedExe = $Matches[1] -replace '/', '\' }
+    }
     if ($withPath) { $install = Split-Path -Parent $withPath.Path }
+    # A copy running as Administrator hides its path; use the copy set up last time instead.
+    elseif ($connectedExe -and (Test-Path -LiteralPath $connectedExe)) { $install = Split-Path -Parent $connectedExe }
     elseif (Test-Path -LiteralPath (Join-Path ${env:ProgramFiles} 'AI Pulse\AiPulse.exe')) { $install = Join-Path ${env:ProgramFiles} 'AI Pulse' }
     if ($running.Count -gt 0) {
         Write-Host 'Closing AI Pulse so it can be updated...'
@@ -75,6 +83,9 @@
         Start-Sleep -Seconds 4
         Get-Process -Name AiPulse -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 1
+        if (Get-Process -Name AiPulse -ErrorAction SilentlyContinue) {
+            throw 'AI Pulse is still running, probably as Administrator. Close it (Task Manager > AiPulse > End task), then run this again.'
+        }
     }
     New-Item -ItemType Directory -Path $install -Force | Out-Null
     try {
