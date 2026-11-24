@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 
 namespace AiPulse;
@@ -18,33 +19,45 @@ internal static class ClaudeQuotaStatusLine
             : Path.GetFullPath(configured);
     }
 
+    /// <summary>Entry point for <c>AiPulse --claude-quota-statusline</c>, run by Claude Code as its status line.</summary>
     internal static int Run()
     {
+        string input = "";
+        Snapshot? current = null;
         try
         {
-            using var input = JsonDocument.Parse(Console.In.ReadToEnd());
+            using (var reader = new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false)))
+                input = reader.ReadToEnd();
+            using var document = JsonDocument.Parse(input);
             var path = CachePath();
-            var current = ReadCache(path);
+            current = ReadCache(path);
 
             // Claude Code can invoke a status-line command during startup before limits are known.
             // Keep the last useful sample in that case and continue displaying it.
-            var updated = ParseStatusLine(input.RootElement, current, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            var updated = ParseStatusLine(document.RootElement, current, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             if (!ReferenceEquals(updated, current))
             {
                 current = updated;
                 if (current is not null) WriteCache(path, current);
             }
-
-            Console.Out.WriteLine(Format(current));
-            return 0;
         }
         catch
         {
             // This command runs in Claude Code's status-line pipeline. Never surface parsing or
             // disk errors as a prompt or diagnostic that could disrupt the user's session.
-            Console.Out.WriteLine("Claude usage unavailable");
-            return 0;
         }
+
+        string output;
+        try { output = ClaudeStatusLineSetup.RunWrapped(input) ?? Format(current); }
+        catch { output = Format(current); }
+        try
+        {
+            using var stdout = Console.OpenStandardOutput();
+            var bytes = new UTF8Encoding(false).GetBytes(output + "\n");
+            stdout.Write(bytes, 0, bytes.Length);
+        }
+        catch (IOException) { }
+        return 0;
     }
 
     internal static Snapshot? ParseCache(string json, long? now = null)
@@ -163,27 +176,6 @@ internal static class ClaudeQuotaStatusLine
         value = 0;
         return element.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.Number &&
                property.TryGetInt64(out value);
-    }
-
-    /// <summary>Saves a live usage-endpoint reading so it survives restarts and merges with status-line readings.</summary>
-    internal static void Store(ProviderQuota reading)
-    {
-        Window? Convert(QuotaWindow? window, DateTimeOffset? fallbackObserved)
-        {
-            if (window is null || (window.ObservedAt ?? fallbackObserved) is not { } observed) return null;
-            return new(window.UsedPercent, window.ResetsAt?.ToUnixTimeSeconds(), observed.ToUnixTimeSeconds());
-        }
-        var fiveHour = Convert(reading.FiveHour, reading.ObservedAt);
-        var sevenDay = Convert(reading.Weekly, reading.ObservedAt);
-        if (fiveHour is null && sevenDay is null) return;
-        var path = CachePath();
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        var previous = Expire(ReadCache(path), now);
-        Window? Newer(Window? incoming, Window? existing) =>
-            incoming is null ? existing : existing is null || incoming.ObservedAt >= existing.ObservedAt ? incoming : existing;
-        fiveHour = Newer(fiveHour, previous?.FiveHour);
-        sevenDay = Newer(sevenDay, previous?.SevenDay);
-        WriteCache(path, new(Math.Max(fiveHour?.ObservedAt ?? 0, sevenDay?.ObservedAt ?? 0), fiveHour, sevenDay));
     }
 
     internal static Snapshot? ReadCache(string path)

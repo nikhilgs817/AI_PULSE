@@ -177,6 +177,9 @@ public sealed partial class MainWindow
             Check(quotaRings.Length == 4 && quotaRings.All(r => r.TranslatePoint(new Point(0, 0), this)?.Y == quotaRings[0].TranslatePoint(new Point(0, 0), this)?.Y)
                 && new[] { "68%", "37%", "16%", "50%" }.All(percent => this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == percent)),
                 "Token displays the four remaining percentages in one row");
+            Check(this.GetVisualDescendants().OfType<Button>().Any(b => b.Content as string is "Connect Claude Code" or "Disconnect Claude Code" or "Reconnect to this copy") ||
+                  this.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text?.StartsWith("Claude Code was not found") == true),
+                "Token offers the one-click Claude Code status-line connection");
             localService.Settings.ReadAgentUsage = false;
             tokenDays=7;RenderBody();await Task.Delay(150);Check(tokenDays==7&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Cache write¹"),"Token supports period selection and detailed cache/reasoning columns");
             await Click("Show compact dashboard");Check(this.GetVisualDescendants().OfType<Control>().Any(c=>AutomationProperties.GetName(c)=="LOCAL TOKENS TODAY: "+J.Count(1500)),"Compact daily token value updates from stored input/output observations");
