@@ -20,6 +20,10 @@ public sealed partial class MainWindow
     DispatcherTimer? diskTicker;
     const int DiskRows = 60;
 
+    /// <summary>What a folder row can do. The Disk and Drive pages share the row and pass their own actions.</summary>
+    sealed record RowActions(DiskNode? ScanRoot, Action<DiskNode> Open, Action<DiskNode> Show, string ShowTip, Func<DiskNode, Task> Delete);
+    RowActions LocalActions => new(diskRoot, n => { diskCurrent = n; RenderBody(); }, n => OpenFolder(n.FullPath), "Show in your file manager", ConfirmDiskDelete);
+
     Control DiskPage()
     {
         var stack = new StackPanel { Spacing = 16 };
@@ -45,13 +49,13 @@ public sealed partial class MainWindow
         {
             stack.Children.Add(Text("AI and dev space users found", 15, null, true));
             var list = new StackPanel();
-            foreach (var n in labelled) list.Children.Add(DiskRow(n, showPath: true));
+            foreach (var n in labelled) list.Children.Add(DiskRow(n, showPath: true, LocalActions));
             stack.Children.Add(Card(list));
         }
 
-        stack.Children.Add(DiskBreadcrumb());
+        stack.Children.Add(DiskBreadcrumb(diskCurrent, n => { diskCurrent = n; RenderBody(); }));
         var rows = new StackPanel();
-        foreach (var child in diskCurrent.Children.Take(DiskRows)) rows.Children.Add(DiskRow(child, showPath: false));
+        foreach (var child in diskCurrent.Children.Take(DiskRows)) rows.Children.Add(DiskRow(child, showPath: false, LocalActions));
         int hidden = Math.Max(0, diskCurrent.Children.Count - DiskRows);
         if (diskCurrent.OwnFileBytes > 0 || hidden > 0)
         {
@@ -101,20 +105,21 @@ public sealed partial class MainWindow
         return bar;
     }
 
-    Control DiskBreadcrumb()
+    Control DiskBreadcrumb(DiskNode current, Action<DiskNode> open)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        if (diskCurrent!.Parent is { } parent)
+        if (current.Parent is { } parent)
         {
             var up = Btn("↑ Up");
-            up.Click += (_, _) => { diskCurrent = parent; RenderBody(); };
+            up.Click += (_, _) => open(parent);
             row.Children.Add(up);
         }
+        var diskCurrent = current;
         row.Children.Add(Text($"{diskCurrent.FullPath}  ·  {DiskScanner.Bytes(diskCurrent.Size)}  ·  {diskCurrent.Files:N0} files", 14, null, true));
         return row;
     }
 
-    Control DiskRow(DiskNode node, bool showPath)
+    Control DiskRow(DiskNode node, bool showPath, RowActions act)
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("2.4*,90,1.2*,Auto"), Margin = new Thickness(0, 5) };
         var name = new StackPanel { Spacing = 2 };
@@ -129,7 +134,7 @@ public sealed partial class MainWindow
         size.HorizontalAlignment = HorizontalAlignment.Right; size.Margin = new Thickness(0, 0, 12, 0);
         Grid.SetColumn(size, 1); grid.Children.Add(size);
 
-        double share = showPath ? (diskRoot is { Size: > 0 } r ? (double)node.Size / r.Size : 0) : node.ShareOfParent;
+        double share = showPath ? (act.ScanRoot is { Size: > 0 } r ? (double)node.Size / r.Size : 0) : node.ShareOfParent;
         var bar = new ProgressBar { Minimum = 0, Maximum = 1, Value = Math.Clamp(share, 0, 1), Height = 8, MinWidth = 60, VerticalAlignment = VerticalAlignment.Center };
         ToolTip.SetTip(bar, $"{share:P1} of {(showPath ? "the scan" : "this folder")}");
         Grid.SetColumn(bar, 2); grid.Children.Add(bar);
@@ -138,16 +143,19 @@ public sealed partial class MainWindow
         if (node.Children.Count > 0 || node.OwnFileBytes > 0)
         {
             var open = Btn("Open");
-            open.Click += (_, _) => { diskCurrent = node; RenderBody(); };
+            open.Click += (_, _) => act.Open(node);
             actions.Children.Add(open);
         }
         var show = Btn("Show");
-        ToolTip.SetTip(show, "Show in your file manager");
-        show.Click += (_, _) => OpenFolder(node.FullPath);
+        ToolTip.SetTip(show, act.ShowTip);
+        show.Click += (_, _) => act.Show(node);
         actions.Children.Add(show);
-        var delete = Btn("Delete…");
-        delete.Click += async (_, _) => await ConfirmDiskDelete(node);
-        actions.Children.Add(delete);
+        if (node.CanDelete)
+        {
+            var delete = Btn("Delete…");
+            delete.Click += async (_, _) => await act.Delete(node);
+            actions.Children.Add(delete);
+        }
         Grid.SetColumn(actions, 3); grid.Children.Add(actions);
         return grid;
     }
@@ -188,23 +196,10 @@ public sealed partial class MainWindow
             diskNotice = "Deleting is only available on Windows, where folders go to the Recycle Bin.";
             RenderBody(); return;
         }
-        var dialog = new Window
-        {
-            Title = "Move to Recycle Bin", Width = 520, SizeToContent = SizeToContent.Height, CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Canvas,
-        };
-        var contents = new StackPanel { Margin = new Thickness(22), Spacing = 14 };
-        contents.Children.Add(Text("Move this folder to the Recycle Bin?", 18, null, true));
-        contents.Children.Add(Text(node.FullPath, 13, "#72d4e8", true));
-        contents.Children.Add(Text($"{DiskScanner.Bytes(node.Size)} · {node.Files:N0} files · {node.Folders:N0} folders" + (node.Label != null ? " · " + node.Label : ""), 13));
-        contents.Children.Add(Text("You can restore it from the Recycle Bin. If it is too big for the Recycle Bin, Windows asks before deleting it for good, and you can say no.", 12, "#9eb1ca"));
-        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-        var yes = Btn("Move to Recycle Bin"); yes.Click += (_, _) => dialog.Close(true);
-        var no = Btn("Cancel"); no.Click += (_, _) => dialog.Close(false);
-        buttons.Children.Add(no); buttons.Children.Add(yes);
-        contents.Children.Add(buttons);
-        dialog.Content = contents;
-        if (!await dialog.ShowDialog<bool>(this)) return;
+        if (!await ConfirmDelete("Move to Recycle Bin", "Move this folder to the Recycle Bin?", node.FullPath,
+                $"{DiskScanner.Bytes(node.Size)} · {node.Files:N0} files · {node.Folders:N0} folders" + (node.Label != null ? " · " + node.Label : ""),
+                "You can restore it from the Recycle Bin. If it is too big for the Recycle Bin, Windows asks before deleting it for good, and you can say no.",
+                "Move to Recycle Bin")) return;
 
         diskNotice = "Moving " + node.FullPath + " to the Recycle Bin…"; RenderBody();
         string? error = await Task.Run(() => RecycleBin.Send(node.FullPath));
@@ -217,5 +212,27 @@ public sealed partial class MainWindow
         }
         else diskNotice = $"{node.FullPath} was not moved. {error}";
         RenderBody();
+    }
+
+    /// <summary>The one confirm dialog every delete goes through. Cancel is the default; the delete button names the act.</summary>
+    async Task<bool> ConfirmDelete(string title, string question, string path, string facts, string note, string yesLabel)
+    {
+        var dialog = new Window
+        {
+            Title = title, Width = 520, SizeToContent = SizeToContent.Height, CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Background = Canvas,
+        };
+        var contents = new StackPanel { Margin = new Thickness(22), Spacing = 14 };
+        contents.Children.Add(Text(question, 18, null, true));
+        contents.Children.Add(Text(path, 13, "#72d4e8", true));
+        contents.Children.Add(Text(facts, 13));
+        contents.Children.Add(Text(note, 12, "#9eb1ca"));
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var yes = Btn(yesLabel); yes.Click += (_, _) => dialog.Close(true);
+        var no = Btn("Cancel"); no.Click += (_, _) => dialog.Close(false); no.IsDefault = true; no.IsCancel = true;
+        buttons.Children.Add(no); buttons.Children.Add(yes);
+        contents.Children.Add(buttons);
+        dialog.Content = contents;
+        return await dialog.ShowDialog<bool>(this);
     }
 }

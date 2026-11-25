@@ -201,6 +201,15 @@ public sealed partial class MainWindow
             Check(diskRoot?.Size==(4<<20)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("Hugging Face cache")==true)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="cache"),"Disk scan sizes folders and labels AI caches");
             Check(this.GetVisualDescendants().OfType<Button>().Count(b=>Equals(b.Content,"Delete…"))>=4,"Every scanned folder row offers delete");
             await Shot("disk");
+            await Click("Drive");Check(page=="Drive"&&this.GetVisualDescendants().OfType<TextBox>().Any(t=>t.PlaceholderText?.StartsWith("Client ID")==true),"Drive page asks for an OAuth client before anything else");
+            await Shot("drive-setup");
+            localService.Settings.DriveClientId="test.apps.googleusercontent.com";driveAccount=null;File.WriteAllText(Path.Combine(Paths.Root,"drive-token.bin"),"x");
+            driveItems=[new("d1","Datasets",true,0,["root"],default,true),new("f1","train.parquet",false,6<<20,["d1"],new DateTime(2026,5,1),true),new("f2","photo.jpg",false,1<<20,["root"],default,true),new("f3","shared.bin",false,2<<20,["someone-else"],default,false)];
+            driveRoot=driveCurrent=DriveTree.Build(driveItems,"root");driveQuota=new(15L<<30,9L<<20,9L<<20,0);RenderBody();await Task.Delay(150);
+            Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Datasets")&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text==DriveTree.Elsewhere)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="train.parquet"),"Drive tree shows folders, the outside-My-Drive bucket and largest files");
+            Check(this.GetVisualDescendants().OfType<Button>().Count(b=>Equals(b.Content,"Delete…"))==3,"Drive offers delete only where Drive allows trashing");
+            await Shot("drive");
+            File.Delete(Path.Combine(Paths.Root,"drive-token.bin"));localService.Settings.DriveClientId="";driveAccount=null;driveRoot=driveCurrent=null;driveItems=[];driveQuota=null;
             await Click("Settings");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="AI")&&
                 this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Download selected model")),"Settings contains the optional AI setup");
