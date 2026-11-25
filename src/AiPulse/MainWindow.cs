@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
     readonly ContentControl header=new(),body=new();
     readonly TextBlock footer=new(){Text="Starting collectors…",FontSize=10,VerticalAlignment=VerticalAlignment.Center,TextTrimming=TextTrimming.CharacterEllipsis};
     readonly ContentControl footerActions=new(){VerticalAlignment=VerticalAlignment.Center};
+    readonly Avalonia.Controls.Shapes.Ellipse liveDot=new(){Width=7,Height=7,VerticalAlignment=VerticalAlignment.Center};
     readonly Border footerBar=new();
     readonly DispatcherTimer timer=new(){Interval=TimeSpan.FromSeconds(2)};
     readonly Dictionary<string,string> searches=[];
@@ -44,8 +45,8 @@ public sealed partial class MainWindow : Window
         Topmost=localService.Settings.Pinned;ExtendClientAreaToDecorationsHint=true;WindowDecorations=WindowDecorations.BorderOnly;ExtendClientAreaTitleBarHeightHint=0;
         try{Icon=new WindowIcon(AssetLoader.Open(new Uri("avares://AiPulse/Assets/pulse.ico")));}catch{}
         shell.Children.Add(header);Grid.SetRow(body,1);shell.Children.Add(body);
-        var footerGrid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),ColumnSpacing=8,Children={footer,footerActions}};
-        Grid.SetColumn(footerActions,1);
+        var footerGrid=new Grid{ColumnDefinitions=new ColumnDefinitions("Auto,*,Auto"),ColumnSpacing=8,Children={liveDot,footer,footerActions}};
+        Grid.SetColumn(footer,1);Grid.SetColumn(footerActions,2);
         footerBar.Child=footerGrid;footerBar.Padding=new Thickness(14,0);
         footerBar.BorderThickness=new Thickness(0,1,0,0);
         Grid.SetRow(footerBar,2);shell.Children.Add(footerBar);InitializeGlassChrome();
@@ -206,6 +207,7 @@ public sealed partial class MainWindow : Window
                 return;
             }
             var offset=scroller?.Offset??default;
+            bool entering=layoutPage!=page;
             if(layoutPage!=page)
             {
                 bool collapsed=localService.Settings.SidebarCollapsed;
@@ -235,6 +237,7 @@ public sealed partial class MainWindow : Window
                 footerActions.Tag=RequestedThemeVariant;
             }
             Reconciler.Show(scroller!,fleet!=null&&page is not ("Settings" or "Disk" or "Drive")&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page is not ("Settings" or "Disk" or "Drive")&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),"Disk"=>DiskPage(),"Drive"=>DrivePage(),_=>SettingsPage()});scroller.Offset=offset;
+            if(entering)Motion.Enter(scroller);
         }
         catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();}
         finally{rebuilding=false;}
@@ -242,6 +245,7 @@ public sealed partial class MainWindow : Window
     void UpdateFooter(string status)
     {
         string sample=service.LastSample>0?DateTimeOffset.FromUnixTimeSeconds(service.LastSample).ToLocalTime().ToString("MMM d HH:mm:ss zzz"):"Waiting for first sample";
+        liveDot.Fill=Brush.Parse(service.Fresh?"#4fd1a5":"#6b7a90");ToolTip.SetTip(liveDot,service.Fresh?"Live: readings are current":"Waiting for fresh readings");Motion.Pulse(liveDot,service.Fresh);
         footer.Text=$"{(service.Fresh?"Live":"Waiting / stale")} · {service.HostName} · {service.HostPlatform} · {sample} · {service.Settings.RetentionDays}-day history · {status}";
         ToolTip.SetTip(footer,footer.Text+" · "+service.CpuName);
     }

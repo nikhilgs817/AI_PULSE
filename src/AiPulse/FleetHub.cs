@@ -46,7 +46,8 @@ public sealed class FleetHub : IDisposable
         // Heartbeats from a prior process are never trusted as a current connection.
         foreach(var host in state.Hosts)host.ReceivedAt=0;
         string transfers=Path.Combine(root,"baseline-transfers");if(Directory.Exists(transfers))foreach(var file in Directory.EnumerateFiles(transfers))
-            if(Path.GetExtension(file) is ".db" or ".db-wal" or ".db-shm"&&Guid.TryParseExact(Path.GetFileNameWithoutExtension(file),"N",out _))File.Delete(file);
+            if(Path.GetExtension(file) is ".db" or ".db-wal" or ".db-shm"&&Guid.TryParseExact(Path.GetFileNameWithoutExtension(file),"N",out _))
+                try{File.Delete(file);}catch(IOException e){Paths.Log("fleet-baseline",e);} // still held by a closing hub: the next start removes it
     }
     void Save()=>FleetFiles.Write(Path.Combine(root,"hosts.json"),state);
     Storage Store(RegisteredHost host)
@@ -143,7 +144,9 @@ public sealed class FleetHub : IDisposable
         lock(gate)
         {
             if(!baselines.TryGetValue(id,out var source)||source.Host!=hostId)return;
-            source.Reader.Dispose();foreach(var file in new[]{source.File,source.File+"-wal",source.File+"-shm"})File.Delete(file);baselines.Remove(id);
+            source.Reader.Dispose();baselines.Remove(id);
+            // A file still held briefly by the OS is removed by the startup sweep of baseline-transfers instead.
+            foreach(var file in new[]{source.File,source.File+"-wal",source.File+"-shm"})try{File.Delete(file);}catch(IOException e){Paths.Log("fleet-baseline",e);}
         }
     }
     readonly Dictionary<string,DateOnly> backupDays=[];

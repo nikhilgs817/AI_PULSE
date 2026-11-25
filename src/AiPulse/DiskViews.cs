@@ -34,7 +34,8 @@ public sealed partial class MainWindow
         if (diskScan != null && diskProgress != null)
         {
             stack.Children.Add(Message("Scanning " + diskScanning,
-                $"{diskProgress.FilesSeen:N0} files · {DiskScanner.Bytes(diskProgress.BytesSeen)} so far. Folders you can't open are skipped."));
+                $"{Count(diskProgress.FilesSeen, "file")} · {DiskScanner.Bytes(diskProgress.BytesSeen)} so far. Folders you can't open are skipped."));
+            stack.Children.Add(Busy());
             return stack;
         }
         if (diskCurrent == null)
@@ -115,7 +116,7 @@ public sealed partial class MainWindow
             row.Children.Add(up);
         }
         var diskCurrent = current;
-        row.Children.Add(Text($"{diskCurrent.FullPath}  ·  {DiskScanner.Bytes(diskCurrent.Size)}  ·  {diskCurrent.Files:N0} files", 14, null, true));
+        row.Children.Add(Text($"{diskCurrent.FullPath}  ·  {DiskScanner.Bytes(diskCurrent.Size)}  ·  {Count(diskCurrent.Files, "file")}", 14, null, true));
         return row;
     }
 
@@ -123,8 +124,15 @@ public sealed partial class MainWindow
     {
         var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("2.4*,90,1.2*,Auto"), Margin = new Thickness(0, 5) };
         var name = new StackPanel { Spacing = 2 };
-        name.Children.Add(Text(showPath ? node.FullPath : node.Name, 13, null, true));
-        string detail = $"{node.Files:N0} files · {node.Folders:N0} folders" + (node.LastWriteUtc.Year > 1980 ? $" · changed {node.LastWriteUtc.ToLocalTime():MMM d yyyy}" : "");
+        name.Children.Add(Text(node.Name, 13, null, true));
+        if (showPath)
+        {
+            // Long paths stay on one line, trimmed from the start so the folder end stays readable; the full path is in the tooltip.
+            var path = new TextBlock { Text = System.IO.Path.GetDirectoryName(node.FullPath) ?? node.FullPath, FontSize = 11, Foreground = Ink("#7f93af"), TextTrimming = TextTrimming.PrefixCharacterEllipsis, TextWrapping = TextWrapping.NoWrap };
+            ToolTip.SetTip(path, node.FullPath);
+            name.Children.Add(path);
+        }
+        string detail = $"{Count(node.Files, "file")} · {Count(node.Folders, "folder")}" + (node.LastWriteUtc.Year > 1980 ? $" · changed {node.LastWriteUtc.ToLocalTime():MMM d yyyy}" : "");
         if (node.Label != null) detail = node.Label + " · " + detail;
         if (node.Denied) detail += " · some contents could not be read";
         name.Children.Add(Text(detail, 11, node.Label != null ? "#72d4e8" : "#8ba0bd"));
@@ -197,7 +205,7 @@ public sealed partial class MainWindow
             RenderBody(); return;
         }
         if (!await ConfirmDelete("Move to Recycle Bin", "Move this folder to the Recycle Bin?", node.FullPath,
-                $"{DiskScanner.Bytes(node.Size)} · {node.Files:N0} files · {node.Folders:N0} folders" + (node.Label != null ? " · " + node.Label : ""),
+                $"{DiskScanner.Bytes(node.Size)} · {Count(node.Files, "file")} · {Count(node.Folders, "folder")}" + (node.Label != null ? " · " + node.Label : ""),
                 "You can restore it from the Recycle Bin. If it is too big for the Recycle Bin, Windows asks before deleting it for good, and you can say no.",
                 "Move to Recycle Bin")) return;
 

@@ -41,6 +41,7 @@ public sealed class AppSettings
     public double? ChatLauncherRight { get; set; }
     public double? ChatLauncherBottom { get; set; }
     public bool SidebarCollapsed { get; set; }
+    public bool ReduceMotion { get; set; }
     public bool RequestSensorsAtLaunch { get; set; }
     public int RetentionDays { get; set; } = 90;
     public bool StartAtLogin { get; set; }
