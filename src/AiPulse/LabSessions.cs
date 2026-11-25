@@ -103,6 +103,9 @@ public sealed class LabSessions
         if (traces.Select(t => t.Agent).Where(a => a != "").Distinct().Count() is int agents and > 0) b.AppendLine($"- Agents: {agents} ({traces.Select(t => t.Run).Where(r => r != "").Distinct().Count()} runs)");
         b.AppendLine();
 
+        b.AppendLine("## What to look at").AppendLine();
+        b.Append(LabFindings.Markdown(LabFindings.For(stats, usage, traces, residency.Count(e => e.Kind == "Evicted"), peaks.GetValueOrDefault("gpu.temperature")?.Maximum))).AppendLine();
+
         b.AppendLine("## Tokens by model").AppendLine();
         b.AppendLine("| Source | Model | Requests | Input | Output | Median TTFT | Prompt tok/s | Gen tok/s |").AppendLine("|---|---|---:|---:|---:|---:|---:|---:|");
         foreach (var g in usage.GroupBy(u => (u.Source, u.Model)).OrderByDescending(g => g.Sum(u => u.Input + u.Output)))

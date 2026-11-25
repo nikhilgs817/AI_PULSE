@@ -43,7 +43,7 @@ public sealed partial class MainWindow
             return Card(stack);
         }
         var sweep = Btn("Run load sweep"); ToolTip.SetTip(sweep, $"Sends 8 requests at 1, 2, 4 and 8 at a time to {benchModel}");
-        sweep.Click += (_, _) => BenchRun("Load sweep", async (http, progress, cancel) =>
+        sweep.Click += (_, _) => BenchRun("Load sweep", "sweep", async (http, progress, cancel) =>
         {
             var result = await LoadSweep.Run(http, BenchUrl, benchModel, LoadSweep.Levels, 8, 128, progress, cancel);
             lastSweep = result;
@@ -57,7 +57,7 @@ public sealed partial class MainWindow
             suiteBox.SelectionChanged += (_, _) => { if (suiteBox.SelectedItem is string s) benchSuite = s; };
             row.Children.Add(suiteBox);
             var evals = Btn("Run evals"); ToolTip.SetTip(evals, "Runs every case in the suite once and scores the answers");
-            evals.Click += (_, _) => BenchRun("Evals", async (http, progress, cancel) =>
+            evals.Click += (_, _) => BenchRun("Evals", "evals", async (http, progress, cancel) =>
             {
                 var cases = Evals.Parse(await File.ReadAllTextAsync(Path.Combine(Evals.Folder, benchSuite + ".jsonl"), cancel));
                 if (cases.Count == 0) throw new FormatException("That suite has no cases.");
@@ -93,7 +93,7 @@ public sealed partial class MainWindow
         return Card(stack);
     }
 
-    void BenchRun(string what, Func<HttpClient, Action<string>, CancellationToken, Task<string>> work)
+    void BenchRun(string what, string kind, Func<HttpClient, Action<string>, CancellationToken, Task<string>> work)
     {
         if (benchWork != null) return;
         benchWork = new CancellationTokenSource(); benchProgress = what; benchNotice = "";
@@ -102,7 +102,7 @@ public sealed partial class MainWindow
         _ = Task.Run(async () =>
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-            try { var report = await work(http, p => benchProgress = what + ": " + p, cancel); lastBenchReport = report; }
+            try { var report = await work(http, p => benchProgress = what + ": " + p, cancel); if (localService.Settings.Assistant.Enabled) { benchProgress = what + ": local AI is reading the results"; await AppendAnalysis(report, kind); } lastBenchReport = report; }
             catch (OperationCanceledException) { benchNotice = what + " stopped."; }
             catch (Exception e) when (e is HttpRequestException or IOException or FormatException or InvalidOperationException) { benchNotice = what + " failed: " + e.Message; Paths.Log("bench", e); }
             await Dispatcher.UIThread.InvokeAsync(() => { benchWork?.Dispose(); benchWork = null; RenderBody(); });
