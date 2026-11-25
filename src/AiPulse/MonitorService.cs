@@ -34,6 +34,11 @@ public sealed class MonitorService : IDisposable
     public string GpuName=>RemoteSnapshot?.Gpu??Hardware?.GpuName??"GPU";
     public int LogicalProcessors=>RemoteSnapshot?.LogicalProcessors??Environment.ProcessorCount;
     public List<HardwareItem> Inventory=>RemoteSnapshot?.Inventory??Hardware?.Inventory??[];
+    /// <summary>Processes holding NVIDIA GPU memory, from nvidia-smi every 10 seconds. Empty when unavailable or remote.</summary>
+    public List<GpuProcess> GpuProcesses { get; private set; } = [];
+    /// <summary>Current NVIDIA clock throttle reasons, or null when nvidia-smi is unavailable.</summary>
+    public GpuThrottle? GpuThrottle { get; private set; }
+    long gpuDetailsRead;
     public List<ProcessInfo> Processes=>RemoteSnapshot?.Processes??Hardware?.Processes??[];
     public List<AgentResource> AgentApps=>RemoteSnapshot?.AgentApps??Hardware?.AgentApps??[];
     public DateTime ProcessSampleTime=>IsRemote&&!RemoteLive?default:RemoteSnapshot?.ProcessSampleTime??Hardware?.ProcessSampleTime??default;
@@ -85,6 +90,7 @@ public sealed class MonitorService : IDisposable
             {
                 // A held gateway port is usually another AI Pulse window; retry slowly instead of every poll.
                 try{if(!Gateway.Status.StartsWith("Listening")&&DateTime.UtcNow>=gatewayRetry){await Gateway.Start(stop.Token);gatewayRetry=DateTime.UtcNow.AddSeconds(60);}await Ollama.Poll(Settings,stop.Token);if(!IsRemote){Residency.Observe(Ollama.Models,Ollama.Status,J.Now);Residency.Report(Store,Ollama.Models,J.Now);}}catch(Exception e){Paths.Log("model-discovery",e);}
+                if(!IsRemote&&J.Now-gpuDetailsRead>=10){gpuDetailsRead=J.Now;try{var (processes,throttle)=await Task.Run(GpuDetails.Read,stop.Token);GpuProcesses=processes??[];GpuThrottle=throttle;}catch(Exception e)when(e is not OperationCanceledException){Paths.Log("gpu-details",e);}}
                 if(!IsRemote&&Settings.VllmEndpoints.Count>0)try{await Vllm.Poll(Settings.VllmEndpoints,Store,stop.Token);}catch(OperationCanceledException)when(stop.IsCancellationRequested){}catch(Exception e){Paths.Log("vllm-metrics",e);}
                 if(!IsRemote)try{ServerLog.Poll();if(J.Now-logReport>=30){ServerLog.Report(Store,J.Now);logReport=J.Now;}}catch(Exception e){Paths.Log("ollama-server-log",e);}
                 try{await Task.Delay(4000,stop.Token);}catch(OperationCanceledException){}
@@ -93,6 +99,7 @@ public sealed class MonitorService : IDisposable
         agentTask=Task.Run(async()=>{await Telemetry.Start(stop.Token);while(!stop.IsCancellationRequested){try{await Relay.Poll(stop.Token);}catch(Exception e){Paths.Log("relay-poll",e);}try{if(Settings.ReadAgentUsage)Agents.Poll();}catch(Exception e){Paths.Log("agent-import",e);}try{await Task.Delay(8000,stop.Token);}catch(OperationCanceledException){}}});
     }
     public double? Value(string id)=>Readings.FirstOrDefault(r=>r.Id==id)?.Value;
+    long budgetChecked;
     void CheckAlerts()
     {
         void Sustained(string key,string title,string detail,bool bad,int seconds=30)
@@ -103,6 +110,13 @@ public sealed class MonitorService : IDisposable
         Sustained("gpu-temperature","GPU temperature elevated","Above your configured "+Settings.TemperatureWarning+" °C threshold for 30 seconds.",Value("gpu.temperature")>=Settings.TemperatureWarning);
         Sustained("cpu-temperature","CPU temperature elevated","Above your configured "+Settings.TemperatureWarning+" °C threshold for 30 seconds.",Value("cpu.temperature")>=Settings.TemperatureWarning);
         Sustained("memory","Memory pressure","Less than 5% of physical memory remains available.",Value("ram.load")>95);
+        if(GpuThrottle is {} throttle)Sustained("gpu-throttle","GPU clocks throttled","NVIDIA reports: "+throttle.Reasons+". Sustained for 60 seconds.",throttle.Active,60);
+        if(J.Now-budgetChecked>=30)
+        {
+            budgetChecked=J.Now;long today=Budgets.StartOfLocalDay(DateTimeOffset.Now);
+            var tokens=Budgets.Tokens(Settings.DailyTokenBudget>0?Store.TokensSince(today):0,Settings.DailyTokenBudget);Store.Alert("budget-tokens","Daily token budget reached",tokens.Detail,tokens.Over);
+            var cost=Budgets.Cost(Settings.DailyCostBudgetUsd>0?Store.ClaudeCostSince(today):0,Settings.DailyCostBudgetUsd);Store.Alert("budget-cost","Daily Claude Code cost budget reached",cost.Detail,cost.Over);
+        }
         var drive=new DriveInfo(Path.GetPathRoot(Paths.Root)!);Sustained("storage","Monitoring storage running low","Less than 5 GiB free on the data drive.",drive.AvailableFreeSpace<5L*1024*1024*1024);
     }
     void EnsureBackup()

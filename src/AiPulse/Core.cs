@@ -47,6 +47,10 @@ public sealed class AppSettings
     public bool ReadAgentUsage { get; set; } = true;
     public bool EnableGateway { get; set; } = true;
     public int MetricsPilotPort {get;set;}
+    /// <summary>Daily token budget across all sources; 0 is off.</summary>
+    public long DailyTokenBudget { get; set; }
+    /// <summary>Daily budget for reported Claude Code cost in US dollars; 0 is off.</summary>
+    public double DailyCostBudgetUsd { get; set; }
     public int TelemetryPort {get;set;}=4319;
     public int GatewayPort { get; set; } = 11435;
     public string OllamaUrl { get; set; } = "http://127.0.0.1:11434";

@@ -72,6 +72,7 @@ public sealed partial class MainWindow
         string Empty(bool localSource)=>coverage.Any(c=>OnPremSource(c.Source)==localSource)?"No usage recorded in this window. Older records are available; choose a longer range or Show older recorded usage.":localSource?"No observed local usage yet. Send Ollama requests through the AIPULSE gateway to measure tokens; loading a model alone does not consume recorded tokens.":service.Settings.ReadAgentUsage?"No readable tool usage recorded yet. Codex / Claude Code must write supported token metadata; desktop Chat usage may not be available.":"Local usage import is disabled in Settings. Retained records remain available when present.";
         stack.Children.Add(TokenSection("On-prem models",onPrem,"Ollama usage observed through the AIPULSE gateway, plus optional local assistant usage. Direct Ollama calls and discovery-only remote endpoints are not counted.",Empty(true)));
         stack.Children.Add(TokenSection("Tools & other usage",tools,"Codex and Claude Code usage reported in readable local session files. Tool names identify the usage source; they do not prove where the model is hosted.",Empty(false)));
+        if(ClaudeCostCard(since) is {} costCard)stack.Children.Add(costCard);
         if(instrumented.Count>0)stack.Children.Add(TokenSection("Instrumented applications · independent boundary",instrumented,"OTLP request spans may describe calls also seen by a gateway or server. Compare these observations; do not add them to the sections above.","No instrumented request observations."));
         var counterPanel=new StackPanel{Spacing=10};counterPanel.Children.Add(Text("Server / tool counters · independent boundary",16,null,true));
         counterPanel.Children.Add(Text("vLLM, Kubernetes replicas and native tool metrics. Cumulative counters start from a baseline; resets and replay are handled per instance. Only whole intervals inside this period are included, so a cross-midnight interval is not guessed. These totals are never added to request totals.",12,"#9eb1ca"));
@@ -101,5 +102,25 @@ public sealed partial class MainWindow
         table.MinWidth=900;section.Children.Add(new ScrollViewer{Content=table,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled});
         if(rows.Sum(r=>r.Incomplete)>0)section.Children.Add(Text($"{rows.Sum(r=>r.Incomplete):N0} records have incomplete or unavailable usage. Any reported tokens are included; this is not a complete consumption total.",12,"#e8b65f"));
         return Card(section);
+    }
+
+    /// <summary>Reported Claude Code cost for the selected window, by model and by prompt. Hidden until Claude Code sends cost over OTel.</summary>
+    Control? ClaudeCostCard(long since)
+    {
+        double total=service.Store.ClaudeCostSince(since);
+        if(total<=0)return null;
+        var panel=new StackPanel{Spacing=10};
+        panel.Children.Add(Text("Claude Code cost · reported by Claude Code",15,null,true));
+        panel.Children.Add(Text($"${total:0.00} in this window"+(service.Settings.DailyCostBudgetUsd>0?$" · daily budget ${service.Settings.DailyCostBudgetUsd:0.00}":""),22,"#72d4e8",true));
+        var models=service.Store.ClaudeCostBy("model",since,6);
+        if(models.Count>0)panel.Children.Add(Table(["Model","Requests","Cost"],models.Select(m=>new[]{m.Key,m.Requests.ToString("N0"),$"${m.Cost:0.000}"}),"2*,*,*"));
+        var prompts=service.Store.ClaudeCostBy("prompt",since,8);
+        if(prompts.Count>0)
+        {
+            panel.Children.Add(Text("Most expensive prompts · one prompt can make many API requests",13,null,true));
+            panel.Children.Add(Table(["Prompt id","Requests","Cost","Last request"],prompts.Select(p=>new[]{p.Key.Length>12?p.Key[..12]:p.Key,p.Requests.ToString("N0"),$"${p.Cost:0.000}",DateTimeOffset.FromUnixTimeSeconds(p.LastSeen).ToLocalTime().ToString("MMM d HH:mm")}),"2*,*,*,*"));
+        }
+        panel.Children.Add(Text("Claude Code estimates this cost itself; subscription plans are not billed per request, so treat it as the API-equivalent cost.",11,"#8ea3c0"));
+        return Card(panel);
     }
 }

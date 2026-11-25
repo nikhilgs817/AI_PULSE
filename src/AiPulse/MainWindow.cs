@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
         localService=monitor;InitializeFleet();Title="AI Pulse";Background=Canvas;Foreground=Brush.Parse("#e9effa");FontFamily="Segoe UI";
         int pi=Array.IndexOf(Program.Arguments,"--page");if(pi>=0&&Program.Arguments.Length>pi+1)page=Program.Arguments[pi+1];
         if(page=="Assistant")page="Settings";
+        MetricsPilot.LabReport=WriteLabReport;
         Topmost=localService.Settings.Pinned;ExtendClientAreaToDecorationsHint=true;WindowDecorations=WindowDecorations.BorderOnly;ExtendClientAreaTitleBarHeightHint=0;
         try{Icon=new WindowIcon(AssetLoader.Open(new Uri("avares://AiPulse/Assets/pulse.ico")));}catch{}
         shell.Children.Add(header);Grid.SetRow(body,1);shell.Children.Add(body);

@@ -21,6 +21,10 @@ public sealed class LabSessions
         new("claude-haiku-5-5", 0.10, 0.50),
     ];
 
+    static LabSessions? shared;
+    /// <summary>The one instance the window and the local lab API share, so their writes never race.</summary>
+    public static LabSessions Shared => shared ??= new(Paths.Root);
+
     readonly string file, pricingFile;
     readonly object gate = new();
     public LabSessions(string root) { file = Path.Combine(root, "labs.json"); pricingFile = Path.Combine(root, "lab-pricing.json"); }

@@ -27,7 +27,12 @@ public sealed partial class MainWindow
     {
         var stack=new StackPanel{Spacing=12};stack.Children.Add(Text("Loaded models · "+service.Ollama.Models.Count,16,null,true));
         foreach(var status in service.Ollama.Status)stack.Children.Add(Text(status.Key+"  ·  "+status.Value,11,status.Value=="Connected"?"#59dfae":"#e8b65f"));
-        if(service.Ollama.Models.Count>0)stack.Children.Add(Table(["Model / host","State","Model memory","GPU-reported","Context"],service.Ollama.Models.Select(m=>new[]{m.Name+"\n"+ModelHost(m),m.State,J.Size(m.MemoryGiB),J.Size(m.GpuGiB),m.Context>0?J.Count(m.Context):"—"}),"2.2*,*,*,*,*"));
+        if(service.Ollama.Models.Count>0)
+        {
+            var largest=service.Store.LargestPrompt(J.Now-86400);
+            string Context(ModelInfo m)=>m.Context<=0?"—":largest.TryGetValue(m.Name,out long peak)&&peak>0?$"{J.Count(m.Context)}\nlargest prompt {Math.Min(999,100.0*peak/m.Context):0}%":J.Count(m.Context);
+            stack.Children.Add(Table(["Model / host","State","Model memory","GPU-reported","Context · 24 h peak use"],service.Ollama.Models.Select(m=>new[]{m.Name+"\n"+ModelHost(m),m.State,J.Size(m.MemoryGiB),J.Size(m.GpuGiB),Context(m)}),"2.2*,*,*,*,1.2*"));
+        }
         else stack.Children.Add(Text("No models are loaded. Start an Ollama request to see residency here.",13,"#8da1bd"));
         if(inventory){stack.Children.Add(Text("Installed inventory",15,null,true));stack.Children.Add(Table(["Model","Host","Quantization","Disk size"],service.Ollama.Installed.Select(m=>new[]{m.Name,ModelHost(m),m.Quantization,J.Size(m.MemoryGiB)}),"2*,*,*,*"));}
         return Card(stack);
