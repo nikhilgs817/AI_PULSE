@@ -180,14 +180,14 @@ public sealed partial class MainWindow : Window
     void Refresh()
     {
         if(overviewDragPending||overviewShelfOpen||!IsVisible&&updates++>0)return;
-        if(fleet!=null){UpdateFooter(fleet.Status+" · "+SelectedHostLabel());if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;RefreshHostMenu();if(layoutPage==null||page is not ("Settings" or "Assistant"))RenderBody();return;}
+        if(fleet!=null){UpdateFooter(fleet.Status+" · "+SelectedHostLabel());if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;RefreshHostMenu();if(layoutPage==null||page is not ("Settings" or "Assistant" or "Disk"))RenderBody();return;}
         int alerts;
         try{alerts=service.Store.Alerts().Count(a=>a.Active);}
         catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();return;}
         UpdateFooter($"{alerts} alerts · "+(service.Settings.LastBackupError!=null?"Backup needs attention":service.Settings.LastBackup!=null?"Backup verified":"Backup pending"));
         if(settingsSensorStatus!=null)settingsSensorStatus.Text=SensorDescription();
         if(this.GetVisualDescendants().OfType<ComboBox>().Any(c=>c.IsDropDownOpen))return;
-        if(layoutPage==null||page is not ("Settings" or "Assistant")||localService.Settings.Compact)RenderBody();
+        if(layoutPage==null||page is not ("Settings" or "Assistant" or "Disk")||localService.Settings.Compact)RenderBody();
     }
     string Query=>searches.GetValueOrDefault(page,"");
     bool Matches(params string[] values)=>string.IsNullOrWhiteSpace(Query)||values.Any(v=>v.Contains(Query.Trim(),StringComparison.OrdinalIgnoreCase));
@@ -210,7 +210,7 @@ public sealed partial class MainWindow : Window
                 bool collapsed=localService.Settings.SidebarCollapsed;
                 var layout=new Grid{ColumnDefinitions=new ColumnDefinitions(collapsed?"60,*":"174,*")};var nav=new StackPanel{Spacing=6,Margin=new Thickness(8,14)};
                 var collapse=Btn(collapsed?"»":"«  Collapse menu");ToolTip.SetTip(collapse,collapsed?"Expand menu":"Collapse menu");Avalonia.Automation.AutomationProperties.SetName(collapse,collapsed?"Expand menu":"Collapse menu");collapse.Click+=(_,_)=>{localService.Settings.SidebarCollapsed=!collapsed;Paths.Save(localService.Settings);layoutPage=null;RenderBody();};nav.Children.Add(collapse);
-                foreach(var item in new[]{"Overview","Hardware","Sensors","Models","Agents","Token","History","Alerts","Settings"})
+                foreach(var item in new[]{"Overview","Hardware","Sensors","Models","Agents","Token","History","Alerts","Disk","Settings"})
                 {
                     var contents=new StackPanel{Orientation=Orientation.Horizontal,Spacing=12};contents.Children.Add(NavIcon(item));if(!collapsed)contents.Children.Add(Text(item,13));
                     var b=new Button{Content=contents,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Left,Padding=new Thickness(12,12),Cursor=new Cursor(StandardCursorType.Hand),Background=Paint("#1c283b","#e4edf9")};
@@ -233,7 +233,7 @@ public sealed partial class MainWindow : Window
                 footerActions.Content=overview?OverviewFooterActions():null;
                 footerActions.Tag=RequestedThemeVariant;
             }
-            Reconciler.Show(scroller!,fleet!=null&&page!="Settings"&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page!="Settings"&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()});scroller.Offset=offset;
+            Reconciler.Show(scroller!,fleet!=null&&page is not ("Settings" or "Disk")&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page is not ("Settings" or "Disk")&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),"Disk"=>DiskPage(),_=>SettingsPage()});scroller.Offset=offset;
         }
         catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();}
         finally{rebuilding=false;}
@@ -263,6 +263,7 @@ public sealed partial class MainWindow : Window
             "Assistant"=>"M2,3 H18 V14 H10 L5,18 V14 H2 Z M6,7 H14 M6,10 H11",
             "History"=>"M3,6 A8,8 0 1 1 2,12 M3,1 V6 H8 M10,5 V10 L14,12",
             "Alerts"=>"M10,2 L19,18 H1 Z M10,7 V12 M10,14 V16",
+            "Disk"=>"M2,4 H18 V16 H2 Z M2,11 H18 M13,13.5 H15",
             _=>"M10,1 L13,4 L17,4 L17,8 L19,10 L17,13 L17,17 L13,17 L10,19 L7,17 L3,17 L3,13 L1,10 L3,7 L3,3 L7,3 Z M10,7 A3,3 0 1 0 10,13 A3,3 0 1 0 10,7"};
         return new Avalonia.Controls.Shapes.Path{Data=Geometry.Parse(data),Stroke=Ink("#b8c7df"),StrokeThickness=1.4,Width=20,Height=20,Stretch=Stretch.Uniform};
     }
