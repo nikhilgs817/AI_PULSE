@@ -201,6 +201,7 @@ public sealed partial class MainWindow
             await Shot("settings");
             await RunFleetUiChecks(results);
             File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);
+            if(Environment.GetEnvironmentVariable("AIPULSE_RENDER_BENCH")=="1")await RunRenderBench();
         }
         catch(Exception e){results.Add("FAIL: "+e);results.Add($"Layout: compact={localService.Settings.Compact}, vertical={localService.Settings.CompactVertical}, modelsExpanded={modelsExpanded}, width={Width}, height={Height}, bounds={Bounds}, transparency={ActualTransparencyLevel}");await Shot("ui-failure");File.WriteAllLines(Path.Combine(Paths.Root,"ui-test-results.txt"),results);Environment.ExitCode=1;}
         finally{if(Application.Current is App app){app.Quitting=true;(app.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown(Environment.ExitCode);}}
