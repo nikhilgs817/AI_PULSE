@@ -7,12 +7,17 @@ using System.Text.Json.Nodes;
 
 namespace AiPulse;
 
-// Claude Code's usage endpoint is not publicly documented and may change or refuse access.
-// It is also heavily rate limited, so every call is throttled here: one call per NormalInterval,
-// exponential back-off after failures, and Retry-After is always honoured after HTTP 429.
+// FALLBACK ONLY. Claude Code's status line is the primary source (see ClaudeQuotaStatusLine): it is
+// documented, local and free. This reader calls Claude Code's undocumented usage endpoint, which is
+// aggressively rate limited, so it runs only when the status line has no fresh reading
+// (ShouldCallEndpoint), at most once per NormalInterval, with exponential back-off after failures
+// and Retry-After always honoured after HTTP 429.
 internal static class ClaudeQuotaReader
 {
-    internal static readonly TimeSpan NormalInterval = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan NormalInterval = TimeSpan.FromMinutes(15);
+    // While terminal Claude Code has reported through the status line this recently, it is running
+    // and renews its own sign-in. Renewing from here too would race it on a single-use refresh token.
+    internal static readonly TimeSpan StatusLineActiveWindow = TimeSpan.FromHours(6);
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(30);
     // Claude Code renews its own token shortly before expiry while it runs. Renew only once the
     // token is clearly past expiry, so AI Pulse and a running Claude Code do not renew together.
@@ -39,8 +44,20 @@ internal static class ClaudeQuotaReader
             : home;
     }
 
+    /// <summary>
+    /// Decides whether the rate-limited endpoint is worth calling. Fresh status-line readings (both windows
+    /// observed within 15 minutes) make the call pointless; it would only spend the endpoint's small allowance.
+    /// </summary>
+    internal static bool ShouldCallEndpoint(ProviderQuota known, DateTimeOffset now) => known.NeedsRefresh(now);
+
+    /// <summary>Renewing Claude Code's sign-in is allowed only while terminal Claude Code is not active.</summary>
+    internal static bool RenewalAllowed(DateTimeOffset? statusLineLastSeen, DateTimeOffset now) =>
+        statusLineLastSeen is not { } seen || now - seen > StatusLineActiveWindow;
+
+    internal static void UsingStatusLine() => Status = "Current reading; no usage-endpoint call needed.";
+
     /// <summary>Returns a live reading, or null when the call was skipped (throttled) or failed.</summary>
-    internal static async Task<ProviderQuota?> Read(DateTimeOffset now, bool manual = false)
+    internal static async Task<ProviderQuota?> Read(DateTimeOffset now, bool manual = false, bool allowRenewal = true)
     {
         var credentialsPath = Path.Combine(ConfigDirectory(), ".credentials.json");
         // A renewal wait only concerns renewing. If Claude Code has since written new credentials, use them now.
@@ -52,7 +69,7 @@ internal static class ClaudeQuotaReader
         if (now < NextAttempt && (!manual || rateLimited)) return null;
         try
         {
-            var token = await AccessToken(credentialsPath, now, staleToken: null);
+            var token = await AccessToken(credentialsPath, now, staleToken: null, allowRenewal);
             if (token is null) return NoToken(now, credentialsPath);
 
             using var response = await SendUsage(token);
@@ -63,7 +80,7 @@ internal static class ClaudeQuotaReader
                 if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
                     // The token was revoked or expired early. Renew once and retry.
-                    token = await AccessToken(credentialsPath, now, staleToken: token);
+                    token = await AccessToken(credentialsPath, now, staleToken: token, allowRenewal);
                     if (token is null) return NoToken(now, credentialsPath);
                     final = retried = await SendUsage(token);
                 }
@@ -155,11 +172,17 @@ internal static class ClaudeQuotaReader
     // ---- OAuth token handling -------------------------------------------------------------
 
     /// <param name="staleToken">A token the provider just rejected; renew even if it looks unexpired.</param>
-    static async Task<string?> AccessToken(string credentialsPath, DateTimeOffset now, string? staleToken)
+    static async Task<string?> AccessToken(string credentialsPath, DateTimeOffset now, string? staleToken, bool allowRenewal)
     {
         var current = ReadCredentials(await File.ReadAllTextAsync(credentialsPath));
         if (current is null) { Status = "Claude Code sign-in not found. Sign in to Claude Code to show usage."; return null; }
         if (current.AccessToken != staleToken && current.ExpiresAt > now) return current.AccessToken;
+        if (!allowRenewal)
+        {
+            // Claude Code is running in a terminal and renews its own sign-in; the status line keeps usage current.
+            Status = "Waiting for Claude Code to renew its sign-in. The status line updates usage after each reply.";
+            return null;
+        }
         if (staleToken is null && current.ExpiresAt > now - RenewGrace)
         {
             Status = "Claude Code sign-in is renewing. Retrying automatically.";

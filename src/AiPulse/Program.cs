@@ -10,7 +10,7 @@ public static class Program
     {
         Arguments=args;
         if(args.Contains("--sensor-helper"))return SensorBridge.Run(args);
-        if(args.Contains("--claude-quota-statusline"))return ClaudeQuotaStatusLine.Run();
+        if(args.Contains("--claude-quota-statusline"))return ClaudeQuotaStatusLine.Run(args);
         try
         {
             Paths.Initialize(args);

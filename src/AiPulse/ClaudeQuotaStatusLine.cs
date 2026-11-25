@@ -18,33 +18,95 @@ internal static class ClaudeQuotaStatusLine
             : Path.GetFullPath(configured);
     }
 
-    internal static int Run()
+    // Written on every status-line call. It proves terminal Claude Code is active, which is when
+    // Claude Code renews its own sign-in and AI Pulse must not touch it.
+    internal static string HeartbeatPath() => Path.Combine(Path.GetDirectoryName(CachePath())!, "claude-statusline-seen");
+
+    internal static DateTimeOffset? LastSeen()
     {
         try
         {
-            using var input = JsonDocument.Parse(Console.In.ReadToEnd());
+            var path = HeartbeatPath();
+            return File.Exists(path) && long.TryParse(File.ReadAllText(path).Trim(), out var seconds) && ValidUnixTime(seconds)
+                ? DateTimeOffset.FromUnixTimeSeconds(seconds) : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    internal static int Run(string[]? args = null)
+    {
+        string input = "";
+        Snapshot? current = null;
+        try
+        {
+            input = Console.In.ReadToEnd();
+            using var document = JsonDocument.Parse(input);
             var path = CachePath();
-            var current = ReadCache(path);
+            current = ReadCache(path);
+            var observed = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
             // Claude Code can invoke a status-line command during startup before limits are known.
             // Keep the last useful sample in that case and continue displaying it.
-            var updated = ParseStatusLine(input.RootElement, current, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            var updated = ParseStatusLine(document.RootElement, current, observed);
             if (!ReferenceEquals(updated, current))
             {
                 current = updated;
                 if (current is not null) WriteCache(path, current);
             }
-
-            Console.Out.WriteLine(Format(current));
-            return 0;
+            Directory.CreateDirectory(Path.GetDirectoryName(HeartbeatPath())!);
+            File.WriteAllText(HeartbeatPath(), observed.ToString(CultureInfo.InvariantCulture));
         }
         catch
         {
             // This command runs in Claude Code's status-line pipeline. Never surface parsing or
             // disk errors as a prompt or diagnostic that could disrupt the user's session.
-            Console.Out.WriteLine("Claude usage unavailable");
-            return 0;
         }
+        try
+        {
+            // A user's own status line keeps working: AI Pulse records the limits, then hands the
+            // same input to their original command and prints whatever it prints.
+            if (args?.Contains(ChainFlag) == true && ClaudeStatusLineSetup.ReadChained() is { } chained &&
+                RunChained(chained, input) is { } output)
+            {
+                Console.Out.Write(output);
+                return 0;
+            }
+            Console.Out.WriteLine(Format(current));
+        }
+        catch { Console.Out.WriteLine("Claude usage unavailable"); }
+        return 0;
+    }
+
+    internal const string ChainFlag = "--chain";
+
+    /// <summary>Runs the user's original status-line command with the same stdin. Null if it could not run.</summary>
+    internal static string? RunChained(string command, string input, TimeSpan? timeout = null)
+    {
+        // Claude Code runs status lines through bash (Git Bash on Windows), so run the original the same way.
+        var gitBash = Environment.GetEnvironmentVariable("CLAUDE_CODE_GIT_BASH_PATH");
+        var shell = OperatingSystem.IsWindows() ? (string.IsNullOrWhiteSpace(gitBash) ? "bash" : gitBash) : "/bin/sh";
+        var start = new System.Diagnostics.ProcessStartInfo(shell)
+        {
+            RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false, CreateNoWindow = true,
+        };
+        start.ArgumentList.Add("-c");
+        start.ArgumentList.Add(command);
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(start);
+            if (process is null) return null;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            _ = process.StandardError.ReadToEndAsync();
+            try { process.StandardInput.Write(input); process.StandardInput.Close(); } catch (IOException) { }
+            if (!process.WaitForExit(timeout ?? TimeSpan.FromSeconds(10)))
+            {
+                try { process.Kill(true); } catch { }
+                return null;
+            }
+            return stdout.GetAwaiter().GetResult();
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or IOException or InvalidOperationException) { return null; }
     }
 
     internal static Snapshot? ParseCache(string json, long? now = null)

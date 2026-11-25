@@ -134,8 +134,22 @@ internal static class SubscriptionQuotaTests
             var stored = ClaudeQuotaStatusLine.ReadCache(cacheFile);
             check(stored?.FiveHour is { UsedPercentage: 0, ResetsAt: null } && stored.SevenDay?.UsedPercentage == 12,
                 "Live Claude usage readings are cached so a restart does not need another provider call");
+            check(ClaudeQuotaStatusLine.LastSeen() is null, "Endpoint readings do not count as status-line activity");
+            File.WriteAllText(ClaudeQuotaStatusLine.HeartbeatPath(), live.ToUnixTimeSeconds().ToString());
+            check(ClaudeQuotaStatusLine.LastSeen()?.ToUnixTimeSeconds() == live.ToUnixTimeSeconds(), "Status-line activity is read back from its heartbeat");
         }
         finally { Environment.SetEnvironmentVariable("AIPULSE_QUOTA_FILE", previousQuotaFile); }
+
+        // Source selection: the status line is primary; the rate-limited endpoint is a fallback.
+        var freshBoth = new ProviderQuota(new QuotaWindow(10, now.AddHours(2), now.AddMinutes(-3)), new QuotaWindow(40, now.AddDays(2), now.AddMinutes(-3)), now.AddMinutes(-3));
+        var staleBoth = freshBoth with { FiveHour = freshBoth.FiveHour! with { ObservedAt = now.AddMinutes(-40) }, Weekly = freshBoth.Weekly! with { ObservedAt = now.AddMinutes(-40) } };
+        check(!ClaudeQuotaReader.ShouldCallEndpoint(freshBoth, now) && ClaudeQuotaReader.ShouldCallEndpoint(staleBoth, now) &&
+              ClaudeQuotaReader.ShouldCallEndpoint(new ProviderQuota(null, null, null), now),
+            "The Claude usage endpoint is not called while status-line readings are fresh");
+        check(!ClaudeQuotaReader.RenewalAllowed(now.AddHours(-1), now) && ClaudeQuotaReader.RenewalAllowed(now.AddHours(-7), now) &&
+              ClaudeQuotaReader.RenewalAllowed(null, now),
+            "AI Pulse never renews Claude Code's sign-in while terminal Claude Code is active");
+        check(ClaudeQuotaReader.NormalInterval >= TimeSpan.FromMinutes(15), "The usage endpoint fallback is polled at most every 15 minutes");
 
         check(QuotaRing.StatusColor(50) !=QuotaRing.StatusColor(50.1) &&
             QuotaRing.StatusColor(75) == QuotaRing.StatusColor(50.1) &&
