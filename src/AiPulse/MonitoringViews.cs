@@ -254,7 +254,7 @@ public sealed partial class MainWindow
     Control AgentActivity()
     {
         var stack = new StackPanel { Spacing = 16 };
-        if (!service.IsRemote) stack.Children.Add(LabCard());
+        if (!service.IsRemote) { stack.Children.Add(LabCard()); stack.Children.Add(BenchCard()); }
         long nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         // Working now: requests in flight through the gateway or relay, plus agents active in the last minute.

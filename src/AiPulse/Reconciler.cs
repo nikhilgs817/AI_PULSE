@@ -55,6 +55,8 @@ internal static class Reconciler
     /// <summary>Returns the control that should be in the tree: <paramref name="current"/> updated in place, or <paramref name="next"/>.</summary>
     public static Control Reconcile(Control current, Control next)
     {
+        // Keep a text box the person is typing in, so a refresh never steals focus or the caret.
+        if (current is TextBox or NumericUpDown && current.GetType() == next.GetType() && current.IsKeyboardFocusWithin) { patched++; return current; }
         if (!CanPatch(current, next)) { swapped++; return next; }
         switch (current)
         {
