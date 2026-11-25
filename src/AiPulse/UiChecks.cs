@@ -210,6 +210,12 @@ public sealed partial class MainWindow
             Check(this.GetVisualDescendants().OfType<Button>().Count(b=>Equals(b.Content,"Delete…"))==3,"Drive offers delete only where Drive allows trashing");
             await Shot("drive");
             File.Delete(Path.Combine(Paths.Root,"drive-token.bin"));localService.Settings.DriveClientId="";driveAccount=null;driveRoot=driveCurrent=null;driveItems=[];driveQuota=null;
+            await Click("Agents");Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Run load sweep")),"Agents page offers the model bench");
+            this.GetVisualDescendants().OfType<Button>().First(b=>Equals(b.Content,"Run load sweep")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));for(int i=0;i<200&&benchWork==null&&lastSweep==null;i++)await Task.Delay(50);for(int i=0;i<300&&benchWork!=null;i++)await Task.Delay(100);
+            Check(lastSweep is {Points.Count:4} sw&&sw.Points.All(p=>p.Errors==0&&p.TokensPerSecond>0),"Load sweep runs 1, 2, 4 and 8 at a time with no errors"+$" ({benchNotice}; {string.Join(" ",lastSweep?.Points.Select(p=>$"{p.Concurrency}:{p.Errors}:{p.FirstError}")??[])}; work={benchWork!=null})");
+            this.GetVisualDescendants().OfType<Button>().First(b=>Equals(b.Content,"Run evals")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));for(int i=0;i<200&&benchWork==null&&lastEval==null;i++)await Task.Delay(50);for(int i=0;i<300&&benchWork!=null;i++)await Task.Delay(100);await Task.Delay(150);
+            Check(lastEval is {Passed:4,Answers.Count:5}&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="date-format"),"Evals score the sample suite and list the failing case"+(benchNotice!=""?" ("+benchNotice+")":""));
+            await Shot("bench");
             await Click("Settings");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="AI")&&
                 this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Download selected model")),"Settings contains the optional AI setup");
