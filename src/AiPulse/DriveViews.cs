@@ -31,7 +31,8 @@ public sealed partial class MainWindow
         {
             var stop = Btn("Stop"); stop.Click += (_, _) => driveWork?.Cancel(); bar.Children.Add(stop);
             stack.Children.Add(bar);
-            stack.Children.Add(Message(driveBusy, driveListed > 0 ? $"{driveListed:N0} items listed so far." : "Waiting for Google…"));
+            stack.Children.Add(Message(driveBusy, driveListed > 0 ? $"{Count(driveListed, "item")} listed so far." : "Waiting for Google…"));
+            stack.Children.Add(Busy());
             return stack;
         }
         if (!Drive.Connected)
@@ -168,7 +169,7 @@ public sealed partial class MainWindow
     {
         if (node.RemoteId is not { } id || !node.CanDelete) return;
         if (!await ConfirmDelete("Move to Drive trash", "Move this Drive folder to the trash?", node.FullPath,
-                $"{DiskScanner.Bytes(node.Size)} · {node.Files:N0} files · {node.Folders:N0} folders",
+                $"{DiskScanner.Bytes(node.Size)} · {Count(node.Files, "file")} · {Count(node.Folders, "folder")}",
                 "Drive keeps trashed items for 30 days, and you can restore them from Drive's trash. They still use storage until the trash is emptied. If others can see this folder, they lose access to it.",
                 "Move to Drive trash")) return;
         await DriveTrash(id, node.FullPath, node.Size, () =>

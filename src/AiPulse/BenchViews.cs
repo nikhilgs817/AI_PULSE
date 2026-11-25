@@ -40,6 +40,7 @@ public sealed partial class MainWindow
             var stop = Btn("Stop"); stop.Click += (_, _) => benchWork?.Cancel(); row.Children.Add(stop);
             row.Children.Add(Text(benchProgress + "…", 13, "#72d4e8", true));
             stack.Children.Add(row);
+            stack.Children.Add(Busy());
             return Card(stack);
         }
         var sweep = Btn("Run load sweep"); ToolTip.SetTip(sweep, $"Sends 8 requests at 1, 2, 4 and 8 at a time to {benchModel}");

@@ -195,6 +195,7 @@ public sealed partial class MainWindow
             service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
             await Shot("history-year");
             await Click("Disk");Check(page=="Disk"&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Disk space"),"Disk page opens from the navigation");
+            await Task.Delay(300);Check(scroller!=null&&Math.Abs(scroller.Opacity-1)<0.001&&(scroller.RenderTransform is not Avalonia.Media.TranslateTransform t||Math.Abs(t.Y)<0.01),"Page entry animation settles fully in place");
             var diskFixture=Path.Combine(Paths.Root,"disk-fixture");Directory.CreateDirectory(Path.Combine(diskFixture,"cache","huggingface","hub"));Directory.CreateDirectory(Path.Combine(diskFixture,"web","node_modules"));
             File.WriteAllBytes(Path.Combine(diskFixture,"cache","huggingface","hub","weights.bin"),new byte[3<<20]);File.WriteAllBytes(Path.Combine(diskFixture,"web","node_modules","pkg.js"),new byte[1<<20]);
             StartDiskScan(diskFixture);for(int i=0;i<100&&diskScan!=null;i++)await Task.Delay(100);await Task.Delay(150);

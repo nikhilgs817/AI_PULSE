@@ -18,6 +18,8 @@ namespace AiPulse;
 public sealed partial class MainWindow
 {
     static void OpenFolder(string folder){try{Process.Start(new ProcessStartInfo(OperatingSystem.IsWindows()?"explorer.exe":"xdg-open"){ArgumentList={folder},UseShellExecute=true});}catch{}}
+    static string Count(long n,string word)=>$"{n:N0} {word}{(n==1?"":"s")}";
+    static ProgressBar Busy()=>new(){IsIndeterminate=true,Height=4,MinHeight=4,MaxWidth=420,HorizontalAlignment=HorizontalAlignment.Left};
     TextBlock Text(string text,double size=13,string? color=null,bool bold=false)=>new(){Text=text,FontSize=size,Foreground=Ink(color),FontWeight=bold?FontWeight.SemiBold:FontWeight.Normal,TextWrapping=TextWrapping.Wrap,VerticalAlignment=VerticalAlignment.Center};
     Button Btn(string label)=>new(){Content=label,Cursor=new Cursor(StandardCursorType.Hand),Background=Paint("#1c283b","#e4edf9")};
     Control Heading(string title,string sub){var s=new StackPanel{Spacing=7};s.Children.Add(Text(title,27,"#f0f4ff",true));s.Children.Add(Text(sub,12,"#8ba0bd"));return s;}
