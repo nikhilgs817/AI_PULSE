@@ -18,6 +18,10 @@ public sealed class DiskNode
     public DateTime LastWriteUtc { get; internal set; }
     public bool Denied { get; internal set; }
     public string? Label { get; internal set; }
+    /// <summary>The item's id in a cloud drive; null for local folders.</summary>
+    public string? RemoteId { get; init; }
+    /// <summary>False for items the owner cannot delete or that only group others (cloud views).</summary>
+    public bool CanDelete { get; init; } = true;
     public List<DiskNode> Children { get; } = [];
     public double ShareOfParent => Parent is { Size: > 0 } p ? (double)Size / p.Size : 1;
 }
