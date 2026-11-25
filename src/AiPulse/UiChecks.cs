@@ -194,6 +194,13 @@ public sealed partial class MainWindow
             await Click("History");Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"Default 90-day history does not offer unavailable year ranges");
             service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
             await Shot("history-year");
+            await Click("Disk");Check(page=="Disk"&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Disk space"),"Disk page opens from the navigation");
+            var diskFixture=Path.Combine(Paths.Root,"disk-fixture");Directory.CreateDirectory(Path.Combine(diskFixture,"cache","huggingface","hub"));Directory.CreateDirectory(Path.Combine(diskFixture,"web","node_modules"));
+            File.WriteAllBytes(Path.Combine(diskFixture,"cache","huggingface","hub","weights.bin"),new byte[3<<20]);File.WriteAllBytes(Path.Combine(diskFixture,"web","node_modules","pkg.js"),new byte[1<<20]);
+            StartDiskScan(diskFixture);for(int i=0;i<100&&diskScan!=null;i++)await Task.Delay(100);await Task.Delay(150);
+            Check(diskRoot?.Size==(4<<20)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text?.StartsWith("Hugging Face cache")==true)&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="cache"),"Disk scan sizes folders and labels AI caches");
+            Check(this.GetVisualDescendants().OfType<Button>().Count(b=>Equals(b.Content,"Delete…"))>=4,"Every scanned folder row offers delete");
+            await Shot("disk");
             await Click("Settings");
             Check(this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="AI")&&
                 this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"Download selected model")),"Settings contains the optional AI setup");
