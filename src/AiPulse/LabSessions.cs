@@ -10,7 +10,8 @@ namespace AiPulse;
 public sealed class LabSessions
 {
     public sealed record Lab(string Id, string Name, long StartMs, long? EndMs, string? Report);
-    public sealed record Price(string Model, double InputPerMillion, double OutputPerMillion);
+    // Cache rates are optional; when absent, cache reads cost 10% and cache writes 125% of the input rate.
+    public sealed record Price(string Model, double InputPerMillion, double OutputPerMillion, double? CacheReadPerMillion = null, double? CacheWritePerMillion = null);
 
     // Anthropic list prices per 1M tokens (cached 2026-11-03). Edit lab-pricing.json to add or change rates.
     public static readonly Price[] DefaultPrices =
@@ -90,6 +91,11 @@ public sealed class LabSessions
         b.AppendLine("## Summary").AppendLine();
         b.AppendLine($"- Requests: {usage.Count:N0} recorded, {errors:N0} errors");
         b.AppendLine($"- Tokens: {input:N0} input · {output:N0} output");
+        var stats = LabStats.From(lab, usage, traces, peaks, prices);
+        if (stats.CacheHitRatio is double hit) b.AppendLine($"- Cache hit ratio: {(hit * 100).ToString("0.0", inv)}% of input tokens read from the prompt cache");
+        if (stats.P95Ttft is double p95) b.AppendLine($"- Time to first token: median {Fmt(stats.MedianTtft, "0.00 s")}, p95 {p95.ToString("0.00", inv)} s");
+        if (stats.ApiCostUsd is double cost) b.AppendLine($"- API usage cost at list prices: ${cost.ToString("0.0000", inv)} (models priced in lab-pricing.json, cache reads and writes at their own rates)");
+        if (stats.JoulesPerToken is double joules) b.AppendLine($"- GPU energy: {joules.ToString("0.000", inv)} J per token (average {stats.AverageGpuWatts!.Value.ToString("0", inv)} W over the run)");
         if (traces.Select(t => t.Agent).Where(a => a != "").Distinct().Count() is int agents and > 0) b.AppendLine($"- Agents: {agents} ({traces.Select(t => t.Run).Where(r => r != "").Distinct().Count()} runs)");
         b.AppendLine();
 

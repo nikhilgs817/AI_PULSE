@@ -100,5 +100,63 @@ internal static class MonitoringFeatureTests
         check(labs.Start("other", 2000).Id == started.Id && labs.Stop(3000, _ => "r.md") is { EndMs: 3000, Report: "r.md" } && labs.Current is null,
             "Only one lab records at a time and stopping stores its report path");
         check(labs.Prices().Any(p => p.Model == "claude-opus-5-5") && File.Exists(Path.Combine(root, "lab-pricing.json")), "Editable lab pricing defaults are written on first use");
+
+        // ---- Before/after lab comparison ----
+        check(LabMath.Percentile([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 95) == 10 && LabMath.Percentile([4, null, 2], 50) == 2 &&
+              LabMath.Percentile([], 95) is null, "Percentiles use nearest rank and ignore missing values");
+        List<LabSessions.Price> priced = [new("claude-sonnet-5-5", 2, 10), new("claude-sonnet", 9, 9)];
+        check(LabMath.PriceFor("claude-sonnet-5-5-20261101", priced)?.InputPerMillion == 2 && LabMath.PriceFor("gpt-x", priced) is null,
+            "Model prices match exactly or by the longest prefix");
+        // 1M input of which 600k cache reads and 100k cache writes, 100k output.
+        var claudeUse = new Usage("c", "Claude Code", "claude-sonnet-5-5", "s", now, 1_000_000, 100_000, 600_000, 100_000, 0, null, null, "Reported");
+        check(Math.Abs(LabMath.ApiCost([claudeUse], priced)!.Value - (0.3 * 2 + 0.1 * 10 + 0.6 * 0.2 + 0.1 * 2.5)) < 1e-9 &&
+              LabMath.ApiCost([usage[0]], priced) is null,
+            "API cost prices fresh input, output, cache reads and cache writes separately and skips unpriced local models");
+        LabSessions.Lab Run(string name, long start) => new(name, name, start * 1000, (start + 600) * 1000, null);
+        RequestTrace Call(long at, double ttft, long prompt, long outTokens, int status = 200) =>
+            new("t" + at, "Ollama", "llama3", "a", "r", at * 1000, (at + 4) * 1000, ttft, 1, 2, null, prompt, outTokens, status, status >= 400 ? "HTTP " + status : "Completed");
+        var beforeStats = LabStats.From(Run("baseline", now - 2000),
+            [new("b1", "Ollama", "llama3", "", now, 10_000, 2_000, 1_000, 0, 0, null, null, "Completed"), new("b2", "Ollama", "llama3", "", now, 10_000, 2_000, 1_000, 0, 0, null, null, "Completed")],
+            [Call(now, 1.0, 10_000, 2_000), Call(now + 10, 3.0, 10_000, 2_000, 500)],
+            new() { ["gpu.local"] = new(now, 6, 5, 8), ["gpu.power"] = new(now, 100, 80, 120) }, priced);
+        var afterStats = LabStats.From(Run("prompt cache fix", now - 1000),
+            [new("a1", "Ollama", "llama3", "", now, 6_000, 2_000, 4_000, 0, 0, null, null, "Completed"), new("a2", "Ollama", "llama3", "", now, 6_000, 2_000, 4_000, 0, 0, null, null, "Completed")],
+            [Call(now, 0.5, 6_000, 2_000), Call(now + 10, 0.6, 6_000, 2_000)],
+            new() { ["gpu.local"] = new(now, 6, 5, 8), ["gpu.power"] = new(now, 100, 80, 120) }, priced);
+        check(beforeStats.CacheHitRatio == 0.1 && afterStats.CacheHitRatio is > 0.66 and < 0.67 && beforeStats.ErrorRate == 0.5 &&
+              beforeStats.P95Ttft == 3.0 && beforeStats.JoulesPerToken == 100 * 600.0 / 24_000,
+            "Lab statistics derive cache hit ratio, error rate, p95 time to first token and GPU energy per token");
+        string comparison = LabComparison.Build(beforeStats, afterStats);
+        check(comparison.Contains("# prompt cache fix vs baseline") &&
+              comparison.Contains("| Input tokens | 20,000 | 12,000 | -8,000 (-40%) | better |") &&
+              comparison.Contains("| Cache hit ratio | 10.0% | 66.7% | +56.7% | better |") &&
+              comparison.Contains("| Peak VRAM | 8.0 GiB | 8.0 GiB | +0.0 GiB (0%) |  |") &&
+              comparison.Contains("- Better: input tokens,") && comparison.Contains("- Worse: GPU energy per token."),
+            "Before/after comparison shows deltas, ignores unchanged metrics and summarises what got better or worse");
+        string withCost = LabSessions.Build(lab, [claudeUse], [], new(), [], [], priced);
+        check(withCost.Contains("Cache hit ratio: 60.0%") && withCost.Contains("API usage cost at list prices: $1.9700"),
+            "Lab reports include cache hit ratio and the list-price cost of recorded API usage");
+
+        // The local AI reads only the comparison and only from the loopback model.
+        var fake = new FakeOllama();
+        using (var analyst = new LocalAssistant(fake))
+        {
+            var on = new AssistantSettings { Enabled = true };
+            string? explained = analyst.ExplainComparison(on, comparison, CancellationToken.None).GetAwaiter().GetResult();
+            check(explained == "Cache hits rose." && fake.Body.Contains("Cache hit ratio") && fake.Uri?.AbsoluteUri == "http://127.0.0.1:11434/api/chat" &&
+                  analyst.ExplainComparison(new AssistantSettings { Enabled = false }, comparison, CancellationToken.None).GetAwaiter().GetResult() is null,
+                "Local AI explains a lab comparison through loopback Ollama only when the assistant is enabled");
+        }
+    }
+
+    sealed class FakeOllama : HttpMessageHandler
+    {
+        public string Body = ""; public Uri? Uri;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Uri = request.RequestUri; Body = request.Content is null ? "" : await request.Content.ReadAsStringAsync(ct);
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new StringContent("""{"done":true,"model":"gemma3:1b","message":{"content":"Cache hits rose."}}""") };
+        }
     }
 }

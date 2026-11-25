@@ -330,6 +330,9 @@ public sealed partial class MainWindow
             row.Children.Add(stop);
             stack.Children.Add(row);
         }
+        var finished = Labs.All().Where(l => l.EndMs is not null).ToList();
+        if (finished.Count >= 2)
+            stack.Children.Add(Text("Compare runs a lab against the one before it: tokens, cache hits, latency, errors, cost, VRAM and energy per token, with what got better or worse.", 12, "#8ba0bd"));
         foreach (var lab in Labs.All().Where(l => l.EndMs is not null).Reverse().Take(5))
         {
             var past = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
@@ -339,30 +342,92 @@ public sealed partial class MainWindow
             ToolTip.SetTip(rebuild, "Rebuild the report from retained data (for example after editing lab-pricing.json).");
             rebuild.Click += async (_, _) => { var path = await Task.Run(() => WriteLabReport(lab)); OpenFile(path); };
             past.Children.Add(rebuild);
+            int position = finished.FindIndex(l => l.Id == lab.Id);
+            if (position > 0)
+            {
+                var baseline = finished[position - 1];
+                var compare = Btn("Compare with previous");
+                ToolTip.SetTip(compare, $"Before/after report: “{lab.Name}” against “{baseline.Name}”.");
+                compare.Click += async (_, _) =>
+                {
+                    try
+                    {
+                        compare.IsEnabled = false;
+                        var path = await Task.Run(() => WriteLabComparison(baseline, lab));
+                        notice = "Comparison saved: " + path;
+                        await AppendComparisonExplanation(path);
+                        OpenFile(path);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { Paths.Log("lab-compare", e); notice = "The comparison could not be written (see logs/app.log)."; }
+                    RenderBody();
+                };
+                past.Children.Add(compare);
+            }
             stack.Children.Add(past);
         }
         return Card(stack);
     }
 
-    string WriteLabReport(LabSessions.Lab lab)
+    (List<Usage> Usage, List<RequestTrace> Traces, Dictionary<string, MetricPoint?> Peaks) LabData(LabSessions.Lab lab)
     {
         long start = lab.StartMs / 1000, end = (lab.EndMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) / 1000;
         var store = localService.Store;
         var usage = store.UsageSince(start).Where(u => u.Time <= end).ToList();
         var traces = store.Traces(lab.StartMs, lab.EndMs ?? long.MaxValue);
         var peaks = new Dictionary<string, MetricPoint?>();
-        foreach (var id in new[] { "gpu.local", "gpu.load", "cpu.load", "ram.used", "gpu.temperature" })
+        foreach (var id in new[] { "gpu.local", "gpu.load", "cpu.load", "ram.used", "gpu.temperature", "gpu.power" })
         {
             var points = store.History(id, start, end);
             peaks[id] = points.Count == 0 ? null : new MetricPoint(end, points.Average(p => p.Average), points.Min(p => p.Minimum), points.Max(p => p.Maximum));
         }
+        return (usage, traces, peaks);
+    }
+
+    string WriteLabReport(LabSessions.Lab lab)
+    {
+        long start = lab.StartMs / 1000, end = (lab.EndMs ?? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) / 1000;
+        var (usage, traces, peaks) = LabData(lab);
         var residency = localService.Residency.Since(start).Where(e => e.Time <= end).ToList();
-        var counters = store.CounterTotals(start, end).Where(c => c.Source == "vLLM counters").ToList();
+        var counters = localService.Store.CounterTotals(start, end).Where(c => c.Source == "vLLM counters").ToList();
         string markdown = LabSessions.Build(lab, usage, traces, peaks, residency, counters, Labs.Prices());
+        return WriteExport($"lab-{DateTimeOffset.FromUnixTimeMilliseconds(lab.StartMs).ToLocalTime():yyyyMMdd-HHmm}-{Slug(lab.Name)}.md", markdown);
+    }
+
+    // Before/after: the earlier lab is the baseline, the later one is the run after a change.
+    string WriteLabComparison(LabSessions.Lab before, LabSessions.Lab after)
+    {
+        var prices = Labs.Prices();
+        LabStats Stats(LabSessions.Lab lab) { var (usage, traces, peaks) = LabData(lab); return LabStats.From(lab, usage, traces, peaks, prices); }
+        string markdown = LabComparison.Build(Stats(before), Stats(after));
+        return WriteExport($"compare-{Slug(after.Name)}-vs-{Slug(before.Name)}-{DateTimeOffset.FromUnixTimeMilliseconds(after.StartMs).ToLocalTime():yyyyMMdd-HHmm}.md", markdown);
+    }
+
+    // With the local assistant enabled, a local model adds a plain-language reading of the comparison.
+    async Task AppendComparisonExplanation(string path)
+    {
+        var options = localService.Settings.Assistant;
+        if (!options.Enabled) return;
+        try
+        {
+            using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+            if (await assistant.ExplainComparison(options, await File.ReadAllTextAsync(path), cancel.Token) is { Length: > 0 } text)
+                await File.AppendAllTextAsync(path, Environment.NewLine + "## Explanation (local AI, " + options.Model + ")" + Environment.NewLine + Environment.NewLine + text.Trim() + Environment.NewLine +
+                    Environment.NewLine + "Model-written; check it against the table above." + Environment.NewLine);
+        }
+        catch (Exception e) { Paths.Log("lab-compare-explain", e); notice += " (local AI explanation unavailable)"; }
+    }
+
+    static string Slug(string name)
+    {
+        string slug = new string(name.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray()).Trim('-');
+        return slug.Length > 40 ? slug[..40] : slug;
+    }
+
+    static string WriteExport(string fileName, string markdown)
+    {
         string folder = Path.Combine(Paths.Root, "exports");
         Directory.CreateDirectory(folder);
-        string slug = new string(lab.Name.Select(c => char.IsLetterOrDigit(c) ? char.ToLowerInvariant(c) : '-').ToArray()).Trim('-');
-        string path = Path.Combine(folder, $"lab-{DateTimeOffset.FromUnixTimeMilliseconds(lab.StartMs).ToLocalTime():yyyyMMdd-HHmm}-{(slug.Length > 40 ? slug[..40] : slug)}.md");
+        string path = Path.Combine(folder, fileName);
         File.WriteAllText(path, markdown);
         return path;
     }
