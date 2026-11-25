@@ -56,6 +56,9 @@ jobs:
           $p=Start-Process ./build/win-x64/AiPulse.exe -ArgumentList '--self-test --data-dir ./build/self-test' -WindowStyle Hidden -Wait -PassThru
           Get-Content ./build/self-test/self-test-results.txt
           if($p.ExitCode -ne 0){throw 'Self-tests failed'}
+      - name: Run unit tests
+        shell: pwsh
+        run: dotnet test tests/AiPulse.Tests/AiPulse.Tests.csproj -c Release --logger "console;verbosity=normal"
       - name: Verify multi-host transport, offline buffering and access isolation
         shell: pwsh
         run: |
@@ -249,6 +252,8 @@ jobs:
         run: |
           build/linux-x64/AiPulse --self-test --data-dir build/self-test
           cat build/self-test/self-test-results.txt
+      - name: Run unit tests
+        run: dotnet test tests/AiPulse.Tests/AiPulse.Tests.csproj -c Release --logger "console;verbosity=normal"
       - name: Verify multi-host transport and boot service
         run: |
           python3 tests/usage_relay_smoke.py "$PWD/build/linux-x64/AiPulse"

@@ -107,7 +107,7 @@ public sealed partial class MainWindow : Window
             int exitIndex=Array.IndexOf(Program.Arguments,"--exit-after");if(exitIndex>=0&&Program.Arguments.Length>exitIndex+1&&int.TryParse(Program.Arguments[exitIndex+1],out int seconds)){await Task.Delay(Math.Clamp(seconds,1,3600)*1000);Quit();}
         };
         KeyDown+=(_,e)=>{if(e.Key==Key.D&&e.KeyModifiers.HasFlag(KeyModifiers.Control))ToggleMode();if(e.Key==Key.Q&&e.KeyModifiers.HasFlag(KeyModifiers.Control))Quit();};
-        ApplyWindowLayout();timer.Tick+=(_,_)=>Refresh();timer.Start();Closed+=(_,_)=>{fleet?.Dispose();assistantRequest?.Cancel();assistant.Dispose();};Refresh();
+        ApplyWindowLayout();timer.Tick+=(_,_)=>TimerTick();timer.Start();Closed+=(_,_)=>{fleet?.Dispose();assistantRequest?.Cancel();assistant.Dispose();};Refresh();
     }
     void FinishCompactMove()
     {
@@ -176,6 +176,7 @@ public sealed partial class MainWindow : Window
     }
     void ToggleMaximize(){if(!localService.Settings.Compact)WindowState=WindowState==WindowState.Maximized?WindowState.Normal:WindowState.Maximized;}
     public void ToggleMode(){SavePosition();localService.Settings.Compact=!localService.Settings.Compact;Paths.Save(localService.Settings);ApplyWindowLayout();RenderBody();KeepOnScreen();}
+    void TimerTick()=>Refresh();
     void Refresh()
     {
         if(overviewDragPending||overviewShelfOpen||!IsVisible&&updates++>0)return;
@@ -198,7 +199,7 @@ public sealed partial class MainWindow : Window
             if(localService.Settings.Compact)
             {
                 if(compactMovePointer!=null)return;
-                body.Content=fleet!=null&&fleet.SelectedHost==""?FleetCompact():fleet!=null&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):Compact();
+                Reconciler.Show(body,fleet!=null&&fleet.SelectedHost==""?FleetCompact():fleet!=null&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):Compact());
                 double height=CompactHeight();
                 if(Height!=height)Height=height;
                 return;
@@ -232,7 +233,7 @@ public sealed partial class MainWindow : Window
                 footerActions.Content=overview?OverviewFooterActions():null;
                 footerActions.Tag=RequestedThemeVariant;
             }
-            scroller!.Content=fleet!=null&&page!="Settings"&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page!="Settings"&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()};scroller.Offset=offset;
+            Reconciler.Show(scroller!,fleet!=null&&page!="Settings"&&fleet.SelectedHost==""?FleetOverview():fleet!=null&&page!="Settings"&&fleet.SelectedMonitor?.RemoteSnapshot==null?Message("Waiting for host",SelectedHostLabel()):page switch{"Overview"=>Overview(),"Hardware"=>HardwarePage(),"Sensors"=>SensorsPage(),"Models"=>ModelsPage(),"Agents"=>AgentsPage(),"Token"=>TokenPage(),"History"=>HistoryPage(),"Alerts"=>AlertsPage(),_=>SettingsPage()});scroller.Offset=offset;
         }
         catch(Microsoft.Data.Sqlite.SqliteException e)when(e.SqliteErrorCode is 11 or 26){ShowDatabaseError();}
         finally{rebuilding=false;}
@@ -265,276 +266,8 @@ public sealed partial class MainWindow : Window
             _=>"M10,1 L13,4 L17,4 L17,8 L19,10 L17,13 L17,17 L13,17 L10,19 L7,17 L3,17 L3,13 L1,10 L3,7 L3,3 L7,3 Z M10,7 A3,3 0 1 0 10,13 A3,3 0 1 0 10,7"};
         return new Avalonia.Controls.Shapes.Path{Data=Geometry.Parse(data),Stroke=Ink("#b8c7df"),StrokeThickness=1.4,Width=20,Height=20,Stretch=Stretch.Uniform};
     }
-    Control Compact()
-    {
-        bool vertical=localService.Settings.CompactVertical;
-        int toggleRow = vertical ? 1 : 2;
-        var rowSizes = vertical ? "221" : "52,60";
-        if (ShowCompactQuotas) rowSizes += $",{CompactQuotaRowHeight}";
-        var grid=new Grid{RowDefinitions=new RowDefinitions(rowSizes + ",26,Auto"),Margin=new Thickness(8,0)};
-        var metrics=new Grid{ColumnDefinitions=new ColumnDefinitions(vertical?"*":"*,*,*,*"),RowDefinitions=new RowDefinitions(vertical?string.Join(",",Enumerable.Repeat("24.5",9)):"*")};
-        bool fresh=service.Fresh;
-        string freshness=!fresh?(service.LastSample==0?"Waiting":"Stale"):service.IsRemote?"Live":$"Live {Math.Max(0,J.Now-service.LastSample)}s";
-        string Live(string id)=>fresh?Format(id):"—";
-        var hottest=fresh?service.Readings
-            .Where(r=>(r.Id is "cpu.temperature" or "gpu.temperature")&&r.Value is double v&&double.IsFinite(v)&&v>0&&v<=150)
-            .MaxBy(r=>r.Value):null;
-        var soc=fresh&&hottest==null?service.Readings.FirstOrDefault(r=>r.Name=="GPU VR SoC"&&r.Unit=="°C"&&r.Value is double v&&v>0&&v<=150):null;
-        string hotSource=hottest?.Id=="cpu.temperature"?"CPU":"GPU";
-        bool hot=hottest?.Value>=service.Settings.TemperatureWarning;
-        double? localUsed=fresh?service.Value("gpu.local"):null,localTotal=fresh?service.Value("gpu.local.total"):null;
-        string gpuMemory=localUsed is double used&&localTotal is double total&&total>0?$"{used:0.#}/{total:0.#}":J.Size(localUsed);
-        (string Label,string Value,string Help,bool Warn)[] fields=[
-            ("GPU LOAD",Live("gpu.load"),"Current GPU utilization. "+freshness,false),
-            ("GPU LOCAL GiB",gpuMemory,$"Local allocation: {J.Size(localUsed)} of {J.Size(localTotal)} reported local capacity. Shared allocation: {Live("gpu.shared")}; reported shared limit: {Live("gpu.shared.total")}. Shared GPU memory overlaps system RAM. These numbers do not predict model fit.",false),
-            ("RAM FREE",Live("ram.available"),"Available physical memory, including reclaimable memory reported by the OS. "+freshness,false),
-            (hottest==null?(soc==null?"HOTTEST":"GPU VR SOC"):$"HOTTEST · {hotSource}",hottest==null?(soc==null?"—":Format(soc.Id)):Format(hottest.Id),hottest==null?(soc==null?"No fresh CPU or GPU core temperature. "+SensorDescription():"Fallback sensor only: GPU VR SoC is not GPU core temperature."):$"{hottest.Name}: {Format(hottest.Id)}. Warning threshold: {service.Settings.TemperatureWarning:0}°C.",hot)
-        ];
-        for(int i=0;i<fields.Length;i++)
-        {
-            var field=fields[i];
-            var label=Text(field.Label,vertical?12:10,"#a9bdd9",true);
-            var value=Text(field.Value,vertical?17:18,field.Warn?"#ffc58a":"#e9f0ff",true);
-            var cell=new Grid{Margin=new Thickness(6,vertical?0:5),RowDefinitions=new RowDefinitions(vertical?"*":"Auto,*"),ColumnDefinitions=new ColumnDefinitions(vertical?"*,Auto":"*")};cell.Children.Add(label);
-            if(vertical)Grid.SetColumn(value,1);else Grid.SetRow(value,1);cell.Children.Add(value);
-            ToolTip.SetTip(cell,field.Help);
-            if(vertical)Grid.SetRow(cell,i);else Grid.SetColumn(cell,i);metrics.Children.Add(cell);
-        }
-        grid.Children.Add(metrics);
-        long until=J.Now,since=J.DayStart(DateTimeOffset.FromUnixTimeSeconds(until),TimeZoneInfo.Local);
-        var activity=service.Store.CompactActivity(since,until);
-        var tokens=TokenSummary.From(service.Store.TokenBreakdown(since,until),service.Store.CounterTotals(since,until));
-        var spawns=service.Store.AgentSpawns(since,until);
-        Control ActivityCell(string title,string value,string help)
-        {
-            var cell=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),Margin=new Thickness(6,2)};
-            var label=Text(title,vertical?12:11,"#a9bdd9",true);label.FontWeight=FontWeight.Bold;cell.Children.Add(label);
-            var number=Text(value,vertical?19:16,"#e9f0ff",true);Grid.SetColumn(number,1);cell.Children.Add(number);ToolTip.SetTip(cell,help);Avalonia.Automation.AutomationProperties.SetName(cell,title+": "+value);return cell;
-        }
-        var agents=ActivityCell("ACTIVE AGENTS",service.Settings.ReadAgentUsage&&(!service.IsRemote||service.Fresh)?activity.ActiveAgents.ToString("N0"):"—",service.Settings.ReadAgentUsage?"Sessions reporting Working or Recent activity, plus agents named in model requests or agent spans, within the last 5 minutes. Completed, interrupted and quiet sessions are excluded. This does not prove the model is generating right now.":"Agent usage import is disabled. Enable Read local usage metadata in Settings to count recent active sessions.");
-        const string overlap="Observed input and output since local midnight. Local and agent sources may overlap; do not add them. Open Token for details.";
-        var local=ActivityCell("LOCAL TOKENS TODAY",CompactCount(tokens.LocalRequests),overlap+" Includes observed Ollama and AIPULSE Assistant requests.");
-        var tools=ActivityCell("AGENT TOKENS TODAY",CompactCount(tokens.ToolRequests),overlap);
-        var vllm=ActivityCell("vLLM TOKENS TODAY",CompactCount(tokens.VllmCounters),"Server counters observed since local midnight. Open Token to inspect each model and replica.");
-        var spawned=ActivityCell("AGENT SPAWNS TODAY",spawns.Count==0?"—":J.Count(spawns.Sum(s=>s.Count)),"Distinct agent starts observed since local midnight. Open Agents to see the sources.");
-        Control[] activityCells=[agents,local,tools,spawned,vllm];
-        if(vertical)
-        {
-            for(int i=0;i<activityCells.Length;i++){Grid.SetRow(activityCells[i],fields.Length+i);metrics.Children.Add(activityCells[i]);}
-        }
-        else
-        {
-            var activityRows=new UniformGrid{Columns=3,Rows=2};
-            foreach(var cell in activityCells)activityRows.Children.Add(cell);
-            Grid.SetRow(activityRows,1);grid.Children.Add(activityRows);
-        }
-        if (ShowCompactQuotas)
-        {
-            var quotas = SubscriptionQuotaRow(compact: true);
-            Grid.SetRow(quotas, toggleRow++);
-            grid.Children.Add(quotas);
-        }
-        string modelStatus=fresh?$"{service.Ollama.Active.Values.Sum(n=>(long)n)} requests · {service.Ollama.Models.Count} loaded":"Models unavailable";
-        var toggle=Btn((modelsExpanded?"▴":"▾")+"  "+modelStatus+" · "+freshness);ToolTip.SetTip(toggle,"Observed active gateway requests and resident models. Direct inference may not be counted. Select to show the model list.");toggle.Padding=new Thickness(6,2);toggle.MinHeight=24;toggle.FontSize=11;toggle.HorizontalAlignment=HorizontalAlignment.Stretch;toggle.HorizontalContentAlignment=HorizontalAlignment.Left;toggle.Background=Brush.Parse("#0cffffff");toggle.CornerRadius=new CornerRadius(12);
-        Avalonia.Automation.AutomationProperties.SetName(toggle,"Toggle loaded models");toggle.Click+=(_,_)=>{modelsExpanded=!modelsExpanded;RenderBody();KeepOnScreen();};Grid.SetRow(toggle,toggleRow);grid.Children.Add(toggle);
-        if(modelsExpanded)
-        {
-            var list=new StackPanel{Spacing=5,Margin=new Thickness(0,3,0,6)};
-            if(service.Ollama.Models.Count==0)list.Children.Add(Text(service.Ollama.Status.GetValueOrDefault("This PC")=="Connected"?"Ollama is ready. No models loaded.":"Waiting for Ollama…",11,"#8ea3c0"));
-            var rates=service.Store.UsageSince(J.Now-3600).Where(u=>u.Source=="Ollama"&&u.DecodeRate.HasValue).GroupBy(u=>u.Model).ToDictionary(g=>g.Key,g=>g.First());
-            foreach(var m in service.Ollama.Models.OrderBy(m=>m.Host).ThenBy(m=>m.Name))
-            {
-                var row=new StackPanel{Spacing=4,Margin=new Thickness(8,7)};row.Children.Add(Text(m.Name,12,null,true));
-                row.Children.Add(Text(ModelHost(m)+" · "+m.State+" · "+J.Size(m.MemoryGiB),10,"#a7bad4"));
-                row.Children.Add(Text(m.Host=="This PC"&&rates.TryGetValue(m.Name,out var u)?$"{u.DecodeRate:0.0} tok/s · last observed request":"Decode rate unavailable",10,"#55cee5"));
-                list.Children.Add(new Border{Child=row,Background=Brush.Parse("#16ffffff"),BorderBrush=Brush.Parse("#38e1edff"),BorderThickness=new Thickness(1),CornerRadius=new CornerRadius(14)});
-            }
-            var scroll=new ScrollViewer{Content=list,Height=CompactHeight()-CompactBaseHeight,VerticalScrollBarVisibility=ScrollBarVisibility.Auto,Offset=compactOffset};scroll.ScrollChanged+=(_,_)=>compactOffset=scroll.Offset;Grid.SetRow(scroll,toggleRow+1);grid.Children.Add(scroll);
-        }
-        return grid;
-    }
-    static string CompactCount(long? count)=>count is long measured?J.Count(measured):"—";
-    string ModelHost(ModelInfo model)=>service.IsRemote&&model.Host=="This PC"?service.HostName:model.Host;
-    string Format(string id)
-    {
-        if(service.IsRemote&&!service.Fresh)return "—";
-        double? v=service.Value(id);if(id=="gpu.load"&&!v.HasValue)v=service.Value("gpu.engine");
-        if(!v.HasValue)return "—";var unit=service.Readings.FirstOrDefault(r=>r.Id==id)?.Unit??"";
-        return unit=="°C"||id.Contains("temperature")?$"{v:0}°C":unit=="%"||id.Contains("load")?$"{v:0}%":$"{v:0.0} {unit}".TrimEnd();
-    }
-    string SensorDescription()
-    {
-        if(service.IsRemote)return service.Health+". Deep sensor permissions must be configured on the selected host.";
-        if(service.Value("cpu.temperature")!=null)return "CPU temperature is live. GPU core temperature is shown only if the hardware exposes it; GPU VR SoC is a separate sensor.";
-        if(!OperatingSystem.IsWindows())return "CPU temperature is not exposed by readable hwmon sensors. Check device support and sensor permissions.";
-        if(service.SensorBridge.Connected)return "Deep sensor helper is connected, but this hardware/driver does not currently expose a CPU temperature. Other sensors remain live.";
-        return service.SensorBridge.Status+". "+(SensorBridge.DriverInstalled?"PawnIO is installed. Connect deep sensors to read CPU temperature; Windows asks for administrator permission.":"The optional PawnIO driver is not installed. Install the signed driver, then connect deep sensors.");
-    }
-    Control SensorCard()
-    {
-        var content=new StackPanel{Spacing=10};content.Children.Add(Text("Sensor access",13,"#bba3ff",true));content.Children.Add(Text(SensorDescription(),12,"#9eb1ca"));
-        if(!service.IsRemote&&OperatingSystem.IsWindows()&&!service.SensorBridge.Connected)
-        {
-            var enable=Btn(service.SensorBridge.Connecting?"Connecting…":"Connect deep sensors");enable.IsEnabled=!service.SensorBridge.Connecting;
-            enable.Click+=(_,_)=>{service.SensorBridge.Enable();RenderBody();};content.Children.Add(enable);
-        }
-        return Card(content);
-    }
-    Control HardwarePage()
-    {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Hardware","Live capacity and consumption · temperatures, fans, power and clocks are in Sensors"));
-        var cards=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=12,LineSpacing=12};
-        void Capacity(string title,string value,string detail,string? device=null)
-        {
-            if(!Matches(title,detail,device??""))return;
-            var card=Metric(title,value,detail);card.Width=280;card.MinHeight=140;cards.Children.Add(card);
-        }
-        Capacity("CPU UTILIZATION",Format("cpu.load"),$"{service.LogicalProcessors} logical processors · % of total host CPU",service.CpuName);
-        Capacity("GPU UTILIZATION",Format("gpu.load"),service.GpuName??"Graphics / compute adapter");
-        Capacity("SYSTEM MEMORY",Format("ram.used"),"Used of "+Format("ram.total")+" total · "+Format("ram.available")+" available");
-        Capacity("GPU LOCAL MEMORY",Format("gpu.local"),"Allocated of "+Format("gpu.local.total")+" reported capacity",service.GpuName);
-        Capacity("GPU SHARED MEMORY",Format("gpu.shared"),"Allocated of "+Format("gpu.shared.total")+" reported limit · overlaps system RAM",service.GpuName);
-        stack.Children.Add(cards);
-        var disks=service.Readings.Where(r=>r.Id.StartsWith("disk.")&&r.Id.EndsWith(".size")&&Matches("Storage volume disk",r.Device)).ToList();
-        if(disks.Count>0)
-        {
-            stack.Children.Add(Text("Storage · capacity and current usage",16,null,true));
-            stack.Children.Add(Table(["Volume","Total capacity","Used","Available","Used %"],disks.Select(r=>
-            {
-                var prefix=r.Id[..^5];var used=service.Value(prefix+".used");
-                return new[]{r.Device,Format(r.Id),Format(prefix+".used"),Format(prefix+".free"),r.Value>0&&used.HasValue?$"{100*used/r.Value:0.0}%":"—"};
-            }),"1.4*,*,*,*,*"));
-        }
-        var nics=service.Readings.Where(r=>r.Id.StartsWith("nic.")&&r.Id.EndsWith(".up")&&(r.Value==1||!string.IsNullOrWhiteSpace(Query))&&Matches("Network adapter",r.Device,r.Value==1?"Connected":"Disconnected")).OrderByDescending(r=>r.Value).ThenBy(r=>r.Device).ToList();
-        if(nics.Count>0)
-        {
-            stack.Children.Add(Text("Network · link capacity and live traffic",16,null,true));
-            stack.Children.Add(Text("Connected adapters shown by default. Search to include disconnected adapters; all identities are in Device specifications.",11,"#8ba0bd"));
-            stack.Children.Add(Table(["Adapter","Status","Link capacity","Download","Upload"],nics.Select(r=>{var prefix=r.Id[..^3];return new[]{r.Device,r.Value==1?"Connected":"Disconnected",Format(prefix+".speed"),Format(prefix+".rx"),Format(prefix+".tx")};}),"2*,1.1*,*,*,*"));
-        }
-        var inventory=(service.Inventory).Where(r=>Matches(r.Category,r.Name,r.Details)).ToList();
-        var details=new Expander{Header="Device specifications · "+inventory.Count+" matches",HorizontalAlignment=HorizontalAlignment.Stretch,IsExpanded=hardwareDetailsExpanded,Content=Table(["Category","Device","Specifications"],inventory.Select(r=>new[]{r.Category,r.Name,r.Details}),"*,2*,3*")};
-        details.PropertyChanged+=(_,e)=>{if(e.Property==Expander.IsExpandedProperty)hardwareDetailsExpanded=details.IsExpanded;};stack.Children.Add(details);
-        if(inventory.Count==0&&cards.Children.Count==0&&disks.Count==0&&nics.Count==0)stack.Children.Add(Text(service.Inventory.Count>0?"No hardware matches your search.":"Discovering hardware…",13,"#8da1bd"));
-        return stack;
-    }
-    bool hardwareDetailsExpanded;
-    Control SensorsPage()
-    {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Sensors","Live temperatures, utilization, power, clocks, fans and resource activity · "+service.Health));stack.Children.Add(SensorCard());
-        var readings=service.Readings.Where(r=>Matches(r.Device,r.Name,r.Source,r.Unit)).OrderBy(r=>r.Device).ThenBy(r=>r.Name).ToList();
-        stack.Children.Add(Text("Sensor inventory · "+readings.Count+" matches",16,null,true));
-        stack.Children.Add(Table(["Device","Sensor","Value","Unit","Source"],readings.Select(r=>new[]{r.Device,r.Name,r.Value?.ToString("0.##")??"Unavailable",r.Unit,r.Source}),"1.4*,2*,*,70,1.5*"));
-        if(readings.Count==0)stack.Children.Add(Text("No sensors match your search.",13,"#8da1bd"));
-        stack.Children.Add(Text("Live process activity",16,null,true));stack.Children.Add(Table(["Process","PID","CPU (host %)","Working set MiB"],(service.Processes).Where(p=>Matches(p.Name,p.Id.ToString())).Select(p=>new[]{p.Name,p.Id.ToString(),p.Cpu?.ToString("0.0")??"—",p.MemoryMiB.ToString("N0")}),"2*,*,*,*"));return stack;
-    }
-    Control ModelsPage()
-    {
-        var stack=new StackPanel{Spacing=18};stack.Children.Add(Heading("Models","Installed is different from loaded. Generating is confirmed only for observed requests."));stack.Children.Add(ModelsList(false));stack.Children.Add(ModelInsights());
-        var inventory=new StackPanel{Spacing=12};inventory.Children.Add(Text("Installed inventory",15,null,true));inventory.Children.Add(Table(["Model","Host","Quantization","Disk size"],service.Ollama.Installed.Select(m=>new[]{m.Name,ModelHost(m),m.Quantization,J.Size(m.MemoryGiB)}),"2*,*,*,*"));stack.Children.Add(Card(inventory));
-        stack.Children.Add(Text("Recent observed requests",16,null,true));stack.Children.Add(Table(["Model","Input","Output","Decode tok/s","Duration","Outcome"],service.Store.UsageSince(J.Now-86400).Where(u=>u.Source=="Ollama").Take(100).Select(u=>new[]{u.Model,u.Status!="Completed"?"—":J.Count(u.Input),u.Status!="Completed"?"—":J.Count(u.Output),u.DecodeRate?.ToString("0.0")??"—",u.DurationMs.HasValue?$"{u.DurationMs/1000:0.0}s":"—",u.Status}),"2*,*,*,*,*,2*"));return stack;
-    }
-    Control ModelsList(bool inventory)
-    {
-        var stack=new StackPanel{Spacing=12};stack.Children.Add(Text("Loaded models · "+service.Ollama.Models.Count,16,null,true));
-        foreach(var status in service.Ollama.Status)stack.Children.Add(Text(status.Key+"  ·  "+status.Value,11,status.Value=="Connected"?"#59dfae":"#e8b65f"));
-        if(service.Ollama.Models.Count>0)stack.Children.Add(Table(["Model / host","State","Model memory","GPU-reported","Context"],service.Ollama.Models.Select(m=>new[]{m.Name+"\n"+ModelHost(m),m.State,J.Size(m.MemoryGiB),J.Size(m.GpuGiB),m.Context>0?J.Count(m.Context):"—"}),"2.2*,*,*,*,*"));
-        else stack.Children.Add(Text("No models are loaded. Start an Ollama request to see residency here.",13,"#8da1bd"));
-        if(inventory){stack.Children.Add(Text("Installed inventory",15,null,true));stack.Children.Add(Table(["Model","Host","Quantization","Disk size"],service.Ollama.Installed.Select(m=>new[]{m.Name,ModelHost(m),m.Quantization,J.Size(m.MemoryGiB)}),"2*,*,*,*"));}
-        return Card(stack);
-    }
-    Control AgentsPage()
-    {
-        var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Agents","Live app resources and retained session activity"));stack.Children.Add(AgentActivity());
-        stack.Children.Add(AgentResourcePanel(service.AgentApps,service.ProcessSampleTime,service.UnreadableProcesses));
-        long now=J.Now;
-        var spawns=service.Store.AgentSpawns(J.DayStart(DateTimeOffset.FromUnixTimeSeconds(now),TimeZoneInfo.Local),now);
-        stack.Children.Add(Metric("Agent spawns today",spawns.Count==0?"—":spawns.Sum(s=>s.Count).ToString("N0"),
-            spawns.Count==0?"No agent starts reported today. Coverage requires supported agent metadata or a lifecycle exporter.":string.Join(" · ",spawns.Select(s=>$"{s.Source} {s.Count:N0}"))));
-        stack.Children.Add(Text("Session activity & tokens",16,null,true));
-        stack.Children.Add(Text(service.AgentStatus,12,"#8ba0bd"));
-        stack.Children.Add(Message("Metadata only","Input/output/cache tokens are read from supported local session records. Prompts, replies and tool output are not stored. Quiet sessions are not assumed completed."));
-        var sessions=service.Store.Sessions(service.Settings.RetentionDays,Query);stack.Children.Add(Table(["Source / session","Model","State","Input","Output","Last activity"],sessions.Select(s=>new[]{s.Source+"\n"+s.Id[..Math.Min(12,s.Id.Length)],s.Model,J.Now-s.LastSeen>300&&s.State is "Working" or "Recent activity"?"Quiet / unknown":s.State,J.Count(s.Input),J.Count(s.Output),DateTimeOffset.FromUnixTimeSeconds(s.LastSeen).ToLocalTime().ToString("MMM d HH:mm")}),"1.5*,1.7*,1.3*,*,*,1.3*"));
-        if(sessions.Count==0)stack.Children.Add(Text("No sessions match. Search includes all retained sessions; up to 100 results are shown.",13,"#8da1bd"));return stack;
-    }
-    int historyDays=1;
-    Control HistoryPage()
-    {
-        var stack=new StackPanel{Spacing=18};stack.Children.Add(Heading("History",$"7-day detailed readings · {service.Settings.RetentionDays}-day minute summaries and usage records"));var options=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};foreach(int days in new[]{1,7,30,90,180,365}.Where(d=>d<=service.Settings.RetentionDays).Append(service.Settings.RetentionDays).Distinct().Order()){var b=Btn(days+" day"+(days==1?"":"s"));if(days==historyDays)b.Background=Brush.Parse("#443477");b.Click+=(_,_)=>{historyDays=days;RenderBody();};options.Children.Add(b);}stack.Children.Add(options);
-        historyDays=Math.Min(historyDays,service.Settings.RetentionDays);long historyEnd=J.Now,since=historyEnd-historyDays*86400L;var totals=service.Store.Totals(since);stack.Children.Add(Metric("OBSERVED TOKENS",J.Count(totals.Input+totals.Output),$"Input {J.Count(totals.Input)} · output {J.Count(totals.Output)} · cached input {J.Count(totals.Cached)} (subset)"));
-        foreach(var metric in new[]{("gpu.temperature","GPU temperature","°C"),("cpu.load","CPU utilization","%"),("ram.used","System memory used","GiB")}){var points=service.Store.History(metric.Item1,since,historyEnd);var chartStack=new StackPanel{Spacing=8};chartStack.Children.Add(Text(metric.Item2,15,null,true));chartStack.Children.Add(new TrendChart{Height=180,Points=points,Unit=metric.Item3,WindowStart=since,WindowEnd=historyEnd,ExpectedIntervalSeconds=Storage.HistoryBucket(since,historyEnd),MaxValue=metric.Item3=="%"?100:null});chartStack.Children.Add(Text("Source: local collector · sample means; gaps indicate missing observations",10,"#7f93af"));stack.Children.Add(Card(chartStack));}
-        var export=Btn("Export usage CSV");export.Click+=async(_,_)=>{export.IsEnabled=false;try{notice="Saved "+await Task.Run(service.Export);}catch(Exception e){Paths.Log("export",e);notice="Export failed. Check available space and folder access.";}RenderBody();};stack.Children.Add(export);if(notice!="")stack.Children.Add(Text(notice,11,"#59dfae"));return stack;
-    }
-    Control AlertsPage()
-    {
-        var stack=new StackPanel{Spacing=14};stack.Children.Add(Heading("Alerts","Sustained thresholds · no automatic model termination"));stack.Children.Add(HealthCard());var alerts=service.Store.Alerts();foreach(var a in alerts.Where(a=>a.Active))stack.Children.Add(Message(a.Title,a.Detail));if(!alerts.Any(a=>a.Active))stack.Children.Add(Message("No active alerts","Monitoring temperature, memory pressure, storage and backup health."));stack.Children.Add(Text("Recent checks",15,null,true));stack.Children.Add(Table(["Check","State","Changed"],alerts.Select(a=>new[]{a.Title,a.Active?"Attention":"Clear",DateTimeOffset.FromUnixTimeSeconds(a.Time).ToLocalTime().ToString("MMM d HH:mm")}),"2*,*,*"));return stack;
-    }
-    Control SettingsPage()
-    {
-        var service=localService;
-        var stack=new StackPanel{Spacing=15};stack.Children.Add(Heading("Settings","Local collection and central monitoring connections"));stack.Children.Add(FleetSettingsPanel());stack.Children.Add(Text("Standalone settings below apply to this desktop. Central history retention is configured in the hub service; host policies remain explicit.",12,"#8ba0bd"));
-        stack.Children.Add(Card(AssistantSettingsPanel()));
-        if(OperatingSystem.IsWindows()){var sensors=Btn("Connect deep sensors");sensors.Click+=(_,_)=>{service.SensorBridge.Enable();notice=service.SensorBridge.Status;RenderBody();};stack.Children.Add(sensors);settingsSensorStatus=Text(SensorDescription(),12,"#8ea3c0");stack.Children.Add(settingsSensorStatus);}
-        var sensorStartup=new CheckBox{Content="Ask for deep-sensor permission when AIPULSE starts",IsChecked=service.Settings.RequestSensorsAtLaunch,IsVisible=OperatingSystem.IsWindows()};stack.Children.Add(sensorStartup);
-        stack.Children.Add(Text("The isolated helper requires Windows administrator approval each session. GPU VR SoC and GPU core temperature are different measurements.",11,"#8ea3c0"));
-        var local=new TextBox{Text=service.Settings.OllamaUrl,PlaceholderText="http://127.0.0.1:11434"};stack.Children.Add(Text("Local Ollama server",13,null,true));stack.Children.Add(local);
-        var remote=new TextBox{Text=string.Join('\n',service.Settings.RemoteEndpoints.Select(e=>e.Name+" | "+e.Url)),AcceptsReturn=true,MinHeight=74,PlaceholderText="ai-node-01 | http://server:11434"};stack.Children.Add(Text("Remote Ollama / future k3s endpoints · one Name | URL per line",13,null,true));stack.Children.Add(remote);
-        stack.Children.Add(Text("Remote hardware and Kubernetes pod metrics require a future cluster collector. These endpoints currently discover remote Ollama models.",11,"#8ea3c0"));
-        var agents=new CheckBox{Content="Read local Codex / Claude Code usage metadata",IsChecked=service.Settings.ReadAgentUsage};stack.Children.Add(agents);
-        var start=new CheckBox{Content="Launch AI Pulse at sign-in",IsChecked=service.Settings.StartAtLogin};stack.Children.Add(start);
-        var retention=new NumericUpDown{Value=service.Settings.RetentionDays,Minimum=7,Maximum=365,Increment=1};stack.Children.Add(Text("History retention · 7–365 days (shipping default: 90)",13,null,true));stack.Children.Add(retention);
-        stack.Children.Add(Text("Detailed samples stay for 7 days. Longer retention keeps minute summaries, usage and sessions. Increasing this cannot recover deleted hardware history; available local agent records are re-imported. Reducing it removes older records at the next hourly cleanup.",11,"#8ea3c0"));
-        var dailyBackups=new NumericUpDown{Value=service.Settings.BackupPolicy.DailyCopies,Minimum=1,Maximum=14,Increment=1};stack.Children.Add(Text("Daily backup restore points · 1–14",13,null,true));stack.Children.Add(dailyBackups);
-        var weeklyBackups=new NumericUpDown{Value=service.Settings.BackupPolicy.WeeklyCopies,Minimum=0,Maximum=12,Increment=1};stack.Children.Add(Text("Weekly backup restore points · 0–12",13,null,true));stack.Children.Add(weeklyBackups);
-        var backupBudget=new NumericUpDown{Value=service.Settings.BackupPolicy.BudgetMiB,Minimum=64,Maximum=8192,Increment=64};stack.Children.Add(Text("Backup storage budget · MiB",13,null,true));stack.Children.Add(backupBudget);
-        Avalonia.Automation.AutomationProperties.SetName(dailyBackups,"Daily backup restore points");Avalonia.Automation.AutomationProperties.SetName(weeklyBackups,"Weekly backup restore points");Avalonia.Automation.AutomationProperties.SetName(backupBudget,"Backup storage budget in MiB");
-        stack.Children.Add(Text("Backups are compacted and compressed. The storage budget can reduce the number of older restore points; the latest verified backup is always kept even if it exceeds the budget. This does not change your monitoring-history retention.",11,"#8ea3c0"));
-        var temp=new NumericUpDown{Value=(decimal)service.Settings.TemperatureWarning,Minimum=50,Maximum=120,Increment=1};stack.Children.Add(Text("Sustained temperature warning (°C) · applies after 30 seconds",13));stack.Children.Add(temp);
-        var save=Btn("Save settings");save.Click+=(_,_)=>
-        {
-            try{Ollama.Validate(local.Text??"");var endpoints=new List<Endpoint>();foreach(var line in (remote.Text??"").Split('\n',StringSplitOptions.RemoveEmptyEntries)){var parts=line.Split('|',2);if(parts.Length!=2||string.IsNullOrWhiteSpace(parts[0]))throw new Exception("Use Name | URL for each remote endpoint.");var name=parts[0].Trim();if(name=="This PC"||endpoints.Any(e=>e.Name==name))throw new Exception("Host names must be unique.");Ollama.Validate(parts[1].Trim());endpoints.Add(new(name,parts[1].Trim()));}
-            service.Settings.OllamaUrl=local.Text!.Trim();service.Settings.RemoteEndpoints=endpoints;service.Settings.ReadAgentUsage=agents.IsChecked==true;service.Settings.TemperatureWarning=(double)(temp.Value??90);service.Settings.StartAtLogin=start.IsChecked==true;service.Settings.RequestSensorsAtLaunch=sensorStartup.IsChecked==true;service.Agents.SetRetention((int)(retention.Value??90));service.Settings.RetentionDays=service.Store.RetentionDays;service.Settings.BackupDailyCopies=(int)(dailyBackups.Value??3);service.Settings.BackupWeeklyCopies=(int)(weeklyBackups.Value??4);service.Settings.BackupBudgetMiB=(int)(backupBudget.Value??512);Startup.Configure(service.Settings.StartAtLogin);Paths.Save(localService.Settings);notice="Settings saved.";}catch(Exception e){notice=e.Message;}RenderBody();
-        };stack.Children.Add(save);
-        stack.Children.Add(Message("Ollama observation gateway",service.GatewayStatus+"\nFor exact request tokens, point an Ollama-compatible client to http://127.0.0.1:"+service.Settings.GatewayPort+". Calls directly to Ollama are not counted."));
-        stack.Children.Add(Message("Usage collection framework",$"OTLP/HTTP: http://127.0.0.1:{service.Settings.TelemetryPort} · {service.Telemetry.Status}\nAccepts native Claude Code events, GenAI traces and server counters. Setup profiles are included in docs/telemetry. No prompts, answers, tool arguments or credentials are retained.\nPersistent default-port Ollama capture requires the optional relay setup and one Ollama restart. Source status and last observations appear on Token."));
-        stack.Children.Add(Text("History & backup",17,null,true));stack.Children.Add(Text("Data folder: "+Paths.Root+"\nBackup folder: "+Paths.Backups(service.Settings)+"\nLast verified backup: "+(service.Settings.LastBackup??"Pending")+$"\nCompressed snapshots: {service.Settings.BackupPolicy.DailyCopies} daily + {service.Settings.BackupPolicy.WeeklyCopies} weekly, within {service.Settings.BackupPolicy.BudgetMiB} MiB where possible. Local copies do not protect against drive failure.",12,"#a1b2c9"));
-        var actions=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};var backup=Btn("Back up now");backup.Click+=async(_,_)=>{backup.IsEnabled=false;notice=await service.BackupNow() is string f?"Verified backup: "+Path.GetFileName(f):"Backup failed. Check available space.";RenderBody();};actions.Children.Add(backup);var folder=Btn("Open data folder");folder.Click+=(_,_)=>OpenFolder(Paths.Root);actions.Children.Add(folder);stack.Children.Add(actions);
-        var optimize=Btn("Optimize existing backups");optimize.Click+=async(_,_)=>{optimize.IsEnabled=false;try{var result=await Task.Run(()=>service.Store.OptimizeStoredBackups(Paths.Backups(service.Settings),service.Settings.BackupPolicy));notice=$"Backups verified and compressed: {result.Before/1048576.0:0.0} → {result.After/1048576.0:0.0} MiB. Cloud-sync quota may take time to update.";}catch(Exception e){Paths.Log("backup-optimize",e);notice="Backup optimization did not finish. Original restore points are kept until their compressed copies are verified.";}RenderBody();};stack.Children.Add(optimize);
-        var restore=Btn("Restore a verified backup…");restore.Click+=async(_,_)=>
-        {
-            var files=await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions{Title="Choose an AI Pulse backup",AllowMultiple=false,FileTypeFilter=[new FilePickerFileType("AI Pulse backup"){Patterns=["*.db.gz","*.db"]}]});
-            if(files.Count==0)return;string? file=files[0].TryGetLocalPath();if(file==null)return;
-            try
-            {
-                await Task.Run(()=>Storage.VerifyBackup(file));
-                var dialog=new Window{Title="Restore AI Pulse history",Width=460,Height=210,CanResize=false,WindowStartupLocation=WindowStartupLocation.CenterOwner,Background=Canvas};
-                var contents=new StackPanel{Margin=new Thickness(22),Spacing=18};contents.Children.Add(Text("Restore this snapshot?",18,null,true));contents.Children.Add(Text("AI Pulse will restart. Your current database will be preserved as a rollback copy.",13));var buttons=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};var yes=Btn("Restore and restart");yes.Click+=(_,_)=>dialog.Close(true);var no=Btn("Cancel");no.Click+=(_,_)=>dialog.Close(false);buttons.Children.Add(yes);buttons.Children.Add(no);contents.Children.Add(buttons);dialog.Content=contents;
-                if(await dialog.ShowDialog<bool>(this))
-                {
-                    var info=new ProcessStartInfo(Environment.ProcessPath!){UseShellExecute=true,ArgumentList={"--restore",file,"--data-dir",Paths.Root,"--wait-for-exit",Environment.ProcessId.ToString(),"--launch-after"}};Process.Start(info);
-                    if(Application.Current is App app){app.Quitting=true;(app.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.Shutdown();}
-                }
-            }catch(Exception e){notice="Restore was not started: "+e.Message;RenderBody();}
-        };stack.Children.Add(restore);
-        var quit=Btn("Quit AI Pulse · Ctrl+Q");quit.Click+=(_,_)=>Quit();stack.Children.Add(quit);
-        if(notice!="")stack.Children.Add(Message("Status",notice));stack.Children.Add(Text("AI Pulse "+typeof(MainWindow).Assembly.GetName().Version?.ToString(3)+" · local-first · Avalonia / SQLite / LibreHardwareMonitor\nHardware coverage depends on your device and operating system.",11,"#7186a2"));return stack;
-    }
     public void Capture()
     {
         try{var file=Path.Combine(Paths.Root,localService.Settings.Compact?"compact-live.png":"dashboard-live.png");var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96));bitmap.Render(this);bitmap.Save(file);}catch(Exception e){Paths.Log("capture",e);}
-    }
-    static void OpenFolder(string folder){try{Process.Start(new ProcessStartInfo(OperatingSystem.IsWindows()?"explorer.exe":"xdg-open"){ArgumentList={folder},UseShellExecute=true});}catch{}}
-    TextBlock Text(string text,double size=13,string? color=null,bool bold=false)=>new(){Text=text,FontSize=size,Foreground=Ink(color),FontWeight=bold?FontWeight.SemiBold:FontWeight.Normal,TextWrapping=TextWrapping.Wrap,VerticalAlignment=VerticalAlignment.Center};
-    Button Btn(string label)=>new(){Content=label,Cursor=new Cursor(StandardCursorType.Hand),Background=Paint("#1c283b","#e4edf9")};
-    Control Heading(string title,string sub){var s=new StackPanel{Spacing=7};s.Children.Add(Text(title,27,"#f0f4ff",true));s.Children.Add(Text(sub,12,"#8ba0bd"));return s;}
-    Border Card(Control child)=>new(){Child=child,Padding=new Thickness(18),Background=Panel,CornerRadius=new CornerRadius(10),BorderBrush=Line,BorderThickness=new Thickness(1)};
-    Border Metric(string label,string value,string caption,string? color=null){var s=new StackPanel{Spacing=10};s.Children.Add(Text(label,15,"#e1e9f7",true));s.Children.Add(Text(value,29,color??"#e9f0ff",true));s.Children.Add(Text(caption,10,"#7f93af"));return Card(s);}
-    Control Pair(string label,string value){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto")};grid.Children.Add(Text(label,12,"#9eb1ca"));var v=Text(value,16,"#72d4e8",true);Grid.SetColumn(v,1);grid.Children.Add(v);return grid;}
-    Control Message(string title,string detail){var s=new StackPanel{Spacing=6};s.Children.Add(Text(title,13,"#bba3ff",true));s.Children.Add(Text(detail,12,"#9eb1ca"));return Card(s);}
-    Control Table(string[] headers,IEnumerable<string[]> data,string columns)
-    {
-        var stack=new StackPanel();int index=0;
-        void Row(string[] values,bool header){var grid=new Grid{ColumnDefinitions=new ColumnDefinitions(columns),Margin=new Thickness(12,header?9:12)};for(int i=0;i<values.Length;i++){var text=Text(values[i],header?10:12,header?"#8298b7":"#dbe5f4",header);text.Margin=new Thickness(0,0,10,0);Grid.SetColumn(text,i);grid.Children.Add(text);}stack.Children.Add(new Border{Child=grid,Background=header?Paint("#182438","#e5edf9"):index++%2==0?Panel:Paint("#101927","#f6f8fc"),BorderBrush=Line,BorderThickness=new Thickness(0,0,0,1)});}
-        Row(headers,true);foreach(var row in data)Row(row,false);return new Border{Child=stack,CornerRadius=new CornerRadius(7),ClipToBounds=true};
     }
 }

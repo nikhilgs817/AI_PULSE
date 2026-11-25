@@ -5,7 +5,7 @@ namespace AiPulse;
 
 public static partial class SelfTests
 {
-    static void RunBackupChecks(string root,Action<bool,string> check)
+    internal static void RunBackupChecks(string root,Action<bool,string> check)
     {
         string folder=Path.Combine(root,"backup-tests");Directory.CreateDirectory(folder);string source=Path.Combine(folder,"source.db");
         using(var db=new Storage(source))db.PutUsage(new("backup-fixture","Codex","test","s",J.Now,123,45,100,0,7,null,null,"Reported"));
