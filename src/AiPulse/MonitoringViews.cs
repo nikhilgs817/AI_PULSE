@@ -249,7 +249,7 @@ public sealed partial class MainWindow
     int timelineHours = 1;
     string labName = "";
     LabSessions? labSessions;
-    LabSessions Labs => labSessions ??= new(Paths.Root);
+    LabSessions Labs => labSessions ??= LabSessions.Shared;
 
     Control AgentActivity()
     {

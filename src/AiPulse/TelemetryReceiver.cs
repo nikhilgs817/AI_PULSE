@@ -77,7 +77,7 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
     }
     static readonly HashSet<string> Allowed=new(StringComparer.Ordinal)
     {
-        "event.name","event.sequence","event.timestamp","model","input_tokens","output_tokens","cache_read_tokens","cache_creation_tokens","duration_ms","request_id","client_request_id","session.id","session_id",
+        "event.name","event.sequence","event.timestamp","model","input_tokens","output_tokens","cache_read_tokens","cache_creation_tokens","duration_ms","cost_usd","prompt.id","request_id","client_request_id","session.id","session_id",
         "gen_ai.provider.name","gen_ai.system","gen_ai.request.model","gen_ai.response.model","gen_ai.response.id","gen_ai.usage.input_tokens","gen_ai.usage.output_tokens",
         "gen_ai.usage.cache_read.input_tokens","gen_ai.usage.cache_write.input_tokens","gen_ai.usage.cache_creation.input_tokens","gen_ai.usage.reasoning.output_tokens",
         "service.name","service.instance.id","k8s.pod.uid","k8s.namespace.name","k8s.cluster.name","model_name","model.name","gen_ai.token.type","type","instance","job","engine","engine_id","source",
@@ -139,6 +139,7 @@ public sealed class TelemetryReceiver(Storage db,int port) : IAsyncDisposable
         if(identity==""){db.SourceState(source,"Incomplete","Usage had no stable request or trace identity; not counted to avoid replay duplicates.");return;}
         var u=new Usage("otlp:"+J.Hash(identity),source,model,session,time,normalized,output??0,cache,write,N(a,"gen_ai.usage.reasoning.output_tokens")??0,duration??N(a,"duration_ms"),null,input!=null&&output!=null?"Reported":"Partial usage");
         if(claude)db.PutClaudeUsage(u,request);else db.PutUsage(u);
+        if(claude&&double.TryParse(S(a,"cost_usd"),NumberStyles.Float,CultureInfo.InvariantCulture,out double cost))db.RecordClaudeCost(new(request!=""?"claude-request:"+J.Hash(request+"\n"+model):u.Id,time,model,session,S(a,"prompt.id"),cost));
         if(session!="")db.Session(session,source,model,"Recent activity",time);
         db.SourceState(source,"Receiving","Request metadata received through OTLP. Content is discarded.",time);
     }

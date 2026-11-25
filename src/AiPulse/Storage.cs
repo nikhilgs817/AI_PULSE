@@ -39,6 +39,7 @@ public sealed partial class Storage : IDisposable
         InitializeReplication();
         InitializeAccounting();
         InitializeAgentSpawns();
+        InitializeClaudeCosts();
         InitializeRequestTraces();
         }
         catch{db.Dispose();throw;}
@@ -181,7 +182,7 @@ public sealed partial class Storage : IDisposable
     }
     public void Retain(long now)
     {
-        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM agent_spawns WHERE time<@p0",cutoff);Execute("DELETE FROM request_traces WHERE end_ms<@p0",cutoff*1000);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
+        lock(gate){long cutoff=now-RetentionDays*86400L;Execute("DELETE FROM metrics WHERE time<@p0",now-7*86400);Execute("DELETE FROM minute_metrics WHERE time<@p0",cutoff);Execute("DELETE FROM usage WHERE time<@p0",cutoff);Execute("DELETE FROM claude_costs WHERE time<@p0",cutoff);Execute("DELETE FROM token_intervals WHERE time<@p0",cutoff);Execute("DELETE FROM token_counter_state WHERE time<@p0",cutoff*1_000_000_000);Execute("DELETE FROM sessions WHERE last_seen<@p0",cutoff);Execute("DELETE FROM agent_spawns WHERE time<@p0",cutoff);Execute("DELETE FROM request_traces WHERE end_ms<@p0",cutoff*1000);Execute("DELETE FROM alerts WHERE time<@p0 AND active=0",cutoff);Execute("PRAGMA wal_checkpoint(PASSIVE)");}
     }
     public void Dispose(){lock(gate)db.Dispose();}
 }

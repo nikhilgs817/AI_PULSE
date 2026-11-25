@@ -88,6 +88,14 @@ public sealed partial class MainWindow
         stack.Children.Add(Text("Sensor inventory · "+readings.Count+" matches",16,null,true));
         stack.Children.Add(Table(["Device","Sensor","Value","Unit","Source"],readings.Select(r=>new[]{r.Device,r.Name,r.Value?.ToString("0.##")??"Unavailable",r.Unit,r.Source}),"1.4*,2*,*,70,1.5*"));
         if(readings.Count==0)stack.Children.Add(Text("No sensors match your search.",13,"#8da1bd"));
+        if(!service.IsRemote&&(service.GpuProcesses.Count>0||service.GpuThrottle!=null))
+        {
+            var gpu=new StackPanel{Spacing=10};gpu.Children.Add(Text("NVIDIA GPU processes and clocks",15,null,true));
+            if(service.GpuThrottle is {} throttle)gpu.Children.Add(Text(throttle.Active?"Clocks held down: "+throttle.Reasons:"Clocks are not throttled",13,throttle.Active?"#e8b65f":"#59dfae",true));
+            if(service.GpuProcesses.Count>0)gpu.Children.Add(Table(["Process","PID","GPU memory"],service.GpuProcesses.Select(p=>new[]{p.Name,p.Pid.ToString(),p.MemoryMiB is double m?$"{m:N0} MiB":"Not reported by the driver"}),"2*,*,*"));
+            else gpu.Children.Add(Text("No process is using the GPU for compute right now.",12,"#8da1bd"));
+            stack.Children.Add(Card(gpu));
+        }
         stack.Children.Add(Text("Live process activity",16,null,true));stack.Children.Add(Table(["Process","PID","CPU (host %)","Working set MiB"],(service.Processes).Where(p=>Matches(p.Name,p.Id.ToString())).Select(p=>new[]{p.Name,p.Id.ToString(),p.Cpu?.ToString("0.0")??"—",p.MemoryMiB.ToString("N0")}),"2*,*,*,*"));return stack;
     }
 }

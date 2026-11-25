@@ -29,7 +29,7 @@ public static class UsageFrameworkTests
         long now=J.Now;ulong nano=(ulong)now*1_000_000_000;
         await using var receiver=new TelemetryReceiver(db,Port());
         var log=new LogRecord{TimeUnixNano=nano,EventName="claude_code.api_request",Body=new(){StringValue="SECRET_FRAMEWORK_PROMPT"}};
-        log.Attributes.AddRange(new[]{Attr("request_id","request-one"),Attr("model","claude-test"),Attr("session.id","session-one"),Attr("input_tokens","10"),Attr("output_tokens","7"),Attr("cache_read_tokens","100"),Attr("cache_creation_tokens","20"),Attr("prompt","SECRET_FRAMEWORK_PROMPT")});
+        log.Attributes.AddRange(new[]{Attr("request_id","request-one"),Attr("model","claude-test"),Attr("cost_usd","0.0125"),Attr("prompt.id","prompt-one"),Attr("session.id","session-one"),Attr("input_tokens","10"),Attr("output_tokens","7"),Attr("cache_read_tokens","100"),Attr("cache_creation_tokens","20"),Attr("prompt","SECRET_FRAMEWORK_PROMPT")});
         var logs=new ExportLogsServiceRequest();var resource=new ResourceLogs();var scope=new ScopeLogs();scope.LogRecords.Add(log);resource.ScopeLogs.Add(scope);logs.ResourceLogs.Add(resource);
         receiver.Process(logs);receiver.Process(logs);
         string fixture="""{"type":"assistant","sessionId":"session-one","requestId":"request-one","message":{"id":"message-one","model":"claude-test","usage":{"input_tokens":10,"output_tokens":7,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}} """;
@@ -37,6 +37,7 @@ public static class UsageFrameworkTests
         var span=new Span{Name="claude_code.llm_request",StartTimeUnixNano=nano-100_000_000,EndTimeUnixNano=nano,TraceId=ByteString.CopyFrom(new byte[16]),SpanId=ByteString.CopyFrom(new byte[8])};span.Attributes.AddRange(log.Attributes);
         var traces=new ExportTraceServiceRequest();var rs=new ResourceSpans();var ss=new ScopeSpans();ss.Spans.Add(span);rs.ScopeSpans.Add(ss);traces.ResourceSpans.Add(rs);receiver.Process(traces);
         var totals=db.TokenBreakdown(now-1);check(totals.Single().Input==130&&totals.Single().Output==7&&totals.Single().Records==1,"Claude native logs, spans and session records reconcile one request; cache subsets counted once");
+        check(Math.Abs(db.ClaudeCostSince(now-1)-0.0125)<1e-9&&db.ClaudeCostBy("prompt",now-1) is [{Key:"prompt-one",Requests:1}],"Claude Code reported cost is stored once per request and grouped by prompt");
         var counterId="pod-one:input";
         check(!db.ObserveCounter(counterId,"vLLM counters","pod-one","model","input",now-100,now-20,1000,true),"First cumulative server sample establishes baseline rather than charging lifetime tokens");
         db.ObserveCounter(counterId,"vLLM counters","pod-one","model","input",now-100,now-10,1200,true);
