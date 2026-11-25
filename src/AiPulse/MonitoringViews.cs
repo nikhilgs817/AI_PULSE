@@ -323,7 +323,7 @@ public sealed partial class MainWindow
                 stop.IsEnabled = false;
                 var lab = await Task.Run(() => Labs.Stop(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), WriteLabReport));
                 notice = lab?.Report is { } path ? "Lab report saved: " + path : "Lab stopped; the report could not be written (see logs/app.log).";
-                if (lab?.Report is { } file) OpenFile(file);
+                if (lab?.Report is { } file) { await AppendAnalysis(file, "lab"); OpenFile(file); }
                 RenderBody();
             };
             row.Children.Add(Text($"● Recording “{current.Name}” since {DateTimeOffset.FromUnixTimeMilliseconds(current.StartMs).ToLocalTime():HH:mm} ({TimeSpan.FromMilliseconds(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - current.StartMs):h\\:mm\\:ss})", 13, "#ff6b7a", true));
@@ -402,19 +402,21 @@ public sealed partial class MainWindow
         return WriteExport($"compare-{Slug(after.Name)}-vs-{Slug(before.Name)}-{DateTimeOffset.FromUnixTimeMilliseconds(after.StartMs).ToLocalTime():yyyyMMdd-HHmm}.md", markdown);
     }
 
-    // With the local assistant enabled, a local model adds a plain-language reading of the comparison.
-    async Task AppendComparisonExplanation(string path)
+    Task AppendComparisonExplanation(string path) => AppendAnalysis(path, "comparison");
+
+    // With the local assistant enabled, a local model adds a plain-language reading of a report AI Pulse wrote.
+    async Task AppendAnalysis(string path, string kind)
     {
         var options = localService.Settings.Assistant;
         if (!options.Enabled) return;
         try
         {
             using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-            if (await assistant.ExplainComparison(options, await File.ReadAllTextAsync(path), cancel.Token) is { Length: > 0 } text)
-                await File.AppendAllTextAsync(path, Environment.NewLine + "## Explanation (local AI, " + options.Model + ")" + Environment.NewLine + Environment.NewLine + text.Trim() + Environment.NewLine +
+            if (await assistant.Explain(options, kind, await File.ReadAllTextAsync(path), cancel.Token) is { Length: > 0 } text)
+                await File.AppendAllTextAsync(path, Environment.NewLine + "## Analysis (local AI, " + options.Model + ")" + Environment.NewLine + Environment.NewLine + text.Trim() + Environment.NewLine +
                     Environment.NewLine + "Model-written; check it against the table above." + Environment.NewLine);
         }
-        catch (Exception e) { Paths.Log("lab-compare-explain", e); notice += " (local AI explanation unavailable)"; }
+        catch (Exception e) { Paths.Log("lab-analysis", e); notice += " (local AI analysis unavailable)"; }
     }
 
     static string Slug(string name)
