@@ -56,6 +56,11 @@ The SignPath Foundation application has been submitted; acceptance and signed do
 - **Inspect the Token page.** Separate on-prem Ollama and tool usage, with exact counts by source/model, input/output/cache/reasoning splits, selectable history and CSV export. Incomplete observations and coverage gaps are explicit.
 - **Review history.** Seven days of detailed readings and configurable 7–365-day summaries, usage records and CSV exports. The shipping default remains 90 days.
 - **Protect the data.** Verified, compressed SQLite snapshots with 3 daily + 4 weekly restore points within a 512 MiB default archive budget, configurable separately from monitoring-history retention. The newest backup is retained even if it alone exceeds the budget. Restore supports both compressed and legacy snapshots and preserves the previous database.
+- **Run labs and compare them.** Record a lab before and after a change, get a report with tokens, cache hits, latency, errors, VRAM swaps, GPU heat and cost, plus findings that say what to try next, then compare it with the previous run. Scripts can start and stop labs through a local API.
+- **Bench and test your models.** Sweep an Ollama model from 1 to 8 concurrent requests to find where throughput stops scaling, and run your own JSONL eval suite with before/after results.
+- **Get an AI read of your results.** With the optional local model on, lab reports, comparisons, evals and sweeps end with a short plain-language analysis, and Ask Pulse answers questions about your own readings.
+- **Track Claude and ChatGPT limits and cost.** Claude limits come from Claude Code's own status line (one-click Connect), cost from its telemetry, and daily token and cost budgets raise alerts.
+- **Find what fills your disk and your Drive.** Folder-size trees for local drives and Google Drive, with AI caches labelled, and delete to the Recycle Bin or Drive trash after you confirm.
 - **Connect remote Ollama servers.** Add named endpoints, including an Ollama service you later host on k3s. Full Kubernetes node/pod monitoring is a [planned extension](docs/K3S.md).
 
 ## Central monitoring
@@ -89,6 +94,9 @@ See the [user guide](docs/USER-GUIDE.md) and [metric definitions](docs/METRICS.m
 
 ## Documentation
 
+- [Everything the app does](docs/FEATURES.md)
+- [Configuration: Claude, budgets, lab API, evals, Google Drive](docs/CONFIGURATION.md)
+- [Known limitations](docs/LIMITATIONS.md)
 - [Installation, upgrades and removal](docs/INSTALLATION.md)
 - [User guide with screenshots](docs/USER-GUIDE.md)
 - [Metrics and coverage](docs/METRICS.md)
