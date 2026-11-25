@@ -41,8 +41,8 @@ public sealed partial class MainWindow
         {
             var claude = ClaudeStatusLineSetup.Inspect(ClaudeStatusLineSetup.SettingsPath());
             // Configured is not the same as working: judge by when the status line last wrote a reading.
-            var cache = new FileInfo(ClaudeQuotaStatusLine.CachePath());
-            long written = cache.Exists ? new DateTimeOffset(cache.LastWriteTimeUtc).ToUnixTimeSeconds() : 0;
+            // The heartbeat is written only by the status line itself, not by the fallback endpoint.
+            long written = ClaudeQuotaStatusLine.LastSeen()?.ToUnixTimeSeconds() ?? 0;
             bool fresh = written > now - 6 * 3600;
             rows.Add(("Claude status line", claude switch { ClaudeStatusLineSetup.State.Connected => fresh ? Health.Receiving : Health.Stale, ClaudeStatusLineSetup.State.Unreadable => Health.Broken, _ => Health.Stale },
                 claude switch { ClaudeStatusLineSetup.State.Connected => fresh ? "Connected" : "Configured, no recent reading", ClaudeStatusLineSetup.State.OtherStatusLine => "Your own status line", ClaudeStatusLineSetup.State.Unreadable => "Settings unreadable", _ => "Not connected" },
@@ -50,7 +50,7 @@ public sealed partial class MainWindow
                 {
                     ClaudeStatusLineSetup.State.Connected when fresh => "Claude Code passes 5-hour and weekly usage to AI Pulse after each reply. No network call or sign-in reuse.",
                     ClaudeStatusLineSetup.State.Connected => (written == 0 ? "No reading has ever arrived. " : "No reading in the last 6 hours. ") + "Status lines run only in terminal Claude Code sessions (not the desktop app or IDE panels); use Claude Code in a terminal once to refresh, otherwise the rate-limited usage endpoint is the fallback.",
-                    ClaudeStatusLineSetup.State.OtherStatusLine => $"Add {ClaudeStatusLineSetup.Flag} to your status-line script's command to share Claude usage without the rate-limited usage endpoint.",
+                    ClaudeStatusLineSetup.State.OtherStatusLine => "Connect to share Claude limits with AI Pulse. Your own status line keeps running and showing exactly what it shows now.",
                     ClaudeStatusLineSetup.State.Unreadable => "~/.claude/settings.json could not be read as JSON.",
                     _ => "Connect it to read Claude limits reliably instead of the undocumented, rate-limited usage endpoint.",
                 }, written));
@@ -82,15 +82,18 @@ public sealed partial class MainWindow
     Button? RepairButton(string source, Health health)
     {
         if (service.IsRemote) return null;
-        if (source == "Claude status line" && ClaudeStatusLineSetup.Inspect(ClaudeStatusLineSetup.SettingsPath()) == ClaudeStatusLineSetup.State.NotConfigured)
+        if (source == "Claude status line" && ClaudeStatusLineSetup.Inspect(ClaudeStatusLineSetup.SettingsPath()) is ClaudeStatusLineSetup.State.NotConfigured or ClaudeStatusLineSetup.State.OtherStatusLine)
         {
+            bool wrap = ClaudeStatusLineSetup.Inspect(ClaudeStatusLineSetup.SettingsPath()) == ClaudeStatusLineSetup.State.OtherStatusLine;
             var connect = Btn("Connect");
-            ToolTip.SetTip(connect, "Adds a statusLine entry to ~/.claude/settings.json (a backup is kept). Takes effect in new Claude Code sessions.");
+            ToolTip.SetTip(connect, wrap
+                ? "Routes your status line through AI Pulse in ~/.claude/settings.json (a backup is kept). Your command still runs and prints as before. Takes effect in new Claude Code sessions."
+                : "Adds a statusLine entry to ~/.claude/settings.json (a backup is kept). Takes effect in new Claude Code sessions.");
             connect.Click += (_, _) =>
             {
                 try
                 {
-                    var state = ClaudeStatusLineSetup.Connect(ClaudeStatusLineSetup.SettingsPath(), Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "AiPulse.exe"));
+                    var state = ClaudeStatusLineSetup.Connect(ClaudeStatusLineSetup.SettingsPath(), Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "AiPulse.exe"), wrapExisting: wrap);
                     repairNotice = state == ClaudeStatusLineSetup.State.Connected ? "Connected the Claude status line. Start a new Claude Code session; readings appear after its first reply." : "Left your existing status line unchanged.";
                 }
                 catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { Paths.Log("statusline-connect", e); repairNotice = "Could not update ~/.claude/settings.json."; }

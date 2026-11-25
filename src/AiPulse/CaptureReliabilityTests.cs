@@ -93,6 +93,22 @@ internal static class CaptureReliabilityTests
             "Connecting the Claude status line keeps every other setting and leaves a backup");
         File.WriteAllText(settings, """{"statusLine":{"type":"command","command":"my-own-line.sh"}}""");
         check(ClaudeStatusLineSetup.Connect(settings, @"C:\x\AiPulse.exe") == ClaudeStatusLineSetup.State.OtherStatusLine &&
-              File.ReadAllText(settings).Contains("my-own-line.sh"), "An existing user status line is never replaced");
+              File.ReadAllText(settings).Contains("my-own-line.sh"), "An existing user status line is never replaced without asking");
+        string chainFile = Path.Combine(root, "claude-statusline-chain.json");
+        File.WriteAllText(settings, """{"statusLine":{"type":"command","command":"my-own-line.sh --flag","padding":2}}""");
+        var wrapped = ClaudeStatusLineSetup.Connect(settings, @"C:\x\AiPulse.exe", wrapExisting: true, chainPath: chainFile);
+        var wrappedLine = JsonNode.Parse(File.ReadAllText(settings))!["statusLine"]!;
+        check(wrapped == ClaudeStatusLineSetup.State.Connected &&
+              wrappedLine["command"]!.GetValue<string>() == "\"C:/x/AiPulse.exe\" --claude-quota-statusline --chain" &&
+              wrappedLine["padding"]!.GetValue<int>() == 2 &&
+              ClaudeStatusLineSetup.ReadChained(chainFile) == "my-own-line.sh --flag",
+            "Connecting beside a user's own status line keeps their command and settings and chains to it");
+        ClaudeStatusLineSetup.Disconnect(settings, chainFile);
+        check(JsonNode.Parse(File.ReadAllText(settings))!["statusLine"]!["command"]!.GetValue<string>() == "my-own-line.sh --flag" &&
+              !File.Exists(chainFile), "Disconnecting restores the user's own status line exactly");
+        if (!OperatingSystem.IsWindows())
+            check(ClaudeQuotaStatusLine.RunChained("cat; printf ' ok'", """{"x":1}""") == """{"x":1} ok""" &&
+                  ClaudeQuotaStatusLine.RunChained("sleep 5", "{}", TimeSpan.FromMilliseconds(300)) is null,
+                "A chained status line receives the same input, prints its own output and is stopped if it hangs");
     }
 }

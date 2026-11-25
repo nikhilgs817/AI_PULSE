@@ -136,10 +136,16 @@ public sealed partial class MainWindow
                     : fromSessions?.ObservedAt == null ? "No Codex usage reading yet. Readings appear after your next Codex turn."
                     : liveStatus.StartsWith("Live Codex account") ? "From Codex session logs."
                     : liveStatus;
+                // Claude Code's status line is the primary source: it writes provider-reported windows after
+                // every reply with no network call. The rate-limited usage endpoint is asked only when those
+                // readings are missing or older than 15 minutes, and the reader throttles itself further
+                // (15-minute interval, back-off, Retry-After). A skipped or failed call keeps earlier readings.
                 var cached = ReadClaudeQuota(now);
-                // The reader throttles itself (normal interval, back-off, Retry-After), so asking every
-                // minute is safe. A skipped or failed call keeps the previous and cached readings.
-                var remote = await ClaudeQuotaReader.Read(now, manual);
+                ProviderQuota? remote = null;
+                if (ClaudeQuotaReader.ShouldCallEndpoint(ProviderQuota.Merge(now, cached, claudeQuota), now))
+                    remote = await ClaudeQuotaReader.Read(now, manual,
+                        allowRenewal: ClaudeQuotaReader.RenewalAllowed(ClaudeQuotaStatusLine.LastSeen(), now));
+                else ClaudeQuotaReader.UsingStatusLine();
                 if (remote is not null)
                 {
                     try { ClaudeQuotaStatusLine.Store(remote); }
