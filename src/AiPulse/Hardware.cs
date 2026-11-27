@@ -8,6 +8,9 @@ namespace AiPulse;
 public sealed class Hardware : IDisposable
 {
     IWindowsSensors? computer;
+    readonly bool useDriverMetrics;
+    AmdGpuTemperature? amdGpuTemperature;
+    string? adlxDevice;
     public string Status {get;private set;}="Starting collectors";
     public string CpuName {get;private set;}="CPU";
     public string GpuName {get;private set;}="GPU";
@@ -24,8 +27,9 @@ public sealed class Hardware : IDisposable
     readonly Dictionary<int,(long Started,double Seconds)> processTimes=[];
     List<PerformanceCounter> gpuCounters=[];
     DateTime nextGpuRefresh=DateTime.MinValue;
-    public Hardware()
+    public Hardware(bool useDriverMetrics=true)
     {
+        this.useDriverMetrics=useDriverMetrics;
         if(OperatingSystem.IsWindows())
         {
             try {computer=WindowsSensorFactory.Create();Status="Windows + LibreHardwareMonitor";}
@@ -94,7 +98,20 @@ public sealed class Hardware : IDisposable
     {
         Reading? Find(string device,string unit,params string[] names)=>names.Select(n=>rows.FirstOrDefault(r=>r.Device==device&&r.Unit==unit&&r.Value.HasValue&&r.Name.Contains(n,StringComparison.OrdinalIgnoreCase))).FirstOrDefault(r=>r!=null);
         void Alias(string id,string name,Reading? r,string unit,string device){if(rows.All(x=>x.Id!=id))rows.Add(new(id,name,device,unit,r?.Value,r?.Source??"Not exposed"));}
-        Alias("gpu.temperature","GPU temperature",Find(GpuName,"°C","GPU Core","GPU Temperature"),"°C",GpuName);
+        var gpuTemperature=Find(GpuName,"°C","GPU Core","GPU Temperature");
+        if(gpuTemperature is null&&useDriverMetrics&&OperatingSystem.IsWindows()&&
+            GpuName.StartsWith("AMD ",StringComparison.OrdinalIgnoreCase))
+        {
+            if(!string.Equals(adlxDevice,GpuName,StringComparison.OrdinalIgnoreCase))
+            {
+                amdGpuTemperature?.Dispose();
+                amdGpuTemperature=AmdGpuTemperature.Open(GpuName);
+                adlxDevice=GpuName;
+            }
+            if(amdGpuTemperature?.Read(GpuName) is double edge)
+                gpuTemperature=new("gpu.temperature","GPU edge temperature",GpuName,"°C",edge,"AMD ADLX");
+        }
+        Alias("gpu.temperature",gpuTemperature?.Name=="GPU edge temperature"?gpuTemperature.Name:"GPU temperature",gpuTemperature,"°C",GpuName);
         Alias("cpu.temperature","CPU temperature",Find(CpuName,"°C","Tctl","Package","Core Max","CPU"),"°C",CpuName);
         Alias("gpu.load","GPU utilization",Find(GpuName,"%","GPU Core","GPU D3D 3D","GPU Compute"),"%",GpuName);
         var dedicated=Find(GpuName,"MiB","D3D Dedicated Memory Used","GPU Memory Used");
@@ -172,7 +189,7 @@ public sealed class Hardware : IDisposable
         AgentApps=AgentResources.Group(rows);UnreadableProcesses=unreadable;
         Processes=rows.OrderByDescending(p=>p.Cpu).ThenByDescending(p=>p.MemoryMiB).Take(25).Select(p=>new ProcessInfo(p.Id,p.Name,p.Cpu,p.MemoryMiB)).ToList();lastProcesses=now;ProcessSampleTime=now;
     }
-    public void Dispose(){computer?.Dispose();foreach(var c in gpuCounters)c.Dispose();}
+    public void Dispose(){amdGpuTemperature?.Dispose();computer?.Dispose();foreach(var c in gpuCounters)c.Dispose();}
     [DllImport("kernel32.dll")] static extern bool GetSystemTimes(out ulong idle,out ulong kernel,out ulong user);
     [DllImport("kernel32.dll",SetLastError=true)] static extern bool GlobalMemoryStatusEx(ref MemoryStatus status);
     [StructLayout(LayoutKind.Sequential)] struct MemoryStatus{public uint Length,Load;public ulong TotalPhysical,AvailablePhysical,TotalPageFile,AvailablePageFile,TotalVirtual,AvailableVirtual,AvailableExtendedVirtual;}

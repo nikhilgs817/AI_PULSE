@@ -13,11 +13,13 @@ public sealed partial class MainWindow
 {
     sealed record OverviewTile(string Id,string Label,int Span,Func<Control> Build,bool Optional=false);
     bool editingOverview;
+    bool editingHistory;
     bool overviewDragPending;
     bool overviewShelfOpen;
     static readonly object LayoutHandle=new();
     sealed record LayoutSnapshot(List<string> Order,List<string> Hidden,Dictionary<string,OverviewTileSize> Sizes);
     readonly Stack<LayoutSnapshot> overviewUndo=new();
+    readonly Stack<LayoutSnapshot> historyUndo=new();
 
     internal static List<string> TileOrder(IEnumerable<string> saved,IEnumerable<string> available)
     {
@@ -26,20 +28,32 @@ public sealed partial class MainWindow
         return saved.Where(allowed.Contains).Concat(defaults).Distinct(StringComparer.Ordinal).ToList();
     }
 
-    Control OverviewLayout(IReadOnlyList<OverviewTile> tiles)
+    Control WidgetLayout(IReadOnlyList<OverviewTile> tiles,bool history=false,Control? summary=null)
     {
         var prefs=localService.Settings;
-        var order=TileOrder(prefs.OverviewTileOrder??[],tiles.Select(t=>t.Id));
-        var hidden=(prefs.HiddenOverviewTiles??[]).ToHashSet(StringComparer.Ordinal);
-        var saved=(prefs.OverviewTileOrder??[]).ToHashSet(StringComparer.Ordinal);
+        var savedOrder=(history?prefs.HistoryGraphOrder:prefs.OverviewTileOrder)??[];
+        var savedHidden=(history?prefs.HiddenHistoryGraphs:prefs.HiddenOverviewTiles)??[];
+        var savedSizes=(history?prefs.HistoryGraphSizes:prefs.OverviewTileSizes)??[];
+        var undoStack=history?historyUndo:overviewUndo;
+        bool editing=history?editingHistory:editingOverview;
+        var order=TileOrder(savedOrder,tiles.Select(t=>t.Id));
+        var hidden=savedHidden.ToHashSet(StringComparer.Ordinal);
+        var saved=savedOrder.ToHashSet(StringComparer.Ordinal);
         hidden.UnionWith(tiles.Where(t=>t.Optional&&!saved.Contains(t.Id)).Select(t=>t.Id));
         var visible=order.Where(id=>!hidden.Contains(id)).ToArray();
         var byId=tiles.ToDictionary(t=>t.Id);
         var root=new StackPanel{Spacing=4};
         var heading=new Grid{ColumnDefinitions=new ColumnDefinitions("*,Auto"),ColumnSpacing=8};
-        heading.Children.Add(Text("Overview",22,"#f0f4ff",true));
+        heading.Children.Add(history
+            ? Heading("History",$"7-day detailed readings · {service.Settings.RetentionDays}-day minute summaries and usage records")
+            : Text("Overview",22,"#f0f4ff",true));
         var tools=new StackPanel{Orientation=Orientation.Horizontal,Spacing=6};
         Grid.SetColumn(tools,1);heading.Children.Add(tools);
+        if(!editing)
+        {
+            if(history)tools.Children.Add(ChartRangePicker("History chart range",historySeconds,seconds=>historySeconds=seconds));
+            else tools.Children.Add(ChartRangePicker("Overview chart range",overviewSeconds,seconds=>overviewSeconds=seconds));
+        }
         Button Action(string label,Action action,string? name=null)
         {
             var button=Btn(label);
@@ -49,16 +63,25 @@ public sealed partial class MainWindow
         }
         void Save(bool remember=true,Dictionary<string,OverviewTileSize>? sizes=null)
         {
-            if(remember)overviewUndo.Push(new([..prefs.OverviewTileOrder??[]],[..prefs.HiddenOverviewTiles??[]],new(prefs.OverviewTileSizes??[])));
-            prefs.OverviewTileOrder=order;
-            prefs.HiddenOverviewTiles=hidden.ToList();
-            if(sizes!=null)prefs.OverviewTileSizes=sizes;
+            if(remember)undoStack.Push(new([..savedOrder],[..savedHidden],new(savedSizes)));
+            if(history)
+            {
+                prefs.HistoryGraphOrder=order;
+                prefs.HiddenHistoryGraphs=hidden.ToList();
+                if(sizes!=null)prefs.HistoryGraphSizes=sizes;
+            }
+            else
+            {
+                prefs.OverviewTileOrder=order;
+                prefs.HiddenOverviewTiles=hidden.ToList();
+                if(sizes!=null)prefs.OverviewTileSizes=sizes;
+            }
             Paths.Save(prefs);
             RenderBody();
         }
         void Undo()
         {
-            if(!overviewUndo.TryPop(out var previous))return;
+            if(!undoStack.TryPop(out var previous))return;
             order=TileOrder(previous.Order,tiles.Select(t=>t.Id));
             hidden=previous.Hidden.ToHashSet(StringComparer.Ordinal);
             var previousIds=previous.Order.ToHashSet(StringComparer.Ordinal);
@@ -77,17 +100,32 @@ public sealed partial class MainWindow
             MoveIn(order,id,destination);
             Save();
         }
-        var edit=Action(editingOverview?"Done editing":"Edit layout",()=>{editingOverview=!editingOverview;RenderBody();});
+        var edit=Action(editing?"Done editing":"Edit layout",()=>
+        {
+            if(history)editingHistory=!editingHistory;
+            else editingOverview=!editingOverview;
+            RenderBody();
+        });
         edit.Background=Paint("#254778","#dceaff");
         edit.FontSize=11;edit.Padding=new Thickness(10,4);edit.MinHeight=26;
         var shelf=new StackPanel{Spacing=6};
-        if(editingOverview)
+        if(editing||history)
         {
             shelf.Children.Add(Text("Widget shelf",15,null,true));
-            shelf.Children.Add(Text("Add a widget. Drag its header to move it or its corner to resize.",11,"#8ba0bd"));
+            if(editing)shelf.Children.Add(Text("Drag a header to move a widget or its corner to resize it.",11,"#8ba0bd"));
+            var flyout=new Flyout{Content=new ScrollViewer{Content=shelf,MaxHeight=340,Width=history?300:220},Placement=PlacementMode.BottomEdgeAlignedRight};
+            var choices=new StackPanel{Spacing=6};
+            var empty=Text("All widgets are on the grid.",11,"#8ba0bd");
+            if(history)
+            {
+                var search=new TextBox{PlaceholderText="Find a graph"};
+                AutomationProperties.SetName(search,"Find a history graph");
+                search.TextChanged+=(_,_)=>ApplyFilter(search.Text??"");
+                shelf.Children.Add(search);
+            }
             foreach(var tile in tiles.Where(t=>hidden.Contains(t.Id)))
             {
-                var add=Action("+ "+tile.Label,()=>{hidden.Remove(tile.Id);Save();},"Add "+tile.Label);
+                var add=Action("+ "+tile.Label,()=>{flyout.Hide();hidden.Remove(tile.Id);Save();},"Add "+tile.Label);
                 var symbol=new Border{Child=Text("+",15,"#72d4e8",true),Background=Paint("#223854","#e2edff"),
                     CornerRadius=new CornerRadius(7),Width=24,Height=24,Padding=new Thickness(7,0)};
                 var label=new Grid{ColumnDefinitions=new ColumnDefinitions("30,*"),Children={symbol}};
@@ -98,19 +136,31 @@ public sealed partial class MainWindow
                 add.Padding=new Thickness(7);
                 add.HorizontalAlignment=HorizontalAlignment.Stretch;
                 add.HorizontalContentAlignment=HorizontalAlignment.Left;
-                shelf.Children.Add(add);
+                add.Tag=tile.Label;
+                choices.Children.Add(add);
             }
-            if(shelf.Children.Count==2)shelf.Children.Add(Text("All widgets are on the grid.",11,"#8ba0bd"));
-            var undo=Action("Undo",Undo);undo.IsEnabled=overviewUndo.Count>0;
-            undo.FontSize=11;undo.Padding=new Thickness(10,4);undo.MinHeight=26;
-            tools.Children.Add(undo);
-            var reset=Action("Reset layout",()=>{order=tiles.Select(t=>t.Id).ToList();hidden=tiles.Where(t=>t.Optional).Select(t=>t.Id).ToHashSet();Save(sizes:[]);});
-            reset.FontSize=11;reset.Padding=new Thickness(10,4);reset.MinHeight=26;
-            tools.Children.Add(reset);
-            var shelfButton=Btn("Widget shelf");
+            shelf.Children.Add(choices);
+            shelf.Children.Add(empty);
+            ApplyFilter("");
+            void ApplyFilter(string query)
+            {
+                foreach(var choice in choices.Children)choice.IsVisible=(choice.Tag as string)?.Contains(query.Trim(),StringComparison.OrdinalIgnoreCase)==true;
+                empty.IsVisible=choices.Children.All(choice=>!choice.IsVisible);
+                empty.Text=choices.Children.Count==0?"All widgets are on the grid.":"No matching graphs.";
+            }
+            if(editing)
+            {
+                var undo=Action("Undo",Undo);undo.IsEnabled=undoStack.Count>0;
+                undo.FontSize=11;undo.Padding=new Thickness(10,4);undo.MinHeight=26;
+                tools.Children.Add(undo);
+                var reset=Action("Reset layout",()=>{order=tiles.Select(t=>t.Id).ToList();hidden=tiles.Where(t=>t.Optional).Select(t=>t.Id).ToHashSet();Save(sizes:[]);});
+                reset.FontSize=11;reset.Padding=new Thickness(10,4);reset.MinHeight=26;
+                tools.Children.Add(reset);
+            }
+            string shelfLabel=history&&!editing?"Add graph":"Widget shelf";
+            var shelfButton=Btn(shelfLabel);
             shelfButton.FontSize=11;shelfButton.Padding=new Thickness(10,4);shelfButton.MinHeight=26;
-            AutomationProperties.SetName(shelfButton,"Widget shelf");
-            var flyout=new Flyout{Content=new ScrollViewer{Content=shelf,MaxHeight=340,Width=220},Placement=PlacementMode.BottomEdgeAlignedRight};
+            AutomationProperties.SetName(shelfButton,shelfLabel);
             flyout.Opened+=(_,_)=>overviewShelfOpen=true;
             flyout.Closed+=(_,_)=>overviewShelfOpen=false;
             shelfButton.Flyout=flyout;
@@ -118,7 +168,7 @@ public sealed partial class MainWindow
         }
         tools.Children.Add(edit);
         root.Children.Add(heading);
-        prefs.OverviewTileSizes??=[];
+        if(summary is not null)root.Children.Add(summary);
         double workspace=(Bounds.Width>0?Bounds.Width:Width)-(prefs.SidebarCollapsed?60:174)-52;
         int columns=workspace>=840?4:workspace>=620?3:2;
         var grid=new Grid{ColumnDefinitions=new ColumnDefinitions(string.Join(",",Enumerable.Repeat("*",columns)))};
@@ -145,12 +195,12 @@ public sealed partial class MainWindow
         for(int i=0;i<visible.Length;i++)
         {
             var tile=byId[visible[i]];
-            var size=prefs.OverviewTileSizes.GetValueOrDefault(tile.Id,new(tile.Span,0))??new(tile.Span,0);
+            var size=savedSizes.GetValueOrDefault(tile.Id,new(tile.Span,0))??new(tile.Span,0);
             int span=Math.Clamp(size.Width,tile.Span==1?1:Math.Min(2,columns),columns);
             int height=Math.Clamp(size.Height,0,8);
             var panel=new DockPanel();
             var content=tile.Build();
-            if(editingOverview)
+            if(editing)
             {
                 var bar=new DockPanel{Margin=new Thickness(0,0,0,6)};
                 var buttons=new StackPanel{Orientation=Orientation.Horizontal,Spacing=1};
@@ -191,7 +241,7 @@ public sealed partial class MainWindow
             panel.Children.Add(content);
             var cell=new Border{Margin=new Thickness(4),BorderThickness=new Thickness(2),BorderBrush=Brushes.Transparent,CornerRadius=new CornerRadius(12),
                 MinHeight=height*48};
-            if(editingOverview)
+            if(editing)
             {
                 cell.Background=Panel;cell.BorderBrush=Line;cell.BorderThickness=new Thickness(1);
                 panel.Margin=new Thickness(11,8,11,14);
@@ -203,7 +253,7 @@ public sealed partial class MainWindow
                 cell.Child=overlay;
                 WireResize(grip,cell,grid,columns,span,tile.Span==1?1:2,(width,rows)=>
                 {
-                    Save(sizes:new(prefs.OverviewTileSizes){[tile.Id]=new(width,rows)});
+                    Save(sizes:new(savedSizes){[tile.Id]=new(width,rows)});
                 });
             }
             else cell.Child=panel;
@@ -212,7 +262,7 @@ public sealed partial class MainWindow
             grid.Children.Add(cell);
         }
         PositionTiles(visible);
-        if(editingOverview)
+        if(editing)
         {
             for(int r=0;r<grid.RowDefinitions.Count;r++)
                 for(int c=0;c<columns;c++)
@@ -222,7 +272,7 @@ public sealed partial class MainWindow
                     Grid.SetRow(slot,r);Grid.SetColumn(slot,c);grid.Children.Add(slot);
                 }
         }
-        if(visible.Length==0)grid.Children.Add(Message("No tiles displayed",editingOverview?"Add a tile from the widget shelf.":"Open Edit layout to add tiles."));
+        if(visible.Length==0)grid.Children.Add(Message(history?"No graphs displayed":"No tiles displayed",editing?"Add from the widget shelf.":"Open Edit layout to add widgets."));
         root.Children.Add(grid);
         return root;
     }

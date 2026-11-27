@@ -38,6 +38,10 @@ public sealed class AppSettings
     public List<string> HiddenOverviewTiles { get; set; } = [];
     public Dictionary<string,OverviewTileSize> OverviewTileSizes { get; set; } = [];
     public List<CustomMetricWidget> CustomMetricWidgets { get; set; } = [];
+    public List<string> HistoryGraphOrder { get; set; } = [];
+    public List<string> HiddenHistoryGraphs { get; set; } = [];
+    public Dictionary<string,OverviewTileSize> HistoryGraphSizes { get; set; } = [];
+    public Dictionary<string,int> GraphRangeOverrides { get; set; } = [];
     public double? ChatLauncherRight { get; set; }
     public double? ChatLauncherBottom { get; set; }
     public bool SidebarCollapsed { get; set; }

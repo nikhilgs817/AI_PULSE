@@ -48,7 +48,7 @@ Loaded models are different from agent sessions. Agent usage remains available o
 
 The Overview is the command centre for the local host: CPU/GPU utilization and exposed temperatures, RAM used/total/available, GPU memory capacity, loaded models and recent active sessions. It shows the collector timestamp and active alerts, independent on-prem/tool token totals since local midnight, app CPU/working sets, model activity, storage pressure and backup/coverage status. Section buttons open the detailed tabs.
 
-Use the shared **15 min / 1 hour / 6 hours / 24 hours** trend selector. CPU/GPU, RAM, temperatures and Wi-Fi traffic share the selected window. Charts display **YYYY-MM-DD and HH:mm** tick labels, units, timezone and legends. Hover shows the nearby observation timestamp with UTC offset and sample mean. Missing periods remain gaps; a single observation is a dot. History uses the same corrected date/time axes.
+Use **Chart range** to select the window for the page. Each chart can follow that window with **Page** or save its own **15 min**, **1 hour**, **6 hours**, **24 hours**, or **7 days** range. Longer ranges are available from the page selector. Charts show dates, times, units, and a time zone. Hover for the sample mean and observation time. Gaps indicate missing observations.
 
 ![Live Windows Wi-Fi traffic and temperature graphs](images/wifi-speed-windows-v022.jpg)
 
@@ -136,6 +136,8 @@ All aggregates cover the entire selected period, including more than 20,000 reco
 ## History and alerts
 
 Choose from the ranges available within your configured retention period. **Settings → History retention** supports 7–365 days, with **90 days as the default**. Selecting 365 enables the one-year history view. Raw samples stay for seven days; minute aggregates, request records and sessions follow your selected period. Historical charts show means; stored min/max values preserve peaks. The first run cannot reconstruct hardware data from before installation.
+
+History opens to the last 24 hours and includes GPU utilization. Use **Add graph** to find recorded metrics, or **Edit layout** to move, resize, remove, or restore graphs. AI Pulse saves the History layout separately from Overview.
 
 **Export usage CSV** writes the full configured retention period of usage metadata into the exports folder, without the recent-request table's 20,000-row query cap. Text fields that spreadsheet programs could interpret as formulas are escaped. Headline totals query the full selected period.
 

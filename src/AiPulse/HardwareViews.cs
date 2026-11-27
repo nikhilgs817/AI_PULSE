@@ -24,6 +24,17 @@ public sealed partial class MainWindow
         if(!v.HasValue)return "—";var unit=service.Readings.FirstOrDefault(r=>r.Id==id)?.Unit??"";
         return unit=="°C"||id.Contains("temperature")?$"{v:0}°C":unit=="%"||id.Contains("load")?$"{v:0}%":$"{v:0.0} {unit}".TrimEnd();
     }
+    string? UsageLevel(string metric, string? capacity = null)
+    {
+        if (!service.Fresh) return null;
+        var value = service.Value(metric);
+        if (metric == "gpu.load") value ??= service.Value("gpu.engine");
+        if (capacity is null) return Level(value);
+        return service.Value(capacity) is > 0 and double total ? Level(100 * value / total, 80, 95) : null;
+    }
+
+    Reading? GpuVrSocSensor => service.Readings.FirstOrDefault(r =>
+        r.Unit == "°C" && r.Name.Equals("GPU VR SoC", StringComparison.OrdinalIgnoreCase));
     string SensorDescription()
     {
         if(service.IsRemote)return service.Health+". Deep sensor permissions must be configured on the selected host.";
@@ -46,16 +57,16 @@ public sealed partial class MainWindow
     {
         var stack=new StackPanel{Spacing=16};stack.Children.Add(Heading("Hardware","Live capacity and consumption · temperatures, fans, power and clocks are in Sensors"));
         var cards=new WrapPanel{Orientation=Orientation.Horizontal,ItemSpacing=12,LineSpacing=12};
-        void Capacity(string title,string value,string detail,string? device=null)
+        void Capacity(string title,string metric,string detail,string? device=null,string? total=null)
         {
             if(!Matches(title,detail,device??""))return;
-            var card=Metric(title,value,detail);card.Width=280;card.MinHeight=140;cards.Children.Add(card);
+            var card=Metric(title,Format(metric),detail,UsageLevel(metric,total));card.Width=280;card.MinHeight=140;cards.Children.Add(card);
         }
-        Capacity("CPU UTILIZATION",Format("cpu.load"),$"{service.LogicalProcessors} logical processors · % of total host CPU",service.CpuName);
-        Capacity("GPU UTILIZATION",Format("gpu.load"),service.GpuName??"Graphics / compute adapter");
-        Capacity("SYSTEM MEMORY",Format("ram.used"),"Used of "+Format("ram.total")+" total · "+Format("ram.available")+" available");
-        Capacity("GPU LOCAL MEMORY",Format("gpu.local"),"Allocated of "+Format("gpu.local.total")+" reported capacity",service.GpuName);
-        Capacity("GPU SHARED MEMORY",Format("gpu.shared"),"Allocated of "+Format("gpu.shared.total")+" reported limit · overlaps system RAM",service.GpuName);
+        Capacity("CPU UTILIZATION","cpu.load",$"{service.LogicalProcessors} logical processors · % of total host CPU",service.CpuName);
+        Capacity("GPU UTILIZATION","gpu.load",service.GpuName??"Graphics / compute adapter");
+        Capacity("SYSTEM MEMORY","ram.used","Used of "+Format("ram.total")+" total · "+Format("ram.available")+" available",total:"ram.total");
+        Capacity("GPU LOCAL MEMORY","gpu.local","Allocated of "+Format("gpu.local.total")+" reported capacity",service.GpuName,"gpu.local.total");
+        Capacity("GPU SHARED MEMORY","gpu.shared","Allocated of "+Format("gpu.shared.total")+" reported limit · overlaps system RAM",service.GpuName,"gpu.shared.total");
         stack.Children.Add(cards);
         var disks=service.Readings.Where(r=>r.Id.StartsWith("disk.")&&r.Id.EndsWith(".size")&&Matches("Storage volume disk",r.Device)).ToList();
         if(disks.Count>0)

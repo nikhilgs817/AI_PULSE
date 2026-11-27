@@ -153,11 +153,41 @@ public sealed partial class Storage : IDisposable
         }
     }
     public static long HistoryBucket(long since,long end)=>end-since>7*86400?3600:end-since>86400?300:60;
-    public List<MetricPoint> History(string id,long since,long? until=null)
+    internal List<(string Id,string Name,string Device,string Unit,bool HasSamples)> HistoryMetrics()
     {
-        lock(gate){long end=until??J.Now,bucket=HistoryBucket(since,end);
-        using var c=Command("SELECT time/@p2*@p2,sum(total)/sum(count),min(minimum),max(maximum) FROM minute_metrics WHERE id=@p0 AND time>=@p1 AND time<=@p3 GROUP BY time/@p2 ORDER BY time",id,since,bucket,end);
-        using var r=c.ExecuteReader();var rows=new List<MetricPoint>();while(r.Read())rows.Add(new(r.GetInt64(0),r.GetDouble(1),r.GetDouble(2),r.GetDouble(3)));return rows;}
+        lock(gate)
+        {
+            using var command=Command("""
+                SELECT id,name,device,unit,EXISTS(
+                    SELECT 1 FROM minute_metrics AS m WHERE m.id=s.id AND m.time>=@p0
+                ) FROM sensors AS s ORDER BY name,device,id
+                """,J.Now-RetentionDays*86400L);
+            using var reader=command.ExecuteReader();
+            var metrics=new List<(string,string,string,string,bool)>();
+            while(reader.Read())
+                metrics.Add((reader.GetString(0),reader.GetString(1),reader.GetString(2),reader.GetString(3),reader.GetBoolean(4)));
+            return metrics;
+        }
+    }
+    public List<MetricPoint> History(string id,long since,long? until=null,string? fallbackId=null)
+    {
+        lock(gate)
+        {
+            long end=until??J.Now,bucket=HistoryBucket(since,end);
+            const string primary="SELECT time,total,count,minimum,maximum FROM minute_metrics WHERE id=@p0 AND time BETWEEN @p1 AND @p3";
+            const string fallback="""
+                 UNION ALL SELECT time,total,count,minimum,maximum FROM minute_metrics AS alternate
+                 WHERE id=@p4 AND time BETWEEN @p1 AND @p3 AND NOT EXISTS (
+                     SELECT 1 FROM minute_metrics WHERE id=@p0 AND time=alternate.time)
+                 """;
+            var source=fallbackId is null?primary:primary+" "+fallback;
+            var sql=$"SELECT max(@p1,time/@p2*@p2),sum(total)/sum(count),min(minimum),max(maximum) FROM ({source}) GROUP BY time/@p2 ORDER BY time/@p2";
+            using var command=fallbackId is null?Command(sql,id,since,bucket,end):Command(sql,id,since,bucket,end,fallbackId);
+            using var reader=command.ExecuteReader();
+            var rows=new List<MetricPoint>();
+            while(reader.Read())rows.Add(new(reader.GetInt64(0),reader.GetDouble(1),reader.GetDouble(2),reader.GetDouble(3)));
+            return rows;
+        }
     }
     public (long Offset,string State) Checkpoint(string path)
     {

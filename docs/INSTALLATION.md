@@ -23,7 +23,7 @@ CPU/board/drive sensors may need privileged hardware access. AI Pulse uses the s
 
 This starts a small, separate hardware-only helper. The main dashboard and model gateway remain unprivileged. The helper sends readings through a same-user named pipe, accepts no control commands, and exits when the dashboard process exits. Permission is session-scoped; it is not a permanently elevated startup service. After restarting AI Pulse, connect deep sensors again if needed. The optional **Ask for deep-sensor permission when AIPULSE starts** setting requests this on each launch; it is off by default and still requires your approval.
 
-Some sensors still may not exist in the driver's interface. On the tested Radeon 8060S, the GPU core temperature is not exposed by this collector; **GPU VR SoC** is an available, separately labeled reading. Do not interpret the latter as hotspot/core temperature. CPU Tctl/Tdie and drive temperatures became available with the helper.
+On Windows, AI Pulse can use the AMD display driver's ADLX interface for **GPU edge temperature** when LibreHardwareMonitor has no GPU core reading. This works in a regular session on the tested Radeon 8060S. **GPU VR SoC** is the voltage regulator temperature and remains a separate reading. CPU Tctl/Tdie and drive temperatures on the test system require the deep-sensor helper.
 
 ### Upgrade or uninstall
 

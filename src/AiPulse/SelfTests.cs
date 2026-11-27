@@ -53,6 +53,11 @@ public static partial class SelfTests
         {
             var now=J.Now;db.Sample(now,[new("cpu","CPU","test","%",20,"test")]);db.Sample(now,[new("cpu","CPU","test","%",99,"test")]);db.Sample(now+1,[new("cpu","CPU","test","%",40,"test")]);
             var history=db.History("cpu",now/60*60,now+1);check(history.Sum(p=>p.Average)>0&&history.Max(p=>p.Maximum)==40,"Duplicate hardware samples ignored; maxima preserved");
+            long gpuMinute=now/60*60-120;
+            db.Sample(gpuMinute,[new("gpu.load","GPU load","Test GPU","%",70,"test"),new("gpu.engine","GPU engine","Test GPU","%",90,"test")]);
+            db.Sample(gpuMinute+60,[new("gpu.engine","GPU engine","Test GPU","%",80,"test")]);
+            var gpuHistory=db.History("gpu.load",gpuMinute-60,gpuMinute+120,"gpu.engine");
+            check(gpuHistory.Select(p=>p.Average).SequenceEqual(new[]{70.0,80.0}),"GPU history prefers device load and uses engine load only for missing minutes");
             var usage=new Usage("test","Ollama","test-model","s",now,100,20,50,0,5,2000,10,"Completed");db.PutUsage(usage);db.PutUsage(usage);check(db.Totals(now-1).Input==100&&db.Totals(now-1).Output==20,"Usage replay deduplicated; cache/reasoning are subsets");
             var state=new AgentUsage.ParseState{Session="codex-test",Model="test"};string fixture="""{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":100,"cached_input_tokens":60,"output_tokens":10,"reasoning_output_tokens":3}}}}""";
             using(var j=JsonDocument.Parse(fixture)){AgentUsage.Parse(j.RootElement,true,state,"test",db);AgentUsage.Parse(j.RootElement,true,state,"test",db);}check(db.Totals(now-1).Input==200,"Codex repeated cumulative counts are not double-counted");

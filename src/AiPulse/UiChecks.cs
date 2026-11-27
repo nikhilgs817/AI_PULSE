@@ -15,6 +15,13 @@ public sealed partial class MainWindow
         var results=new List<string>();timer.Stop();
         void Check(bool condition,string name){if(!condition)throw new InvalidOperationException(name);results.Add("PASS: "+name);}
         Button ButtonNamed(string name)=>this.GetVisualDescendants().OfType<Button>().First(b=>AutomationProperties.GetName(b)==name);
+        ComboBox RangeNamed(string name)=>this.GetVisualDescendants().OfType<ComboBox>().Single(b=>AutomationProperties.GetName(b)==name);
+        async Task SelectRange(string name,int seconds)
+        {
+            var picker=RangeNamed(name);
+            picker.SelectedItem=picker.Items.OfType<ChartRange>().Single(r=>r.Seconds==seconds);
+            await Task.Delay(200);
+        }
         async Task Click(string name){ButtonNamed(name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));await Task.Delay(200);for(int i=0;i<20&&localService.Settings.Compact&&Math.Abs(Height-CompactHeight())>0.1;i++)await Task.Delay(50);}
         async Task Shot(string name){await Task.Delay(250);using var bitmap=new RenderTargetBitmap(new PixelSize((int)Bounds.Width,(int)Bounds.Height),new Vector(96,96));bitmap.Render(this);bitmap.Save(Path.Combine(Paths.Root,name+".png"));}
         bool CompactQuotasFit()
@@ -86,14 +93,14 @@ public sealed partial class MainWindow
             await Click("Ask Pulse");
             Check(chatWindow?.IsVisible==true&&chatScroll?.Content is StackPanel,"Ask Pulse opens an independent chat window");
             chatWindow!.Close();
-            async Task AddTile(string name)
+            async Task AddTile(string name,string shelfName="Widget shelf")
             {
-                var button=ButtonNamed("Widget shelf");
+                var button=ButtonNamed(shelfName);
                 var flyout=(Flyout)button.Flyout!;
                 var shelf=(StackPanel)((ScrollViewer)flyout.Content!).Content!;
                 flyout.ShowAt(button);
                 await Task.Delay(100);
-                shelf.Children.OfType<Button>().Single(b=>AutomationProperties.GetName(b)=="Add "+name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                shelf.GetVisualDescendants().OfType<Button>().Single(b=>AutomationProperties.GetName(b)=="Add "+name).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 flyout.Hide();
                 await Task.Delay(100);
             }
@@ -115,7 +122,23 @@ public sealed partial class MainWindow
             ThemeSwitch().IsChecked=false;await Task.Delay(200);
             await Click("Show compact dashboard");await Click("Toggle compact theme");await Click("Expand dashboard");
             Check(this.GetVisualDescendants().OfType<TrendChart>().Count()>=3&&this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==900),"Overview trend panels share an explicit 15-minute dated time window");
-            await Click("Overview range: 1 hour");Check(this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==3600),"Overview time-range selection updates every trend together");
+            await SelectRange("Overview chart range",3600);
+            Check(this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==3600),"Overview time-range selection updates every trend together");
+            await SelectRange("Overview chart range",90*86400);
+            Check(this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==90*86400&&c.ExpectedIntervalSeconds==3600),"Overview charts share the 90-day range and use hourly aggregation");
+            var quick=RangeNamed("CPU / GPU utilization graph range").Items.OfType<ChartRange>().Select(r=>r.Seconds);
+            Check(quick.SequenceEqual(new[]{0,900,3600,21600,86400,7*86400}),"Each graph offers five quick ranges and can follow the page");
+            await SelectRange("CPU / GPU utilization graph range",86400);
+            var overviewCharts=this.GetVisualDescendants().OfType<TrendChart>().ToArray();
+            Check(overviewCharts.Single(c=>c.Series.Any(s=>s.Name=="GPU")).WindowEnd-
+                overviewCharts.Single(c=>c.Series.Any(s=>s.Name=="GPU")).WindowStart==86400&&
+                overviewCharts.Count(c=>c.WindowEnd-c.WindowStart==90*86400)==overviewCharts.Length-1&&
+                Paths.Load().GraphRangeOverrides["overview:utilization"]==86400,
+                "A chart override saves its range without changing the other Overview charts");
+            await SelectRange("CPU / GPU utilization graph range",0);
+            Check(this.GetVisualDescendants().OfType<TrendChart>().All(c=>c.WindowEnd-c.WindowStart==90*86400)&&
+                !Paths.Load().GraphRangeOverrides.ContainsKey("overview:utilization"),"Page range clears a chart override and follows the page again");
+            await SelectRange("Overview chart range",3600);
             await Click("Overview: open Agents");Check(page=="Agents","Overview resource drill-down opens the Agents page");await Click("Overview");
             Width=1280;Height=820;await Task.Delay(250);Refresh();await Task.Delay(150);
             await Shot("overview-expanded");
@@ -192,7 +215,38 @@ public sealed partial class MainWindow
             localService.Settings.ReadAgentUsage = false;
             await Click("Expand dashboard");
             await Click("History");Check(!this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"Default 90-day history does not offer unavailable year ranges");
-            service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);Check(this.GetVisualDescendants().OfType<Button>().Any(b=>Equals(b.Content,"365 days")),"One-year retention enables the 365-day history range");
+            var gpuAt=J.Now/60*60-3600;
+            service.Store.Sample(gpuAt,[new("gpu.load","GPU utilization","Fixture GPU","%",86,"UI fixture")]);
+            RenderBody();
+            var gpuHistory=this.GetVisualDescendants().OfType<TrendChart>().First();
+            Check(gpuHistory.WindowEnd-gpuHistory.WindowStart==86400&&gpuHistory.Series.Single().Points.Any(p=>p.Time==gpuAt&&p.Average==86),"History opens with the last 24 hours of stored GPU utilization");
+            await SelectRange("GPU utilization graph range",900);
+            var shortGpuHistory=this.GetVisualDescendants().OfType<TrendChart>().First();
+            Check(shortGpuHistory.WindowEnd-shortGpuHistory.WindowStart==900&&
+                shortGpuHistory.Series.Single().Points.All(p=>p.Time!=gpuAt)&&
+                this.GetVisualDescendants().OfType<TrendChart>().Skip(1).All(c=>c.WindowEnd-c.WindowStart==86400),
+                "A History graph reads only its selected time frame while neighboring graphs follow the page");
+            await SelectRange("GPU utilization graph range",0);
+            service.Store.Sample(gpuAt,[new("history.fixture.power","Test board power","Fixture GPU","W",42,"UI fixture")]);
+            RenderBody();
+            const string powerGraph="Test board power · Fixture GPU";
+            var overviewOrder=localService.Settings.OverviewTileOrder.ToArray();
+            await AddTile(powerGraph,"Add graph");
+            Check(this.GetVisualDescendants().OfType<TrendChart>().Any(c=>c.Unit=="W"&&c.Series.Single().Points.Any(p=>p.Average==42)),
+                "History shelf adds a graph from a retained sensor that is not live");
+            await Click("Edit layout");
+            await Click("Move GPU temperature earlier");
+            var historyLayout=Paths.Load();
+            Check(historyLayout.HistoryGraphOrder.IndexOf("gpu.temperature")<historyLayout.HistoryGraphOrder.IndexOf("gpu.load")&&
+                historyLayout.HistoryGraphOrder.Contains("history.fixture.power")&&overviewOrder.SequenceEqual(historyLayout.OverviewTileOrder),
+                "History graph selection and order persist independently of Overview");
+            await Click("Remove "+powerGraph);
+            Check(Paths.Load().HiddenHistoryGraphs.Contains("history.fixture.power"),"Removing a history graph saves its hidden state");
+            await Click("Undo");
+            Check(!Paths.Load().HiddenHistoryGraphs.Contains("history.fixture.power"),"Undo restores the removed graph");
+            await Click("Done editing");
+            service.Settings.RetentionDays=365;service.Store.RetentionDays=365;RenderBody();await Task.Delay(150);
+            Check(RangeNamed("History chart range").Items.OfType<ChartRange>().Any(r=>r.Seconds==365*86400),"One-year retention enables the 365-day history range");
             await Shot("history-year");
             await Click("Disk");Check(page=="Disk"&&this.GetVisualDescendants().OfType<TextBlock>().Any(t=>t.Text=="Disk space"),"Disk page opens from the navigation");
             await Task.Delay(300);Check(scroller!=null&&Math.Abs(scroller.Opacity-1)<0.001&&(scroller.RenderTransform is not Avalonia.Media.TranslateTransform t||Math.Abs(t.Y)<0.01),"Page entry animation settles fully in place");

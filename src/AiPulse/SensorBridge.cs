@@ -74,7 +74,7 @@ public sealed class SensorBridge : IDisposable
             using var parent=Process.GetProcessById(pid);
             using var client=new NamedPipeClientStream(".",pipe,PipeDirection.Out,PipeOptions.None,TokenImpersonationLevel.Anonymous);
             client.Connect(15000);if(!GetNamedPipeServerProcessId(client.SafePipeHandle,out uint serverId)||serverId!=pid)return 2;
-            using var writer=new StreamWriter(client){AutoFlush=true};using var hardware=new Hardware();
+            using var writer=new StreamWriter(client){AutoFlush=true};using var hardware=new Hardware(useDriverMetrics:false);
             while(!parent.HasExited&&client.IsConnected){var rows=hardware.Sample().Where(r=>r.Id.StartsWith("sensor")||r.Id is "cpu.temperature" or "gpu.temperature" or "gpu.power").ToList();writer.WriteLine(JsonSerializer.Serialize(rows));Thread.Sleep(2000);}return 0;
         }catch{return 1;}
     }
